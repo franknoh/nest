@@ -49,13 +49,12 @@ for (const model of registry.models) {
   if (existsSync(readme)) {
     card += readFileSync(readme, "utf8").replace(/^# .*\n+/, "").trimEnd() + "\n\n";
   }
-  card += "## Load\n\n";
-  card += "::: code-group\n\n";
-  card += code("python [PyTorch]", `from linnet import nest\n\nmodel = nest.load("${model.name}", backend="torch", numerics="fast", compile="inductor")\nlogits = model(tokens)`);
-  card += code("python [JAX]", `from linnet import nest\n\nf = nest.load("${model.name}", backend="jax")          # XLA-compiled StableHLO\nlogits = f(tokens)`);
-  card += code("python [Flax NNX]", `from linnet import nest\n\nmodel = nest.load("${model.name}", backend="nnx")\nlogits = model(tokens)`);
-  card += code("bash [Command line]", `python -m linnet.nest pull ${model.name}\nlinnet stablehlo --root ${model.root} --entry ${model.entry} ${Object.entries(model.generics).map(([k, v]) => `--bind ${k}=${v}`).join(" ")} ${Object.entries(model.check).map(([k, v]) => `--bind ${k}=${v}`).join(" ")} <model dir>/${model.source}`);
-  card += ":::\n";
+  card += "## Backends\n\nThe same source and checkpoint in each framework; `numerics` and `compile` are the loaders' options.\n\n";
+  const binds = [...Object.entries(model.generics), ...Object.entries(model.check)].map(([k, v]) => `--bind ${k}=${v}`).join(" ");
+  card += "### PyTorch\n\n" + code("python", `from linnet import nest\n\nmodel = nest.load("${model.name}", backend="torch", numerics="fast", compile="inductor")\nlogits = model(tokens)`);
+  card += "### JAX\n\n" + code("python", `from linnet import nest\n\nf = nest.load("${model.name}", backend="jax")          # StableHLO compiled by XLA\nlogits = f(tokens)`);
+  card += "### Flax NNX\n\n" + code("python", `from linnet import nest\n\nmodel = nest.load("${model.name}", backend="nnx")\nlogits = model(tokens)`);
+  card += "### Command line\n\n" + code("bash", `python -m linnet.nest pull ${model.name}\nlinnet stablehlo --root ${model.root} --entry ${model.entry} ${binds} <model dir>/${model.source}`);
   writeFileSync(join(out, "index.md"), card);
 
   // ---- architecture: preview, entries, blocks

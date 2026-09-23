@@ -23,13 +23,13 @@ jobs:
       - run: uv sync --extra nest
         working-directory: linnet/python/linnet
       - name: Check every model
-        run: uv run --directory linnet/python/linnet python -m linnet.nest --std linnet/stdlib check models/*
+        run: uv run --project linnet/python/linnet python -m linnet.nest --std linnet/stdlib check models/*
         env:
           LINNET_BIN: ${{ github.workspace }}/linnet/build/release/linnet
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
       - name: The index is up to date
         run: |
-          uv run --directory linnet/python/linnet python -m linnet.nest --std linnet/stdlib index . -o /tmp/index.json
+          uv run --project linnet/python/linnet python -m linnet.nest --std linnet/stdlib index . -o /tmp/index.json
           diff -u index.json /tmp/index.json
         env:
           LINNET_BIN: ${{ github.workspace }}/linnet/build/release/linnet
