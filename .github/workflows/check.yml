@@ -1,0 +1,35 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  models:
+    name: Cards, checkpoints, exports
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: franknoh/Linnet
+          path: linnet
+          token: ${{ secrets.LINNET_TOKEN || github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: cmake --preset release && cmake --build --preset release
+        working-directory: linnet
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra nest
+        working-directory: linnet/python/linnet
+      - name: Check every model
+        run: uv run --directory linnet/python/linnet python -m linnet.nest --std linnet/stdlib check models/*
+        env:
+          LINNET_BIN: ${{ github.workspace }}/linnet/build/release/linnet
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      - name: The index is up to date
+        run: |
+          uv run --directory linnet/python/linnet python -m linnet.nest --std linnet/stdlib index . -o /tmp/index.json
+          diff -u index.json /tmp/index.json
+        env:
+          LINNET_BIN: ${{ github.workspace }}/linnet/build/release/linnet

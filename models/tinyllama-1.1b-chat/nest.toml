@@ -1,0 +1,37 @@
+[model]
+name = "tinyllama-1.1b-chat"
+title = "TinyLlama 1.1B Chat v1.0"
+summary = "A 1.1B-parameter Llama 2 architecture trained on 3 trillion tokens, chat-tuned."
+license = "Apache-2.0"
+family = "llama"
+tags = ["text-generation", "decoder-only", "grouped-query-attention", "chat"]
+
+[links]
+huggingface = "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+github = "https://github.com/jzhang38/TinyLlama"
+arxiv = "https://arxiv.org/abs/2401.02385"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 32000
+H = 2048
+Heads = 32
+KvHeads = 4
+Inner = 5632
+Layers = 22
+Batch = 1
+MaxSeq = 2048
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+files = ["model.safetensors"]
+bindings = "bindings.json"

@@ -1,0 +1,9 @@
+# Editor and OS state
+.DS_Store
+*.swp
+/.vscode/
+/.idea/
+
+# Python
+__pycache__/
+.venv/
