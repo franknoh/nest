@@ -1,0 +1,16 @@
+{
+  "name": "nest-site",
+  "private": true,
+  "type": "module",
+  "description": "Nest, the Linnet model zoo (nest.franknoh.dev)",
+  "scripts": {
+    "sync": "node scripts/sync.mjs",
+    "dev": "npm run sync && vitepress dev",
+    "build": "npm run sync && vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3",
+    "vue": "^3.5.13"
+  }
+}
