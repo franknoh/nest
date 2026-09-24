@@ -35,7 +35,11 @@ function frontmatter(model, tab, title) {
 }
 
 function code(lang, text) {
-  return `\`\`\`${lang}\n${text.endsWith("\n") ? text : text + "\n"}\`\`\`\n\n`;
+  // A fence longer than any backtick run inside, so Markdown files with
+  // their own code blocks render whole.
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const fence = "`".repeat(longest + 1);
+  return `${fence}${lang}\n${text.endsWith("\n") ? text : text + "\n"}${fence}\n\n`;
 }
 
 for (const model of registry.models) {
