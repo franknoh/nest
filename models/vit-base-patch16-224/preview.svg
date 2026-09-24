@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="454" height="1656" viewBox="0 0 454 1656" font-family="Inter, system-ui, sans-serif">
+<style>
+.label{font-size:12px;fill:#111111}
+.sub{font-size:10.5px;fill:#666666;font-family:'JetBrains Mono',ui-monospace,monospace}
+.edge{font-size:10px;fill:#666666;font-family:'JetBrains Mono',ui-monospace,monospace}
+.group{font-size:11px;fill:#666666}
+.title{font-size:13px;font-weight:600;fill:#111111}
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#444444"/></marker></defs>
+<text class="title" x="24.0" y="19">forward</text>
+<rect x="119.7" y="387.0" width="214.8" height="854.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="127.7" y="400.0">for layer in layers</text>
+<rect x="165.6" y="1250.5" width="123.0" height="85.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="173.6" y="1263.5">norm.forward</text>
+<rect x="161.3" y="1452.5" width="131.6" height="85.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="169.3" y="1465.5">head.forward</text>
+<rect x="133.2" y="414.5" width="187.8" height="813.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="141.2" y="427.5">layers[layer].forward</text>
+<path d="M 150.7 96.0 C 150.7 128.0, 126.7 128.0, 126.7 159.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="56.8" y="120.0" width="187.8" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="150.7" y="131.5" text-anchor="middle">T[B, Channels, Height, Width]</text>
+<path d="M 126.7 190.0 C 126.7 222.0, 179.5 222.0, 179.5 253.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="-60.2" y="214.0" width="373.8" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="126.7" y="225.5" text-anchor="middle">T[B, Channels, Height / Patch, Patch, Width / Patch, Patch]</text>
+<path d="M 179.5 284.0 C 179.5 316.0, 185.1 316.0, 185.1 347.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="-7.4" y="308.0" width="373.8" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="179.5" y="319.5" text-anchor="middle">T[B, Height / Patch, Width / Patch, Channels, Patch, Patch]</text>
+<path d="M 367.8 82.0 C 367.8 121.0, 219.9 121.0, 219.9 159.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="230.5" y="106.0" width="274.6" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="367.8" y="117.5" text-anchor="middle">T[B, (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 320.3 190.0 C 320.3 222.0, 278.3 222.0, 278.3 253.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="285.3" y="214.0" width="70.0" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="320.3" y="225.5" text-anchor="middle">T[B, 1, D]</text>
+<path d="M 219.9 190.0 C 219.9 222.0, 278.3 222.0, 278.3 253.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="82.6" y="214.0" width="274.6" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="219.9" y="225.5" text-anchor="middle">T[B, (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 278.3 284.0 C 278.3 316.0, 278.3 316.0, 278.3 347.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="128.6" y="308.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="278.3" y="319.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 278.3 378.0 C 278.3 410.0, 227.1 410.0, 227.1 441.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="128.6" y="394.5" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="278.3" y="406.0" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 486.0 C 227.1 518.0, 227.1 518.0, 227.1 549.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="510.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="521.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 278.3 378.0 C 278.3 518.0, 227.1 518.0, 227.1 657.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="128.6" y="409.5" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="278.3" y="421.0" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 594.0 C 227.1 626.0, 227.1 626.0, 227.1 657.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="618.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="629.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 688.0 C 227.1 720.0, 227.1 720.0, 227.1 751.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="704.5" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="716.0" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 796.0 C 227.1 828.0, 227.1 828.0, 227.1 859.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="820.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="831.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 904.0 C 227.1 936.0, 227.1 936.0, 227.1 967.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="65.0" y="928.0" width="324.2" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="939.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), Inner]</text>
+<path d="M 227.1 1012.0 C 227.1 1044.0, 227.1 1044.0, 227.1 1075.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="65.0" y="1036.0" width="324.2" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="1047.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), Inner]</text>
+<path d="M 227.1 688.0 C 227.1 936.0, 227.1 936.0, 227.1 1183.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="719.5" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="731.0" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 1120.0 C 227.1 1152.0, 227.1 1152.0, 227.1 1183.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="1144.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="1155.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 1214.0 C 227.1 1246.0, 227.1 1246.0, 227.1 1277.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="1238.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="1249.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 1322.0 C 227.1 1354.0, 227.1 1354.0, 227.1 1385.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="77.4" y="1346.0" width="299.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="1357.5" text-anchor="middle">T[B, 1 + (Height / Patch) * (Width / Patch), D]</text>
+<path d="M 227.1 1416.0 C 227.1 1448.0, 227.1 1448.0, 227.1 1479.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="201.4" y="1440.0" width="51.4" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="1451.5" text-anchor="middle">T[B, D]</text>
+<path d="M 227.1 1524.0 C 227.1 1556.0, 227.1 1556.0, 227.1 1587.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="182.8" y="1548.0" width="88.6" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="227.1" y="1559.5" text-anchor="middle">T[B, Classes]</text>
+<rect x="24.0" y="52.0" width="253.4" height="44.0" rx="14" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="150.7" y="70.0" text-anchor="middle">image</text>
+<text class="sub" x="150.7" y="86.0" text-anchor="middle">Tensor[B, Channels, Height, Width; T]</text>
+<rect x="305.4" y="52.0" width="124.8" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="367.8" y="71.0" text-anchor="middle">index notation</text>
+<rect x="89.5" y="160.0" width="74.4" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="126.7" y="179.0" text-anchor="middle">reshape</text>
+<rect x="191.9" y="160.0" width="56.0" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="219.9" y="179.0" text-anchor="middle">+</text>
+<rect x="275.9" y="160.0" width="88.8" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="320.3" y="179.0" text-anchor="middle">broadcast</text>
+<rect x="142.3" y="254.0" width="74.4" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="179.5" y="273.0" text-anchor="middle">permute</text>
+<rect x="244.7" y="254.0" width="67.2" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="278.3" y="273.0" text-anchor="middle">concat</text>
+<rect x="147.9" y="348.0" width="74.4" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="185.1" y="367.0" text-anchor="middle">reshape</text>
+<rect x="250.3" y="348.0" width="56.0" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="278.3" y="367.0" text-anchor="middle">+</text>
+<rect x="146.7" y="442.0" width="160.8" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="460.0" text-anchor="middle">norm_before.forward</text>
+<text class="sub" x="227.1" y="476.0" text-anchor="middle">LayerNorm&lt;D, T&gt;</text>
+<rect x="146.9" y="550.0" width="160.4" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="568.0" text-anchor="middle">attention.forward</text>
+<text class="sub" x="227.1" y="584.0" text-anchor="middle">Attention&lt;D, Heads, T&gt;</text>
+<rect x="199.1" y="658.0" width="56.0" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="227.1" y="677.0" text-anchor="middle">+</text>
+<rect x="150.3" y="752.0" width="153.6" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="770.0" text-anchor="middle">norm_after.forward</text>
+<text class="sub" x="227.1" y="786.0" text-anchor="middle">LayerNorm&lt;D, T&gt;</text>
+<rect x="156.2" y="860.0" width="141.8" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="878.0" text-anchor="middle">up.forward</text>
+<text class="sub" x="227.1" y="894.0" text-anchor="middle">Linear&lt;D, Inner, T&gt;</text>
+<rect x="159.3" y="968.0" width="135.6" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="986.0" text-anchor="middle">gelu</text>
+<text class="sub" x="227.1" y="1002.0" text-anchor="middle">std.nn.activations</text>
+<rect x="156.2" y="1076.0" width="141.8" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="1094.0" text-anchor="middle">down.forward</text>
+<text class="sub" x="227.1" y="1110.0" text-anchor="middle">Linear&lt;Inner, D, T&gt;</text>
+<rect x="199.1" y="1184.0" width="56.0" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="227.1" y="1203.0" text-anchor="middle">+</text>
+<rect x="179.1" y="1278.0" width="96.0" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="1296.0" text-anchor="middle">layer_norm</text>
+<text class="sub" x="227.1" y="1312.0" text-anchor="middle">std.nn.norm</text>
+<rect x="197.1" y="1386.0" width="60.0" height="30.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="227.1" y="1405.0" text-anchor="middle">slice</text>
+<rect x="174.8" y="1480.0" width="104.6" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="227.1" y="1498.0" text-anchor="middle">linear</text>
+<text class="sub" x="227.1" y="1514.0" text-anchor="middle">std.nn.linear</text>
+<rect x="150.0" y="1588.0" width="154.2" height="44.0" rx="14" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="227.1" y="1606.0" text-anchor="middle">result</text>
+<text class="sub" x="227.1" y="1622.0" text-anchor="middle">Tensor[B, Classes; T]</text>
+</svg>

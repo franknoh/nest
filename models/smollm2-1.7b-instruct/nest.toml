@@ -1,0 +1,37 @@
+[model]
+name = "smollm2-1.7b-instruct"
+title = "SmolLM2 1.7B Instruct"
+summary = "A 1.7B-parameter Llama-architecture model trained on 11 trillion tokens, instruction-tuned, with the head tied to the embedding."
+license = "Apache-2.0"
+family = "llama"
+tags = ["text-generation", "decoder-only", "instruct"]
+
+[links]
+huggingface = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct"
+github = "https://github.com/huggingface/smollm"
+arxiv = "https://arxiv.org/abs/2502.02737"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 49152
+H = 2048
+Heads = 32
+KvHeads = 32
+Inner = 8192
+Layers = 24
+Batch = 1
+MaxSeq = 8192
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+files = ["model.safetensors"]
+bindings = "bindings.json"

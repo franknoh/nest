@@ -1,0 +1,37 @@
+[model]
+name = "vit-base-patch16-224"
+title = "ViT-Base/16 224"
+summary = "Google's Vision Transformer for ImageNet-1k classification: 16-pixel patches of a 224-pixel image, 12 layers of width 768."
+license = "Apache-2.0"
+family = "vit"
+tags = ["image-classification", "vision", "encoder-only"]
+
+[links]
+huggingface = "https://huggingface.co/google/vit-base-patch16-224"
+github = "https://github.com/google-research/vision_transformer"
+arxiv = "https://arxiv.org/abs/2010.11929"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Height = 224
+Width = 224
+Channels = 3
+Patch = 16
+D = 768
+Heads = 12
+Inner = 3072
+Layers = 12
+Classes = 1000
+T = "f32"
+
+[check]
+B = 1
+
+[weights]
+repo = "google/vit-base-patch16-224"
+files = ["model.safetensors"]
+bindings = "bindings.json"

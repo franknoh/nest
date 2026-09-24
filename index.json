@@ -78,6 +78,197 @@
       ]
     },
     {
+      "name": "smollm2-1.7b-instruct",
+      "title": "SmolLM2 1.7B Instruct",
+      "summary": "A 1.7B-parameter Llama-architecture model trained on 11 trillion tokens, instruction-tuned, with the head tied to the embedding.",
+      "license": "Apache-2.0",
+      "family": "llama",
+      "tags": [
+        "text-generation",
+        "decoder-only",
+        "instruct"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        "github": "https://github.com/huggingface/smollm",
+        "arxiv": "https://arxiv.org/abs/2502.02737"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "llama",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 49152,
+        "H": 2048,
+        "Heads": 32,
+        "KvHeads": 32,
+        "Inner": 8192,
+        "Layers": 24,
+        "Batch": 1,
+        "MaxSeq": 8192,
+        "T": "bf16"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 1712064512,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "next_token",
+          "signature": "pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "decode",
+          "signature": "pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        },
+        {
+          "name": "generate",
+          "signature": "pub entry generate<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Steps; i32]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Steps; i32]"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        },
+        {
+          "name": "sample",
+          "signature": "pub entry sample<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32, key: Tensor[2; i64], temperature: f32) -> Tensor[Batch, Steps; i32]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            },
+            {
+              "name": "key",
+              "type": "Tensor[2; i64]"
+            },
+            {
+              "name": "temperature",
+              "type": "f32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Steps; i32]"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        },
+        {
+          "name": "generate_until",
+          "signature": "pub entry generate_until<MaxNew: Dim>(token: Tensor[Batch, 1; i32], pos: i32, eos: i32) -> (Tensor[Batch, MaxNew; i32], i32)",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            },
+            {
+              "name": "eos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "(Tensor[Batch, MaxNew; i32], i32)"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        }
+      ],
+      "blocks": {
+        "DecoderLayer": "llama::DecoderLayer<H: Dim, Heads: Dim, KvHeads: Dim, Inner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub attention_norm: RmsNorm<H, T>\n  sub attention: GroupedQueryAttention<H, Heads, KvHeads, Batch, MaxSeq, T>\n  sub mlp_norm: RmsNorm<H, T>\n  sub mlp: SwiGlu<H, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "GroupedQueryAttention": "llama.attention::GroupedQueryAttention<H: Dim, Heads: Dim, KvHeads: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub q_proj: Linear<H, H, T>\n  sub k_proj: Linear<H, KvHeads * (H / Heads), T>\n  sub v_proj: Linear<H, KvHeads * (H / Heads), T>\n  sub o_proj: Linear<H, H, T>\n  state cache_k: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]\n  state cache_v: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "llama::Model<Vocab: Dim, H: Dim, Heads: Dim, KvHeads: Dim, Inner: Dim, Layers: Dim, Batch: Dim, MaxSeq: Dim, T: Float = bf16>\n  sub embedding: Embedding<Vocab, H, T>\n  sub layers: [DecoderLayer<H, Heads, KvHeads, Inner, Batch, MaxSeq, T>; Layers]\n  sub norm: RmsNorm<H, T>\n  sub lm_head: Linear<H, Vocab, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]\n  pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]\n  pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry generate<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Steps; i32]\n  pub entry sample<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32, key: Tensor[2; i64], temperature: f32) -> Tensor[Batch, Steps; i32]\n  pub entry generate_until<MaxNew: Dim>(token: Tensor[Batch, 1; i32], pos: i32, eos: i32) -> (Tensor[Batch, MaxNew; i32], i32)\n  fn step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]\n  fn hidden_states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "SwiGlu": "std.nn.mlp::SwiGlu<H: Dim, Inner: Dim, T: Float = bf16>\n  sub gate: Linear<H, Inner, T>\n  sub up: Linear<H, Inner, T>\n  sub down: Linear<Inner, H, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/attention.linnet",
+        "src/lib.linnet",
+        "src/rope.linnet"
+      ]
+    },
+    {
       "name": "tinyllama-1.1b-chat",
       "title": "TinyLlama 1.1B Chat v1.0",
       "summary": "A 1.1B-parameter Llama 2 architecture trained on 3 trillion tokens, chat-tuned.",
@@ -267,6 +458,84 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
+      ]
+    },
+    {
+      "name": "vit-base-patch16-224",
+      "title": "ViT-Base/16 224",
+      "summary": "Google's Vision Transformer for ImageNet-1k classification: 16-pixel patches of a 224-pixel image, 12 layers of width 768.",
+      "license": "Apache-2.0",
+      "family": "vit",
+      "tags": [
+        "image-classification",
+        "vision",
+        "encoder-only"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/google/vit-base-patch16-224",
+        "github": "https://github.com/google-research/vision_transformer",
+        "arxiv": "https://arxiv.org/abs/2010.11929"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "vit",
+      "entry": "forward",
+      "generics": {
+        "Height": 224,
+        "Width": 224,
+        "Channels": 3,
+        "Patch": 16,
+        "D": 768,
+        "Heads": 12,
+        "Inner": 3072,
+        "Layers": 12,
+        "Classes": 1000,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1
+      },
+      "parameters": 86567656,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, Classes; T]",
+          "inputs": [
+            {
+              "name": "image",
+              "type": "Tensor[B, Channels, Height, Width; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Classes; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "vit::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "EncoderLayer": "vit::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub norm_before: LayerNorm<D, T>\n  sub attention: Attention<D, Heads, T>\n  sub norm_after: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "LayerNorm": "vit::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "vit::Model<Height: Dim, Width: Dim, Channels: Dim, Patch: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, Classes: Dim, T: Float = f32>\n  param patch_weight: Tensor[D, Channels, Patch, Patch; T]\n  param patch_bias: Tensor[D; T]\n  param class_token: Tensor[1, 1, D; T]\n  param positions: Tensor[1, 1 + (Height / Patch) * (Width / Patch), D; T]\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  sub norm: LayerNorm<D, T>\n  sub head: Linear<D, Classes, T>\n  pub entry forward<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, Classes; T]\n  fn embed<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, (Height / Patch) * (Width / Patch), D; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "google/vit-base-patch16-224",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
       ]
     }
   ]
