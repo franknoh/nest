@@ -720,76 +720,133 @@ pre {
   }
 }
 
-/* ---- the files tab: a directory that opens on click */
+/* ---- the files tab: a repository listing that opens in place */
 
 .nest-files {
   border: 1px solid var(--vp-c-divider);
-  border-radius: 0.25rem;
+  border-radius: 0.375rem;
   overflow: hidden;
-  margin: 1rem 0 2rem;
+  margin: 1.25rem 0 2rem;
+  background: var(--vp-c-bg);
 }
-.nest-folder {
-  padding: 0.5rem 0.9rem;
-  background: var(--vp-c-bg-alt);
-  border-bottom: 1px solid var(--vp-c-divider);
-  font-family: var(--vp-font-family-mono);
-  font-size: 0.78rem;
-  color: var(--vp-c-text-3);
-}
-.nest-file {
-  border-bottom: 1px solid var(--vp-c-divider);
-}
-.nest-file:last-child {
-  border-bottom: 0;
-}
-.nest-file > summary,
-a.nest-file {
+.nest-files-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.55rem 0.9rem;
-  cursor: pointer;
-  list-style: none;
-  text-decoration: none;
-}
-.nest-file > summary::-webkit-details-marker {
-  display: none;
-}
-.nest-file > summary::before {
-  content: "›";
-  color: var(--vp-c-text-3);
-  margin-right: 0.55rem;
-  transition: transform 0.15s;
-  display: inline-block;
-}
-.nest-file[open] > summary::before {
-  transform: rotate(90deg);
-}
-.nest-file > summary:hover,
-a.nest-file:hover {
+  flex-wrap: wrap;
+  padding: 0.6rem 0.9rem;
   background: var(--vp-c-bg-alt);
+  border-bottom: 1px solid var(--vp-c-divider);
+  font-size: 0.82rem;
+  color: var(--vp-c-text-2);
 }
-.nest-file-name {
-  flex: 1;
-  font-family: var(--vp-font-family-mono);
-  font-size: 0.85rem;
+.nest-files-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--vp-c-text-1);
-  overflow-wrap: anywhere;
 }
-.nest-file-size {
-  font-size: 0.78rem;
-  color: var(--vp-c-text-3);
-  white-space: nowrap;
+.nest-files-path code {
+  background: none;
+  padding: 0;
+  font-size: 0.85rem;
 }
-a.nest-file-remote .nest-file-size {
+.nest-files-path svg {
   color: var(--nest-red);
 }
-.nest-file div[class*="language-"] {
+.nest-files-meta a {
+  color: var(--vp-c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nest-row {
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+.nest-row:last-child {
+  border-bottom: 0;
+}
+.nest-row > summary,
+.nest-row-folder,
+a.nest-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.9rem;
+  list-style: none;
+  text-decoration: none;
+  cursor: pointer;
+  color: var(--vp-c-text-1);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.nest-row > summary::-webkit-details-marker {
+  display: none;
+}
+.nest-row svg {
+  flex: none;
+  color: var(--vp-c-text-3);
+}
+.nest-row-folder {
+  cursor: default;
+  color: var(--vp-c-text-2);
+  background: color-mix(in srgb, var(--vp-c-bg-alt) 60%, transparent);
+}
+.nest-row-folder svg {
+  color: var(--nest-red);
+  opacity: 0.8;
+}
+.nest-row-nested > summary {
+  padding-left: 2rem;
+}
+.nest-row-name {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.nest-row-size {
+  flex: none;
+  font-size: 0.78rem;
+  color: var(--vp-c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.nest-row > summary:hover,
+a.nest-row:hover {
+  background: var(--vp-c-bg-alt);
+}
+.nest-row > summary:hover .nest-row-name,
+a.nest-row:hover .nest-row-name {
+  color: var(--nest-red);
+}
+.nest-row[open] > summary {
+  background: var(--vp-c-bg-alt);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+.nest-row[open] > summary svg {
+  color: var(--nest-red);
+}
+.nest-row-remote .nest-row-size {
+  color: var(--nest-red);
+}
+.nest-row-body {
+  position: relative;
+  background: var(--vp-code-block-bg);
+}
+.nest-row-body div[class*="language-"] {
   margin: 0;
   border: 0;
-  border-top: 1px solid var(--vp-c-divider);
   border-radius: 0;
-  max-height: 32rem;
+  max-height: 34rem;
   overflow: auto;
+}
+.nest-row-raw {
+  display: block;
+  padding: 0.4rem 0.9rem;
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 0.78rem;
+  color: var(--vp-c-text-3);
+  text-decoration: none;
+}
+.nest-row-raw:hover {
+  color: var(--nest-red);
 }

@@ -90,19 +90,11 @@ for (const model of registry.models) {
   }
   writeFileSync(join(out, "architecture.md"), arch);
 
-  // ---- files: the directory, as a tree that opens on click
+  // ---- files: the directory, listed like a repository and opened in place
   let files = frontmatter(model, "files", `${model.title} files`);
-  files += `Everything in \`models/${model.name}/\`. Select a file to read it; the\ncheckpoint itself lives on the Hub.\n\n`;
-  files += `<div class="nest-files">\n\n`;
-
-  const folders = new Map();
-  for (const file of model.files) {
-    if (file.endsWith(".svg")) continue;
-    const cut = file.lastIndexOf("/");
-    const folder = cut < 0 ? "" : file.slice(0, cut);
-    if (!folders.has(folder)) folders.set(folder, []);
-    folders.get(folder).push(file);
-  }
+  const entries = model.files.filter((file) => !file.endsWith(".svg"));
+  const sizes = new Map(entries.map((file) => [file, statSync(join(dir, file)).size]));
+  const weightFiles = model.weights ? model.weights.files : [];
 
   function size(bytes) {
     if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
@@ -118,23 +110,57 @@ for (const model of registry.models) {
     return "text";
   }
 
+  // One glyph per kind, so a listing is readable at a glance.
+  const ICONS = {
+    linnet: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm4.5 1.5V5H11z" opacity=".35"/><path fill="currentColor" d="M5.5 8.5v4h4v-1h-3v-3z"/></svg>',
+    json: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm4.5 1.5V5H11z" opacity=".35"/><path fill="none" stroke="currentColor" stroke-width="1.1" d="M6.6 7.6c-.8 0-.8.9-.8 1.4s0 1.4.8 1.4M9.4 7.6c.8 0 .8.9.8 1.4s0 1.4-.8 1.4"/></svg>',
+    toml: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm4.5 1.5V5H11z" opacity=".35"/><path fill="currentColor" d="M5.5 8h5v1h-2v3.5h-1V9h-2z"/></svg>',
+    md: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm4.5 1.5V5H11z" opacity=".35"/><path fill="currentColor" d="M5.3 12.5v-4h1l1.2 1.8 1.2-1.8h1v4h-1V10l-1.2 1.7L6.3 10v2.5z"/></svg>',
+    text: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm4.5 1.5V5H11z" opacity=".35"/></svg>',
+    folder: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3l1.4 1.6H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12z"/></svg>',
+    weights: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 1.8 14 5v6l-6 3.2L2 11V5z" opacity=".35"/><path fill="none" stroke="currentColor" stroke-width="1.1" d="M2.3 5 8 8l5.7-3M8 8v6"/></svg>',
+  };
+
+  const folders = new Map();
+  for (const file of entries) {
+    const cut = file.lastIndexOf("/");
+    const folder = cut < 0 ? "" : file.slice(0, cut);
+    if (!folders.has(folder)) folders.set(folder, []);
+    folders.get(folder).push(file);
+  }
+  const total = [...sizes.values()].reduce((a, b) => a + b, 0);
+  const tree = `https://github.com/franknoh/nest/tree/main/models/${model.name}`;
+
+  files += `<div class="nest-files">\n`;
+  files += `<div class="nest-files-head">`;
+  files += `<span class="nest-files-path">${ICONS.folder}<code>models/${model.name}</code></span>`;
+  files += `<span class="nest-files-meta">${entries.length + weightFiles.length} files · ${size(total)} in the registry · <a href="${tree}" target="_blank" rel="noreferrer">GitHub</a></span>`;
+  files += `</div>\n\n`;
+
   for (const folder of [...folders.keys()].sort()) {
-    if (folder) files += `<div class="nest-folder">${folder}/</div>\n\n`;
+    if (folder) {
+      files += `<div class="nest-row nest-row-folder">${ICONS.folder}<span class="nest-row-name">${folder}</span></div>\n\n`;
+    }
     for (const file of folders.get(folder).sort()) {
       const name = folder ? file.slice(folder.length + 1) : file;
-      const bytes = statSync(join(dir, file)).size;
-      files += `<details class="nest-file">\n<summary><span class="nest-file-name">${name}</span><span class="nest-file-size">${size(bytes)}</span></summary>\n\n`;
-      files += code(language(file), readFileSync(join(dir, file), "utf8"));
+      const lang = language(file);
+      const raw = `https://github.com/franknoh/nest/blob/main/models/${model.name}/${file}`;
+      files += `<details class="nest-row nest-row-file${folder ? " nest-row-nested" : ""}">\n`;
+      files += `<summary>${ICONS[lang] ?? ICONS.text}<span class="nest-row-name">${name}</span>`;
+      files += `<span class="nest-row-size">${size(sizes.get(file))}</span></summary>\n\n`;
+      files += `<div class="nest-row-body">\n\n`;
+      files += code(lang, readFileSync(join(dir, file), "utf8"));
+      files += `<a class="nest-row-raw" href="${raw}" target="_blank" rel="noreferrer">Open on GitHub</a>\n\n`;
+      files += `</div>\n\n`;
       files += `</details>\n\n`;
     }
   }
 
-  if (model.weights) {
-    for (const file of model.weights.files) {
-      const href = `https://huggingface.co/${model.weights.repo}/blob/main/${file}`;
-      files += `<a class="nest-file nest-file-remote" href="${href}" target="_blank" rel="noreferrer">`;
-      files += `<span class="nest-file-name">${file}</span><span class="nest-file-size">on the Hub</span></a>\n\n`;
-    }
+  for (const file of weightFiles) {
+    const href = `https://huggingface.co/${model.weights.repo}/blob/main/${file}`;
+    files += `<a class="nest-row nest-row-file nest-row-remote" href="${href}" target="_blank" rel="noreferrer">`;
+    files += `${ICONS.weights}<span class="nest-row-name">${file}</span>`;
+    files += `<span class="nest-row-size">Hugging Face ↗</span></a>\n\n`;
   }
   files += `</div>\n`;
   writeFileSync(join(out, "files.md"), files);
