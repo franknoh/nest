@@ -78,6 +78,80 @@
       ]
     },
     {
+      "name": "resnet-18",
+      "title": "ResNet-18",
+      "summary": "The 18-layer residual network for ImageNet-1k: a 7x7 stem, four stages of two residual blocks, and a linear classifier.",
+      "license": "Apache-2.0",
+      "family": "resnet",
+      "tags": [
+        "image-classification",
+        "vision",
+        "convolutional"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/microsoft/resnet-18",
+        "github": "https://github.com/KaimingHe/deep-residual-networks",
+        "arxiv": "https://arxiv.org/abs/1512.03385"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "resnet",
+      "entry": "forward",
+      "generics": {
+        "Height": 224,
+        "Width": 224,
+        "Classes": 1000,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1
+      },
+      "parameters": 11703912,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim>(image: Tensor[B, 3, Height, Width; T]) -> Tensor[B, Classes; T]",
+          "inputs": [
+            {
+              "name": "image",
+              "type": "Tensor[B, 3, Height, Width; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Classes; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Block": "resnet::Block<C: Dim, T: Float>\n  sub first: ConvNorm<C, C, 3, 1, 1, T>\n  sub second: ConvNorm<C, C, 3, 1, 1, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T]",
+        "Conv2d": "std.nn.conv::Conv2d<Cin: Dim, Cout: Dim, K: Dim, Stride: Dim, Pad: Dim, T: Float = f32>\n  param weight: Tensor[Cout, Cin, K, K; T]\n  param bias: Tensor[Cout; T]?\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 * K + H + 2 * Pad) / Stride, 1 + (-1 * K + W + 2 * Pad) / Stride; T]",
+        "ConvNorm": "resnet::ConvNorm<Cin: Dim, Cout: Dim, K: Dim, Stride: Dim, Pad: Dim, T: Float>\n  sub convolution: Conv2d<Cin, Cout, K, Stride, Pad, T>\n  param running_mean: Tensor[Cout; T]\n  param running_var: Tensor[Cout; T]\n  param weight: Tensor[Cout; T]\n  param bias: Tensor[Cout; T]\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 * K + 2 * Pad + H) / Stride, 1 + (-1 * K + 2 * Pad + W) / Stride; T]",
+        "DownBlock": "resnet::DownBlock<Cin: Dim, Cout: Dim, T: Float>\n  sub first: ConvNorm<Cin, Cout, 3, 2, 1, T>\n  sub second: ConvNorm<Cout, Cout, 3, 1, 1, T>\n  sub shortcut: ConvNorm<Cin, Cout, 1, 2, 0, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 + H) / 2, 1 + (-1 + W) / 2; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "resnet::Model<Height: Dim, Width: Dim, Classes: Dim, T: Float = f32>\n  sub stem: ConvNorm<3, 64, 7, 2, 3, T>\n  sub stage_0_first: Block<64, T>\n  sub stage_0_second: Block<64, T>\n  sub stage_1: Stage<64, 128, T>\n  sub stage_2: Stage<128, 256, T>\n  sub stage_3: Stage<256, 512, T>\n  sub classifier: Linear<512, Classes, T>\n  pub entry forward<B: Dim>(image: Tensor[B, 3, Height, Width; T]) -> Tensor[B, Classes; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "Stage": "resnet::Stage<Cin: Dim, Cout: Dim, T: Float>\n  sub down: DownBlock<Cin, Cout, T>\n  sub rest: Block<Cout, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 + H) / 2, 1 + (-1 + W) / 2; T]"
+      },
+      "weights": {
+        "repo": "microsoft/resnet-18",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
       "name": "smollm2-1.7b-instruct",
       "title": "SmolLM2 1.7B Instruct",
       "summary": "A 1.7B-parameter Llama-architecture model trained on 11 trillion tokens, instruction-tuned, with the head tied to the embedding.",
