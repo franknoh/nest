@@ -471,9 +471,13 @@ pre {
   gap: 3rem;
   padding-top: 1.75rem;
 }
+.nest-model-body > * {
+  min-width: 0; /* code blocks scroll inside their column instead of widening the page */
+}
 @media (max-width: 900px) {
   .nest-model-body {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
   }
 }
 .nest-model-side h3 {
@@ -595,12 +599,20 @@ pre {
   display: none;
 }
 .vp-doc table {
-  display: table;
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   border: 1px solid var(--vp-c-divider);
   margin: 1rem 0;
   font-size: 0.9rem;
+}
+@media (min-width: 768px) {
+  .vp-doc table {
+    display: table;
+    width: 100%;
+  }
 }
 .vp-doc th,
 .vp-doc td {
@@ -680,4 +692,30 @@ pre {
 .nest-footer a {
   color: var(--vp-c-text-2);
   text-decoration: none;
+}
+
+/* ---- phones */
+
+@media (max-width: 640px) {
+  .nest-nav-inner,
+  .nest-main,
+  .nest-footer-inner {
+    padding: 0 1rem;
+  }
+  .nest-brand-sub {
+    display: none;
+  }
+  .nest-links {
+    gap: 0.9rem;
+    font-size: 0.85rem;
+  }
+  .nest-hero {
+    padding-top: 2.25rem;
+  }
+  .nest-model-links {
+    padding-top: 0.5rem;
+  }
+  .nest-page {
+    overflow-wrap: anywhere;
+  }
 }
