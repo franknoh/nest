@@ -719,3 +719,77 @@ pre {
     overflow-wrap: anywhere;
   }
 }
+
+/* ---- the files tab: a directory that opens on click */
+
+.nest-files {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 0.25rem;
+  overflow: hidden;
+  margin: 1rem 0 2rem;
+}
+.nest-folder {
+  padding: 0.5rem 0.9rem;
+  background: var(--vp-c-bg-alt);
+  border-bottom: 1px solid var(--vp-c-divider);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.78rem;
+  color: var(--vp-c-text-3);
+}
+.nest-file {
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+.nest-file:last-child {
+  border-bottom: 0;
+}
+.nest-file > summary,
+a.nest-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  list-style: none;
+  text-decoration: none;
+}
+.nest-file > summary::-webkit-details-marker {
+  display: none;
+}
+.nest-file > summary::before {
+  content: "›";
+  color: var(--vp-c-text-3);
+  margin-right: 0.55rem;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.nest-file[open] > summary::before {
+  transform: rotate(90deg);
+}
+.nest-file > summary:hover,
+a.nest-file:hover {
+  background: var(--vp-c-bg-alt);
+}
+.nest-file-name {
+  flex: 1;
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.85rem;
+  color: var(--vp-c-text-1);
+  overflow-wrap: anywhere;
+}
+.nest-file-size {
+  font-size: 0.78rem;
+  color: var(--vp-c-text-3);
+  white-space: nowrap;
+}
+a.nest-file-remote .nest-file-size {
+  color: var(--nest-red);
+}
+.nest-file div[class*="language-"] {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--vp-c-divider);
+  border-radius: 0;
+  max-height: 32rem;
+  overflow: auto;
+}

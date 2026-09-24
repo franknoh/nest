@@ -3,7 +3,7 @@
 // files page under `models/<name>/`, with its previews copied to `public/`.
 // Generated directories are ignored by git; run before `vitepress dev` or
 // `vitepress build`.
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -90,14 +90,53 @@ for (const model of registry.models) {
   }
   writeFileSync(join(out, "architecture.md"), arch);
 
-  // ---- files: the registry entry, highlighted
+  // ---- files: the directory, as a tree that opens on click
   let files = frontmatter(model, "files", `${model.title} files`);
-  files += `The model directory in the registry (\`models/${model.name}/\`).\n\n`;
+  files += `Everything in \`models/${model.name}/\`. Select a file to read it; the\ncheckpoint itself lives on the Hub.\n\n`;
+  files += `<div class="nest-files">\n\n`;
+
+  const folders = new Map();
   for (const file of model.files) {
     if (file.endsWith(".svg")) continue;
-    const lang = file.endsWith(".linnet") ? "linnet" : file.endsWith(".toml") ? "toml" : file.endsWith(".json") ? "json" : file.endsWith(".md") ? "md" : "text";
-    files += `## \`${file}\`\n\n` + code(lang, readFileSync(join(dir, file), "utf8"));
+    const cut = file.lastIndexOf("/");
+    const folder = cut < 0 ? "" : file.slice(0, cut);
+    if (!folders.has(folder)) folders.set(folder, []);
+    folders.get(folder).push(file);
   }
+
+  function size(bytes) {
+    if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
+    if (bytes >= 1 << 10) return `${(bytes / (1 << 10)).toFixed(1)} kB`;
+    return `${bytes} B`;
+  }
+
+  function language(file) {
+    if (file.endsWith(".linnet")) return "linnet";
+    if (file.endsWith(".toml")) return "toml";
+    if (file.endsWith(".json")) return "json";
+    if (file.endsWith(".md")) return "md";
+    return "text";
+  }
+
+  for (const folder of [...folders.keys()].sort()) {
+    if (folder) files += `<div class="nest-folder">${folder}/</div>\n\n`;
+    for (const file of folders.get(folder).sort()) {
+      const name = folder ? file.slice(folder.length + 1) : file;
+      const bytes = statSync(join(dir, file)).size;
+      files += `<details class="nest-file">\n<summary><span class="nest-file-name">${name}</span><span class="nest-file-size">${size(bytes)}</span></summary>\n\n`;
+      files += code(language(file), readFileSync(join(dir, file), "utf8"));
+      files += `</details>\n\n`;
+    }
+  }
+
+  if (model.weights) {
+    for (const file of model.weights.files) {
+      const href = `https://huggingface.co/${model.weights.repo}/blob/main/${file}`;
+      files += `<a class="nest-file nest-file-remote" href="${href}" target="_blank" rel="noreferrer">`;
+      files += `<span class="nest-file-name">${file}</span><span class="nest-file-size">on the Hub</span></a>\n\n`;
+    }
+  }
+  files += `</div>\n`;
   writeFileSync(join(out, "files.md"), files);
 }
 
