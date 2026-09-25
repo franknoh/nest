@@ -82,5 +82,18 @@ if [ ! -f /opt/tritonserver/backends/vllm/model.py ]; then
     mkdir -p /opt/tritonserver/backends/vllm
     cp -r /tmp/vllm_backend/src/* /opt/tritonserver/backends/vllm/
 fi
+# The backend's main branch trails vLLM: `build_1_2_5_buckets` moved from
+# `vllm.v1.metrics.loggers` to `vllm.v1.metrics.buckets`.
+/workspace/vllm/bin/python - <<'EOF'
+import importlib.util
+from pathlib import Path
+
+if importlib.util.find_spec("vllm.v1.metrics.buckets") is not None:
+    path = Path("/opt/tritonserver/backends/vllm/utils/metrics.py")
+    text = path.read_text()
+    old = "from vllm.v1.metrics.loggers import StatLoggerBase, build_1_2_5_buckets"
+    new = "from vllm.v1.metrics.buckets import build_1_2_5_buckets\nfrom vllm.v1.metrics.loggers import StatLoggerBase"
+    path.write_text(text.replace(old, new))
+EOF
 ls /opt/tritonserver/backends
 echo "setup done"

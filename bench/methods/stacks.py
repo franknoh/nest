@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -137,9 +138,17 @@ def triton(make: Make, linnet: bool) -> Callable[[dict[str, Any], dict[str, Any]
         with server.server(root) as url:
             load_s = time.perf_counter() - start
             host = url.removeprefix("http://")
-            clients = [httpclient.InferenceServerClient(host) for _ in range(4)]
+            # One client per thread: the HTTP client runs on gevent, whose
+            # connections cannot be handed from one thread to another.
+            local = threading.local()
 
-            def request(client: Any, batch: int) -> Any:
+            def client_here() -> Any:
+                if not hasattr(local, "client"):
+                    local.client = httpclient.InferenceServerClient(host)
+                return local.client
+
+            def request(_unused: Any, batch: int) -> Any:
+                client = client_here()
                 arrays = adapter.inputs(batch)
                 inputs = []
                 for name, array in zip(names[batch], arrays, strict=True):
@@ -153,11 +162,11 @@ def triton(make: Make, linnet: bool) -> Callable[[dict[str, Any], dict[str, Any]
                 )
 
             warmup, iters = int(workload["warmup"]), int(workload["iters"])
-            latency = median_ms(lambda: request(clients[0], low), lambda: None, warmup, iters)
-            server.closed_loop(lambda i: request(clients[i % 4], high), 8, 4)
+            latency = median_ms(lambda: request(None, low), lambda: None, warmup, iters)
+            server.closed_loop(lambda i: request(None, high), 8, 4)
             count = max(16, 4 * iters)
-            seconds, _ = server.closed_loop(lambda i: request(clients[i % 4], high), count, 4)
-            output = request(clients[0], low)
+            seconds, _ = server.closed_loop(lambda i: request(None, high), count, 4)
+            output = request(None, low)
         adapter.save("triton-linnet-onnx" if linnet else "triton-onnx", output)
         which = "Linnet ONNX" if linnet else "torch.onnx export"
         return Result(

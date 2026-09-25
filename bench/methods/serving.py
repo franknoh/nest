@@ -193,7 +193,8 @@ def transformers(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         None,
         load_s,
-        _describe(workload) + f"; {attention} attention; no per-request timestamps",
+        _describe(workload) + f"; {attention} attention; reserves a paged KV-cache pool up "
+        "front, so its memory is a setting, not a need; no per-request timestamps",
     )
 
 
