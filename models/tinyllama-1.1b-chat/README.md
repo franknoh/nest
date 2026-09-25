@@ -26,6 +26,7 @@ dtype is checked before anything runs.
 | `forward<B, S>(tokens)` | logits for a whole sequence |
 | `next_token<B, S>(tokens)` | logits for the last position |
 | `decode(token, pos)` | one token through the KV caches (`Batch = 1`, `MaxSeq = 2048`) |
+| `prefill<S>(tokens, pos)` | a whole prompt through the KV caches in one pass; logits after its last token, `decode` continues at `pos + S` |
 | `generate<Steps>(token, pos)` | greedy decoding in the graph |
 | `sample<Steps>(token, pos, key, temperature)` | sampling with `std.random` |
 | `generate_until<MaxNew>(token, pos, eos)` | decoding until an end token |

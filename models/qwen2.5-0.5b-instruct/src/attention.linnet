@@ -18,7 +18,7 @@ module qwen2.attention
 
 use crate.rope::{THETA, tables}
 use std.nn.attention::{causal_mask, grouped_attention}
-use std.nn.cache::{write_at}
+use std.nn.cache::{write_at, write_span}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope}
 
@@ -94,6 +94,37 @@ where
             some(reshape(seen, [1, MaxSeq])),
         )
         return o_proj.forward(merge_heads<Batch, 1, Heads, H / Heads, T>(mixed))
+    }
+
+    // `S` new positions starting at `pos`, as a prompt arrives: their keys
+    // and values go into the caches as one span, and each query attends over
+    // every cached position up to and including its own. A prompt costs one
+    // pass instead of one per token, which is most of the time to the first
+    // generated token.
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
+        let rows[i] = cast<i64>(pos) + iota<i64>(S)[i]
+        let cos_rows[i, d] = cos_table[rows[i], d]
+        let sin_rows[i, d] = sin_table[rows[i], d]
+        let q = rope(
+            split_heads<Batch, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let k = rope(
+            split_heads<Batch, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let v = split_heads<Batch, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        cache_k = write_span(cache_k, k, pos)
+        cache_v = write_span(cache_v, v, pos)
+        let positions = iota<i32>(MaxSeq)
+        let queries = iota<i32>(S)
+        let seen[i, s] = positions[s] <= pos + queries[i]
+        let mixed = grouped_attention(q, cache_k, cache_v, rsqrt(cast<f32>(H / Heads)), some(seen))
+        return o_proj.forward(merge_heads<Batch, S, Heads, H / Heads, T>(mixed))
     }
 }
 

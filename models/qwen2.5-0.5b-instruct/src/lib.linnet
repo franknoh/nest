@@ -57,6 +57,12 @@ where
         let attended = x + attention.decode(attention_norm.forward(x), pos)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
+
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let attended = x + attention.prefill(attention_norm.forward(x), pos)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
 }
 
 pub block Model<
@@ -105,6 +111,18 @@ where
     // Feed a prompt token by token, then the tokens the model produces.
     pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T] {
         return step(token, pos)
+    }
+
+    // A prompt of `S` tokens at `pos`, written into the KV caches in one
+    // pass. Returns the logits after its last token, so `decode` continues
+    // at `pos + S`: the time to the first token is this one call.
+    pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]
+    where S > 0 {
+        var x = embedding.forward(tokens)
+        static for layer in layers {
+            x = layer.prefill(x, pos)
+        }
+        return lm_head.forward(norm.forward(x[:, S - 1, :]))
     }
 
     // Greedy generation inside the graph: `Steps` tokens after `token` at
