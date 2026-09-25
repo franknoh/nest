@@ -1,0 +1,10 @@
+# The benchmark harness in `bench/` follows the Linnet package's style, plus
+# the blind-except and subprocess rules its `noqa` comments speak to.
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF", "BLE", "S"]
+
+[lint.isort]
+known-first-party = ["bench"]
