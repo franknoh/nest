@@ -455,7 +455,9 @@ def _keras_call(model: Any, arrays: list[Any]) -> Any:
     feed = {"token_ids": ids, "padding_mask": np.ones_like(ids, dtype=bool)}
     if "segment_ids" in getattr(model, "input", {}):
         feed["segment_ids"] = arrays[1] if len(arrays) > 1 else np.zeros_like(ids)
-    return model.predict_on_batch(feed)["sequence_output"]
+    out = model.predict_on_batch(feed)
+    # BERT's backbone returns a dict of outputs, RoBERTa's the hidden states.
+    return out["sequence_output"] if isinstance(out, dict) else out
 
 
 # Card families KerasHub converts from a Transformers checkpoint (BERT and
