@@ -47,7 +47,7 @@ const METRICS: Metric[] = [
 ];
 const MEMORY = "peak_vram_mib";
 // Values a method records for the harness's own use, not for the page.
-const INTERNAL = new Set(["first_token", "serve_s"]);
+const INTERNAL = new Set(["first_token", "serve_s", "driver_vram_mib"]);
 
 // Serving rows (`serve-*`) measure many requests at once, the others one at a
 // time; a chart shows the rows that measured its metric, and a failed row

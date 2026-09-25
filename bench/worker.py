@@ -66,7 +66,33 @@ def main() -> None:
     except Exception as error:  # noqa: BLE001 - one failing method is a row, not a crash
         traceback.print_exc()
         result = Result(method, "unknown", error=f"{type(error).__name__}: {error}"[:400])
+    if result.error is None:
+        allocator_peak(result)
     emit(result)
+
+
+def allocator_peak(result: Result) -> None:
+    """For a method that ran on JAX, the peak its allocator had in use.
+
+    Without preallocation JAX's allocator grows its pool in large regions and
+    keeps them, so what the driver reports -- the peak every other row shows --
+    can be twice what the model needed, in steps of whole regions. The
+    allocator's own peak is the comparable number; the driver's is kept
+    beside it (`driver_vram_mib`)."""
+    if "jax" not in sys.modules:
+        return
+    import jax
+
+    try:
+        peaks = [d.memory_stats().get("peak_bytes_in_use", 0) for d in jax.local_devices()]
+    except Exception:  # noqa: BLE001 - a CPU run has no memory stats
+        return
+    if any(peaks) and jax.default_backend() == "gpu":
+        result.metrics["peak_vram_mib"] = round(sum(peaks) / 2**20, 1)
+        result.notes = (result.notes + "; " if result.notes else "") + (
+            "peak memory is JAX's allocator peak; the driver shows its pool, which grows in "
+            "whole regions"
+        )
 
 
 if __name__ == "__main__":

@@ -157,7 +157,12 @@ def run_isolated(
         return Result(method, "unknown", error=f"exit {process.returncode}: {tail[:300]}")
     result = Result(**json.loads(lines[-1][len("RESULT ") :]))
     if peak.peak_bytes is not None:
-        result.metrics["peak_vram_mib"] = round(peak.peak_bytes / 2**20, 1)
+        driver = round(peak.peak_bytes / 2**20, 1)
+        if "peak_vram_mib" in result.metrics:
+            # The method measured its own (JAX's allocator); keep the driver's too.
+            result.metrics["driver_vram_mib"] = driver
+        else:
+            result.metrics["peak_vram_mib"] = driver
     return result
 
 
