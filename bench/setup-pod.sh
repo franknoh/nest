@@ -13,7 +13,10 @@
 #     bash bench/run-all.sh
 set -euo pipefail
 
-if ! nvidia-smi | grep -qE "CUDA Version: (1[3-9]|[2-9][0-9])"; then
+# Read the whole output first: under pipefail, `grep -q` quitting early kills
+# nvidia-smi with SIGPIPE and fails the check on a driver that passes it.
+driver=$(nvidia-smi)
+if ! grep -qE "CUDA Version: (1[3-9]|[2-9][0-9])" <<<"$driver"; then
     echo "the driver does not support CUDA 13; create the pod with --min-cuda-version 13.0" >&2
     exit 1
 fi
