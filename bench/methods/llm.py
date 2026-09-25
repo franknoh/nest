@@ -40,11 +40,13 @@ def max_seq(workload: dict[str, Any]) -> int:
     return ((needed + 255) // 256) * 256
 
 
-def cache_generics(data: dict[str, Any], length: int) -> dict[str, int]:
+def cache_generics(data: dict[str, Any], length: int) -> dict[str, int | str]:
     """The cache size a workload needs, for the generics this card has: a
     card without a KV cache (gpt-oss here) takes neither."""
     declared = data.get("generics", {})
-    wanted = {"MaxSeq": length, "Batch": 1}
+    # bf16, like every reference row: a card that defaults to f32 (GPT-2)
+    # otherwise runs twice the bytes beside them. Loads pass `cast_dtype`.
+    wanted: dict[str, int | str] = {"MaxSeq": length, "Batch": 1, "T": "bf16"}
     return {name: value for name, value in wanted.items() if name in declared}
 
 
@@ -252,6 +254,7 @@ def _linnet_torch(
             numerics="fast",
             compile=compile,
             generics=cache_generics(data, max_seq(workload)),
+            cast_dtype=True,
             **placed,
         )
         load_s = time.perf_counter() - start
@@ -327,7 +330,9 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
 
     generics = cache_generics(data, max_seq(workload))
     start = time.perf_counter()
-    prefill = nest.load(data["directory"], backend="jax", entry="prefill", generics=generics)
+    prefill = nest.load(
+        data["directory"], backend="jax", entry="prefill", generics=generics, cast_dtype=True
+    )
     # The second entry reuses the first one's arrays, already bound by path
     # and on the device, so the weights are not read or placed twice.
     decode = load_jax(
@@ -336,6 +341,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         weights=prefill.weights,
         root=prefill.root,
         entry="decode",
+        cast_dtype=True,
     )
     load_s = time.perf_counter() - start
     ids = jnp.asarray([prompt_ids(data, workload)], dtype=jnp.int32)
@@ -449,6 +455,7 @@ def sample(data: dict[str, Any], workload: dict[str, Any]) -> dict[str, Any]:
         numerics="fast",
         compile=True,
         generics=cache_generics(data, ((len(ids) + SAMPLE_TOKENS + 255) // 256) * 256),
+        cast_dtype=True,
     )
     with torch.no_grad():
         ours = _greedy_linnet(model, ids, eos, device)

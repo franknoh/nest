@@ -66,13 +66,18 @@ def torch_sync() -> Callable[[], None]:
 
 
 class GpuPeak:
-    """Peak GPU memory a process holds, read from the driver every 10 ms.
+    """Peak GPU memory a worker holds, read from the driver every 10 ms.
 
-    Per-process accounting needs NVML; without a GPU (a local dry run) the
-    peak is simply unknown."""
+    By process where the driver can name it; inside a container it cannot
+    (NVML reports host PIDs, the worker knows its container PID), so there
+    the peak is the growth of the memory in use on the GPUs the worker sees,
+    over what they held when it started. Each method runs alone on its GPUs,
+    so that growth is the worker's own, CUDA context included. Without a
+    driver (a CPU dry run) the peak is unknown."""
 
-    def __init__(self, pid: int, interval: float = 0.01) -> None:
+    def __init__(self, pid: int, visible: str | None, interval: float = 0.01) -> None:
         self.pid = pid
+        self.visible = visible
         self.interval = interval
         self.peak_bytes: int | None = None
         self._stop = threading.Event()
@@ -83,21 +88,32 @@ class GpuPeak:
             import pynvml  # type: ignore[import-untyped]
 
             pynvml.nvmlInit()
+            count = pynvml.nvmlDeviceGetCount()
+            indices = (
+                [int(i) for i in self.visible.split(",") if i.strip()]
+                if self.visible
+                else list(range(count))
+            )
+            handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in indices if i < count]
+            baseline = sum(int(pynvml.nvmlDeviceGetMemoryInfo(h).used) for h in handles)
         except Exception:  # noqa: BLE001 - no driver, no numbers
             return self
-        self._thread = threading.Thread(target=self._poll, args=(pynvml,), daemon=True)
+        self._thread = threading.Thread(
+            target=self._poll, args=(pynvml, handles, baseline), daemon=True
+        )
         self._thread.start()
         return self
 
-    def _poll(self, pynvml: Any) -> None:
-        handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(pynvml.nvmlDeviceGetCount())]
+    def _poll(self, pynvml: Any, handles: list[Any], baseline: int) -> None:
         while not self._stop.is_set():
-            used = 0
+            by_pid = 0
             for handle in handles:
                 for process in pynvml.nvmlDeviceGetComputeRunningProcesses(handle):
                     if process.pid == self.pid and process.usedGpuMemory is not None:
-                        used += int(process.usedGpuMemory)
-            if used and (self.peak_bytes is None or used > self.peak_bytes):
+                        by_pid += int(process.usedGpuMemory)
+            growth = sum(int(pynvml.nvmlDeviceGetMemoryInfo(h).used) for h in handles) - baseline
+            used = by_pid or growth
+            if used > 0 and (self.peak_bytes is None or used > self.peak_bytes):
                 self.peak_bytes = used
             time.sleep(self.interval)
 
@@ -117,6 +133,9 @@ def run_isolated(
     # JAX reserves 75% of the GPU at start unless told not to, which would
     # make its "peak" a setting rather than a measurement.
     env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+    # CUDA numbers GPUs fastest first by default, NVML by bus; the memory
+    # reading maps one to the other, so both count by bus.
+    env.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
     process = subprocess.Popen(  # noqa: S603 - our own interpreter and module
         command,
         cwd=ROOT,
@@ -125,7 +144,7 @@ def run_isolated(
         stderr=subprocess.PIPE,
         text=True,
     )
-    with GpuPeak(process.pid) as peak:
+    with GpuPeak(process.pid, env.get("CUDA_VISIBLE_DEVICES")) as peak:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
