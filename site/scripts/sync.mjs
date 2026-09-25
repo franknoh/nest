@@ -1,15 +1,21 @@
 // Generates the site's pages from the registry: the home page reads
-// `index.json` directly; each model gets a card, an architecture, and a
-// files page under `models/<name>/`, with its previews copied to `public/`.
-// Generated directories are ignored by git; run before `vitepress dev` or
-// `vitepress build`.
+// `index.json` directly; each model gets a card, an architecture, a files,
+// a samples and a benchmarks page under `models/<name>/`, with its previews
+// and sample images copied to `public/`. Generated directories are ignored
+// by git; run before `vitepress dev` or `vitepress build`.
+//
+// `NEST_REGISTRY=<dir>` reads `index.json` and `models/` from another copy
+// of the registry (the theme follows it too, see `.vitepress/config.ts`), so
+// the pages can be tried against scratch data that never enters the repo.
+import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const site = resolve(here, "..");
-const repo = resolve(site, "..");
+const checkout = resolve(site, "..");
+const repo = process.env.NEST_REGISTRY ? resolve(process.env.NEST_REGISTRY) : checkout;
 
 function fresh(dir) {
   rmSync(dir, { recursive: true, force: true });
@@ -17,7 +23,7 @@ function fresh(dir) {
 }
 
 // The grammar follows the Linnet checkout next to this repository when there is one.
-const linnetGrammar = resolve(repo, "..", "Linnet/editors/textmate/linnet.tmLanguage.json");
+const linnetGrammar = resolve(checkout, "..", "Linnet/editors/textmate/linnet.tmLanguage.json");
 if (existsSync(linnetGrammar)) {
   cpSync(linnetGrammar, join(site, ".vitepress/linnet.tmLanguage.json"));
 }
@@ -27,11 +33,62 @@ const pages = join(site, "models");
 fresh(pages);
 const previews = join(site, "public/previews");
 fresh(previews);
+const samplesOut = join(site, "public/samples");
+fresh(samplesOut);
 
 writeFileSync(join(site, "index.md"), "---\nlayout: home\ntitle: Nest\n---\n");
 
-function frontmatter(model, tab, title) {
-  return `---\nlayout: model\nmodel: ${model.name}\ntab: ${tab}\ntitle: ${JSON.stringify(title)}\n---\n\n`;
+function frontmatter(model, tab, title, data = {}) {
+  // Extra data rides along as JSON, which YAML reads as a flow mapping; the
+  // two Unicode line separators are escaped because YAML would break on them.
+  const extra = Object.entries(data)
+    .map(([key, value]) => `${key}: ${JSON.stringify(value).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")}\n`)
+    .join("");
+  return `---\nlayout: model\nmodel: ${model.name}\ntab: ${tab}\ntitle: ${JSON.stringify(title)}\n${extra}---\n\n`;
+}
+
+function readJson(path) {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    console.warn(`skipping ${path}: ${error.message}`);
+    return null;
+  }
+}
+
+// The date a file was last committed, when the registry is a git checkout;
+// the harness does not record one itself.
+function committed(path) {
+  try {
+    const date = execFileSync("git", ["log", "-1", "--format=%cs", "--", path], { cwd: dirname(path), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return date || null;
+  } catch {
+    return null;
+  }
+}
+
+const IMAGE = /\.(png|jpe?g|webp|gif|svg)$/i;
+
+// Every string in a sample that names an image next to the card (or, for a
+// dry run, anywhere) is copied to `public/samples/<name>/` and rewritten to
+// the address the site serves it at, whatever the sample's kind.
+function publishImages(value, dir, name) {
+  if (typeof value === "string") {
+    if (!IMAGE.test(value)) return value;
+    const source = isAbsolute(value) ? value : join(dir, value);
+    if (!existsSync(source)) return value;
+    const relative = isAbsolute(value) ? basename(value) : value.replace(/^samples\//, "");
+    const target = join(samplesOut, name, relative);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(source, target);
+    return `/samples/${name}/${relative}`;
+  }
+  if (Array.isArray(value)) return value.map((item) => publishImages(item, dir, name));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, publishImages(item, dir, name)]));
+  }
+  return value;
 }
 
 function code(lang, text) {
@@ -51,7 +108,13 @@ for (const model of registry.models) {
   let card = frontmatter(model, "card", model.title);
   const readme = join(dir, "README.md");
   if (existsSync(readme)) {
-    card += readFileSync(readme, "utf8").replace(/^# .*\n+/, "").trimEnd() + "\n\n";
+    // A README links a sibling card as a registry directory (`../other`);
+    // on the site that card lives at `/models/other/`.
+    const names = new Set(registry.models.map((m) => m.name));
+    const text = readFileSync(readme, "utf8")
+      .replace(/^# .*\n+/, "")
+      .replace(/\]\(\.\.\/([\w.-]+)\/?\)/g, (link, name) => (names.has(name) ? `](/models/${name}/)` : link));
+    card += text.trimEnd() + "\n\n";
   }
   card += "## Backends\n\nThe same source and checkpoint in each framework; `numerics` and `compile` are the loaders' options.\n\n";
   const binds = [...Object.entries(model.generics), ...Object.entries(model.check)].map(([k, v]) => `--bind ${k}=${v}`).join(" ");
@@ -164,6 +227,22 @@ for (const model of registry.models) {
   }
   files += `</div>\n`;
   writeFileSync(join(out, "files.md"), files);
+
+  // ---- samples and benchmarks: the harness's JSON, drawn by the theme
+  // (`SampleView.vue`, `BenchCharts.vue`); a model without it gets the
+  // tab anyway, with a line saying so.
+  const sample = readJson(join(dir, "samples.json"));
+  writeFileSync(
+    join(out, "samples.md"),
+    frontmatter(model, "samples", `${model.title} samples`, { samples: sample ? publishImages(sample, dir, model.name) : null }),
+  );
+  const benchPath = join(dir, "bench.json");
+  const bench = readJson(benchPath);
+  if (bench && !bench.date) {
+    const date = committed(benchPath);
+    if (date) bench.date = date;
+  }
+  writeFileSync(join(out, "benchmarks.md"), frontmatter(model, "benchmarks", `${model.title} benchmarks`, { bench }));
 }
 
 console.log(`synced ${registry.models.length} models`);

@@ -1,4 +1,5 @@
-import registry from "../../../index.json";
+// The registry's `index.json` (aliased in `config.ts`, so a scratch copy can stand in).
+import registry from "@nest/index.json";
 
 export interface Entry {
   name: string;

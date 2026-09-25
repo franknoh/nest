@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useData } from "vitepress";
 import { computed } from "vue";
+import BenchCharts from "./BenchCharts.vue";
+import SampleView from "./SampleView.vue";
 import { byName, linkNames, parameters } from "./registry";
 
 const { frontmatter, page } = useData();
@@ -11,6 +13,8 @@ const tabs = [
   { id: "card", label: "Model card", path: "" },
   { id: "architecture", label: "Architecture", path: "architecture" },
   { id: "files", label: "Files", path: "files" },
+  { id: "samples", label: "Samples", path: "samples" },
+  { id: "benchmarks", label: "Benchmarks", path: "benchmarks" },
 ];
 void page;
 </script>
@@ -46,6 +50,8 @@ void page;
     <div class="nest-model-body">
       <article class="nest-page vp-doc">
         <slot />
+        <SampleView v-if="tab === 'samples'" :data="frontmatter.samples ?? null" :title="model.title" />
+        <BenchCharts v-if="tab === 'benchmarks'" :data="frontmatter.bench ?? null" :title="model.title" />
       </article>
       <aside class="nest-model-side">
         <h3>Load</h3>
