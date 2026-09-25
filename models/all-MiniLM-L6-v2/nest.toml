@@ -1,0 +1,36 @@
+[model]
+name = "all-MiniLM-L6-v2"
+title = "all-MiniLM-L6-v2"
+summary = "The most downloaded model on the Hub: a 6-layer, width-384 BERT encoder distilled for sentence embeddings, mean-pooled and L2-normalized."
+license = "Apache-2.0"
+family = "bert"
+tags = ["sentence-similarity", "text-encoder", "encoder-only", "feature-extraction"]
+
+[links]
+huggingface = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+github = "https://github.com/UKPLab/sentence-transformers"
+arxiv = "https://arxiv.org/abs/1908.10084"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 30522
+MaxPositions = 512
+TypeVocab = 2
+D = 384
+Heads = 12
+Inner = 1536
+Layers = 6
+T = "f32"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "sentence-transformers/all-MiniLM-L6-v2"
+files = ["model.safetensors"]
+bindings = "bindings.json"

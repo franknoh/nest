@@ -1,0 +1,275 @@
+// Whisper: speech recognition as an encoder-decoder transformer. The encoder
+// reads a log-mel spectrogram through two 1-D convolutions that halve the
+// frame rate, adds the position table the checkpoint stores, and runs pre-norm
+// encoder layers over the result. The decoder is an ordinary causal language
+// model with a cross-attention over those encoder states inserted between its
+// self-attention and its MLP, and an output head tied to the token embedding.
+//
+// The two are separate entries because transcription uses them separately:
+// the encoder runs once over the 30 seconds of audio, the decoder runs once
+// per token against the states it produced.
+module whisper
+
+use std.nn.attention::{attention, causal_mask}
+use std.nn.embedding::{embedding}
+use std.nn.linear::{Linear, linear}
+use std.nn.norm::{layer_norm}
+
+// Whisper normalizes with `torch.nn.LayerNorm`'s default epsilon.
+pub const EPS: f32 = 1e-5
+
+pub block LayerNorm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+    param bias: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return layer_norm(x, weight, some(bias), EPS)
+    }
+}
+
+// GELU as Whisper's `config.json` asks for it: `x * Phi(x)` with the true
+// normal distribution function. `std.nn.activations::gelu` is the tanh
+// approximation, and the substitution is not free here: it moves the stem's
+// output by 2e-3, and the four encoder layers that read it amplify that into
+// 6e-2 on the encoder states, thirty times the tolerance a card should need.
+// Linnet has no `erf`, so `Phi` is Abramowitz and Stegun
+// 26.2.17: the normal density times a fifth-degree polynomial in
+// `1 / (1 + 0.2316419 |x|)`, whose error is below 7.5e-8. That leaves this
+// GELU within 5e-7 of the error-function form in f32, which is rounding.
+//
+// The polynomial gives the upper tail `Phi(-|x|)`, so the sign of `x` chooses
+// between it and its complement.
+fn gelu<*S: Shape, T: Float>(x: Tensor[*S; T]) -> Tensor[*S; T] {
+    let xf = cast<f32>(x)
+    let a = abs(xf)
+    let t = 1.0 / (1.0 + 0.2316419 * a)
+    let poly =
+        t *
+        (0.319381530 +
+            t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+    let tail = 0.3989422804014327 * exp(-0.5 * a * a) * poly
+    return cast<T>(xf * select(xf >= 0.0, 1.0 - tail, tail))
+}
+
+// Zero padding on the position axis of a `[B, Positions, Channels]` signal.
+// `P = 0` concatenates empty tensors, which every backend folds away.
+fn pad1d<B: Dim, L: Dim, C: Dim, P: Dim, T: Float>(
+    x: Tensor[B, L, C; T],
+) -> Tensor[B, L + 2 * P, C; T] {
+    let edge = fill<T>([B, P, C], 0.0)
+    return concat(concat(edge, x, axis = 1), edge, axis = 1)
+}
+
+// A 1-D convolution, which the standard library does not have: `conv2d` takes
+// a square kernel, and the stem's kernel is a line of three frames. The
+// window geometry is built the way `std.nn.conv::conv2d` builds it, because an
+// index expression may not do arithmetic: the tap positions are a tensor made
+// from `iota` and the padded signal is gathered through it.
+//
+// Signals are `[B, Positions, Channels]` here, the layout the rest of the
+// encoder wants, so the gathered window can be flattened over (channel, tap)
+// and the convolution finished as one `linear` against the kernel flattened
+// the same way. That matters: there is no `conv1d` op for a backend to
+// recognize, so a five-axis product written out in index notation would stay
+// a five-axis product, while `linear` selects a matrix multiply everywhere.
+fn conv1d<
+    B: Dim,
+    L: Dim,
+    Cin: Dim,
+    Cout: Dim,
+    K: Dim,
+    Stride: Dim,
+    Pad: Dim,
+    T: Float,
+>(
+    x: Tensor[B, L, Cin; T],
+    weight: Tensor[Cout, Cin, K; T],
+    bias: Tensor[Cout; T],
+) -> Tensor[B, (L + 2 * Pad - K) / Stride + 1, Cout; T]
+where
+    Stride > 0,
+    K > 0
+{
+    let padded = pad1d<B, L, Cin, Pad, T>(x)
+    // Window `o` starts at `o * Stride`, so tap `k` of it reads position
+    // `o * Stride + k` of the padded signal.
+    let taps[o, k] =
+        iota<i32>((L + 2 * Pad - K) / Stride + 1)[o] * cast<i32>(Stride) + iota<i32>(K)[k]
+    // The gather transposes as it reads, so that (channel, tap) flattens in
+    // the order the checkpoint's `[Cout, Cin, K]` kernel flattens in.
+    let windows[b, o, ci, k] = padded[b, taps[o, k], ci]
+    return linear(
+        reshape(windows, [B, (L + 2 * Pad - K) / Stride + 1, Cin * K]),
+        reshape(weight, [Cout, Cin * K]),
+        some(bias),
+    )
+}
+
+// Attention over an explicit key/value source, which is what lets one block
+// serve both self-attention (the source is the sequence itself) and
+// cross-attention (the source is the encoder's states).
+//
+// Whisper projects queries, values, and the output with a bias but keys
+// without one. The asymmetry is in the reference implementation and it is
+// real: a key bias shifts every key by the same vector, which a softmax over
+// dot products does not ignore, so leaving it out is a choice the checkpoint
+// was trained with rather than a redundancy.
+pub block Attention<D: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub q_proj: Linear<D, D, T>
+    sub k_proj: Linear<D, D, T>
+    sub v_proj: Linear<D, D, T>
+    sub out_proj: Linear<D, D, T>
+
+    pub fn forward<B: Dim, Q: Dim, Src: Dim>(
+        x: Tensor[B, Q, D; T],
+        source: Tensor[B, Src, D; T],
+        mask: Tensor[Q, Src; bool]?,
+    ) -> Tensor[B, Q, D; T] {
+        let mixed = attention(
+            heads<B, Q, Heads, D / Heads, T>(q_proj.forward(x)),
+            heads<B, Src, Heads, D / Heads, T>(k_proj.forward(source)),
+            heads<B, Src, Heads, D / Heads, T>(v_proj.forward(source)),
+            rsqrt(cast<f32>(D / Heads)),
+            mask,
+        )
+        return out_proj.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, Q, D]))
+    }
+}
+
+fn heads<B: Dim, N: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, N, Heads * Dh; T],
+) -> Tensor[B, Heads, N, Dh; T] {
+    return permute(reshape(x, [B, N, Heads, Dh]), [0, 2, 1, 3])
+}
+
+// The MLP of both stacks: one widening projection, GELU, one narrowing
+// projection.
+pub block Mlp<D: Dim, Inner: Dim, T: Float> {
+    sub fc1: Linear<D, Inner, T>
+    sub fc2: Linear<Inner, D, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return fc2.forward(gelu(fc1.forward(x)))
+    }
+}
+
+// Every audio position attends to every other: the spectrogram is padded to a
+// fixed 30 seconds, and the reference encoder attends over the padding too.
+pub block EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub self_attn_layer_norm: LayerNorm<D, T>
+    sub self_attn: Attention<D, Heads, T>
+    sub final_layer_norm: LayerNorm<D, T>
+    sub mlp: Mlp<D, Inner, T>
+
+    pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T] {
+        let normed = self_attn_layer_norm.forward(x)
+        let attended = x + self_attn.forward(normed, normed, none)
+        return attended + mlp.forward(final_layer_norm.forward(attended))
+    }
+}
+
+// Three residual steps: causal self-attention over the tokens decoded so far,
+// then attention over the encoder's states, then the MLP. The cross-attention
+// needs no mask, since every token may read the whole utterance.
+pub block DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub self_attn_layer_norm: LayerNorm<D, T>
+    sub self_attn: Attention<D, Heads, T>
+    sub encoder_attn_layer_norm: LayerNorm<D, T>
+    sub encoder_attn: Attention<D, Heads, T>
+    sub final_layer_norm: LayerNorm<D, T>
+    sub mlp: Mlp<D, Inner, T>
+
+    pub fn forward<B: Dim, S: Dim, A: Dim>(
+        x: Tensor[B, S, D; T],
+        audio: Tensor[B, A, D; T],
+    ) -> Tensor[B, S, D; T] {
+        let normed = self_attn_layer_norm.forward(x)
+        let attended = x + self_attn.forward(normed, normed, some(causal_mask<S, S>()))
+        let crossed =
+            attended + encoder_attn.forward(encoder_attn_layer_norm.forward(attended), audio, none)
+        return crossed + mlp.forward(final_layer_norm.forward(crossed))
+    }
+}
+
+pub block Model<
+    Mels: Dim,
+    Frames: Dim,
+    D: Dim,
+    Heads: Dim,
+    Inner: Dim,
+    EncoderLayers: Dim,
+    DecoderLayers: Dim,
+    Vocab: Dim,
+    MaxTokens: Dim,
+    T: Float = f32,
+>
+where
+    Heads > 0,
+    D % Heads == 0,
+    Frames > 0
+{
+    // The stem, with the `[Cout, Cin, K]` kernels the checkpoint stores.
+    param conv1_weight: Tensor[D, Mels, 3; T]
+    param conv1_bias: Tensor[D; T]
+    param conv2_weight: Tensor[D, D, 3; T]
+    param conv2_bias: Tensor[D; T]
+    // Sinusoidal in origin, but the checkpoint stores it as a tensor like any
+    // other, and its length follows from the second convolution's stride.
+    param encoder_positions: Tensor[(Frames - 1) / 2 + 1, D; T]
+    sub encoder_layers: [EncoderLayer<D, Heads, Inner, T>; EncoderLayers]
+    sub encoder_norm: LayerNorm<D, T>
+
+    param token_embedding: Tensor[Vocab, D; T]
+    param decoder_positions: Tensor[MaxTokens, D; T]
+    sub decoder_layers: [DecoderLayer<D, Heads, Inner, T>; DecoderLayers]
+    sub decoder_norm: LayerNorm<D, T>
+
+    // The spectrogram to the encoder's states: `Frames` mel frames become
+    // `(Frames - 1) / 2 + 1` positions, the form the shape solver derives
+    // from a stride-2 kernel of three with one frame of padding on each side.
+    // The mel bins arrive as the channel axis, the layout the feature
+    // extractor and the checkpoint's kernels use, and the permutation to
+    // positions-first happens once here.
+    pub entry encode<B: Dim>(
+        mel: Tensor[B, Mels, Frames; T],
+    ) -> Tensor[B, (Frames - 1) / 2 + 1, D; T] {
+        let signal = permute(mel, [0, 2, 1])
+        let first = gelu(conv1d<B, Frames, Mels, D, 3, 1, 1, T>(signal, conv1_weight, conv1_bias))
+        let second = gelu(conv1d<B, Frames, D, D, 3, 2, 1, T>(first, conv2_weight, conv2_bias))
+        var x = second + encoder_positions
+        static for layer in encoder_layers {
+            x = layer.forward(x)
+        }
+        return encoder_norm.forward(x)
+    }
+
+    // Tokens and encoder states to logits for every token position. The audio
+    // length is its own generic rather than the encoder's output length, so a
+    // shorter set of states is accepted as it is.
+    pub entry decode<B: Dim, S: Dim, A: Dim>(
+        tokens: Tensor[B, S; i32],
+        audio: Tensor[B, A, D; T],
+    ) -> Tensor[B, S, Vocab; T]
+    where S <= MaxTokens {
+        // Positions 0..S: the decoder is fed from the start of the transcript.
+        var x = embedding(tokens, token_embedding) + embedding(iota<i32>(S), decoder_positions)
+        static for layer in decoder_layers {
+            x = layer.forward(x, audio)
+        }
+        // The head is the token embedding read as a projection; Whisper ties
+        // the two, so the checkpoint has no separate output matrix.
+        return linear(decoder_norm.forward(x), token_embedding)
+    }
+}

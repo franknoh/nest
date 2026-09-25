@@ -2,6 +2,289 @@
   "version": 1,
   "models": [
     {
+      "name": "all-MiniLM-L6-v2",
+      "title": "all-MiniLM-L6-v2",
+      "summary": "The most downloaded model on the Hub: a 6-layer, width-384 BERT encoder distilled for sentence embeddings, mean-pooled and L2-normalized.",
+      "license": "Apache-2.0",
+      "family": "bert",
+      "tags": [
+        "sentence-similarity",
+        "text-encoder",
+        "encoder-only",
+        "feature-extraction"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+        "github": "https://github.com/UKPLab/sentence-transformers",
+        "arxiv": "https://arxiv.org/abs/1908.10084"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "minilm",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 30522,
+        "MaxPositions": 512,
+        "TypeVocab": 2,
+        "D": 384,
+        "Heads": 12,
+        "Inner": 1536,
+        "Layers": 6,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 22565376,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, D; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "embed",
+          "signature": "pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "minilm::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "Embeddings": "minilm::Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float>\n  param word_embeddings: Tensor[Vocab, D; T]\n  param position_embeddings: Tensor[MaxPositions, D; T]\n  param token_type_embeddings: Tensor[TypeVocab, D; T]\n  sub norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "EncoderLayer": "minilm::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "LayerNorm": "minilm::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "minilm::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]\n  pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; f32]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "sentence-transformers/all-MiniLM-L6-v2",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "bert-base-uncased",
+      "title": "BERT Base (uncased)",
+      "summary": "Google's original BERT: 12 post-norm encoder layers of width 768, word/position/token-type embeddings, and the next-sentence-prediction pooler.",
+      "license": "Apache-2.0",
+      "family": "bert",
+      "tags": [
+        "fill-mask",
+        "text-encoder",
+        "encoder-only"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/google-bert/bert-base-uncased",
+        "github": "https://github.com/google-research/bert",
+        "arxiv": "https://arxiv.org/abs/1810.04805"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "bert",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 30522,
+        "MaxPositions": 512,
+        "TypeVocab": 2,
+        "D": 768,
+        "Heads": 12,
+        "Inner": 3072,
+        "Layers": 12,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 109482240,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, D; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "pool",
+          "signature": "pub entry pool<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "bert::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "Embeddings": "bert::Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float>\n  param word_embeddings: Tensor[Vocab, D; T]\n  param position_embeddings: Tensor[MaxPositions, D; T]\n  param token_type_embeddings: Tensor[TypeVocab, D; T]\n  sub norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "EncoderLayer": "bert::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "LayerNorm": "bert::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "bert::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  sub pooler: Pooler<D, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]\n  pub entry pool<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; T]",
+        "Pooler": "bert::Pooler<D: Dim, T: Float>\n  sub dense: Linear<D, D, T>\n  pub fn forward<B: Dim>(x: Tensor[B, D; T]) -> Tensor[B, D; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "google-bert/bert-base-uncased",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "dinov2-base",
+      "title": "DINOv2-Base",
+      "summary": "Meta's self-supervised Vision Transformer: 14-pixel patches of a 518-pixel image, 12 layers of width 768 with LayerScale, trained without labels for retrieval, segmentation and depth features.",
+      "license": "Apache-2.0",
+      "family": "dinov2",
+      "tags": [
+        "image-feature-extraction",
+        "vision",
+        "encoder-only",
+        "self-supervised"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/facebook/dinov2-base",
+        "github": "https://github.com/facebookresearch/dinov2",
+        "arxiv": "https://arxiv.org/abs/2304.07193"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "dinov2",
+      "entry": "forward",
+      "generics": {
+        "Height": 518,
+        "Width": 518,
+        "Channels": 3,
+        "Patch": 14,
+        "D": 768,
+        "Heads": 12,
+        "Inner": 3072,
+        "Layers": 12,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1
+      },
+      "parameters": 86579712,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, 1 + (Height / Patch) * (Width / Patch), D; T]",
+          "inputs": [
+            {
+              "name": "image",
+              "type": "Tensor[B, Channels, Height, Width; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, 1 + (Height / Patch) * (Width / Patch), D; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "dinov2::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "EncoderLayer": "dinov2::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub norm1: LayerNorm<D, T>\n  sub attention: Attention<D, Heads, T>\n  sub layer_scale1: LayerScale<D, T>\n  sub norm2: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub layer_scale2: LayerScale<D, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "LayerNorm": "dinov2::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "LayerScale": "dinov2::LayerScale<D: Dim, T: Float>\n  param lambda1: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "dinov2::Model<Height: Dim, Width: Dim, Channels: Dim, Patch: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  param patch_weight: Tensor[D, Channels, Patch, Patch; T]\n  param patch_bias: Tensor[D; T]\n  param class_token: Tensor[1, 1, D; T]\n  param positions: Tensor[1, 1 + (Height / Patch) * (Width / Patch), D; T]\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  sub norm: LayerNorm<D, T>\n  pub entry forward<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, 1 + (Height / Patch) * (Width / Patch), D; T]\n  fn embed<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, (Height / Patch) * (Width / Patch), D; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "facebook/dinov2-base",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
       "name": "gpt2",
       "title": "GPT-2 (124M)",
       "summary": "OpenAI's 124M-parameter GPT-2: learned positions, pre-norm blocks, a fused QKV projection, and a head tied to the token embedding.",
@@ -78,6 +361,283 @@
       ]
     },
     {
+      "name": "modernbert-base",
+      "title": "ModernBERT-base",
+      "summary": "Answer.AI's 2024 redesign of the BERT encoder: 22 pre-norm layers of width 768, rotary positions, GeGLU, no biases, and a sliding attention window that opens up every third layer.",
+      "license": "Apache-2.0",
+      "family": "modernbert",
+      "tags": [
+        "fill-mask",
+        "feature-extraction",
+        "encoder-only",
+        "rotary-embeddings",
+        "sliding-window-attention"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/answerdotai/ModernBERT-base",
+        "github": "https://github.com/AnswerDotAI/ModernBERT",
+        "arxiv": "https://arxiv.org/abs/2412.13663"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "modernbert",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 50368,
+        "D": 768,
+        "Heads": 12,
+        "Inner": 1152,
+        "Layers": 22,
+        "Window": 128,
+        "Period": 3,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1,
+        "S": 256
+      },
+      "parameters": 149014272,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, D; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "modernbert::Attention<D: Dim, Heads: Dim, T: Float>\n  sub qkv: Dense<D, 3 * D, T>\n  sub out: Dense<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?) -> Tensor[B, S, D; T]",
+        "Dense": "modernbert::Dense<In: Dim, Out: Dim, T: Float>\n  param weight: Tensor[Out, In; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "Embeddings": "modernbert::Embeddings<Vocab: Dim, D: Dim, T: Float>\n  sub tok_embeddings: Embedding<Vocab, D, T>\n  sub norm: Norm<D, T>\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, D; T]",
+        "EncoderLayer": "modernbert::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attn_norm: Norm<D, T>\n  sub attn: Attention<D, Heads, T>\n  sub mlp_norm: Norm<D, T>\n  sub mlp: GeGlu<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?) -> Tensor[B, S, D; T]",
+        "FirstLayer": "modernbert::FirstLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attn: Attention<D, Heads, T>\n  sub mlp_norm: Norm<D, T>\n  sub mlp: GeGlu<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?) -> Tensor[B, S, D; T]",
+        "GeGlu": "modernbert::GeGlu<D: Dim, Inner: Dim, T: Float>\n  sub up: Dense<D, 2 * Inner, T>\n  sub down: Dense<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "LayerCycle": "modernbert::LayerCycle<D: Dim, Heads: Dim, Inner: Dim, Period: Dim, T: Float>\n  sub local: [EncoderLayer<D, Heads, Inner, T>; -1 + Period]\n  sub global: EncoderLayer<D, Heads, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], window: Tensor[S, S; bool]) -> Tensor[B, S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "modernbert::Model<Vocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, Window: Dim, Period: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, D, T>\n  sub first: FirstLayer<D, Heads, Inner, T>\n  sub cycles: [LayerCycle<D, Heads, Inner, Period, T>; (-1 + Layers) / Period]\n  sub final_norm: Norm<D, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "Norm": "modernbert::Norm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "answerdotai/ModernBERT-base",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "qwen2.5-0.5b-instruct",
+      "title": "Qwen2.5 0.5B Instruct",
+      "summary": "A 0.5B-parameter Qwen2 decoder with grouped-query attention, biased query/key/value projections, and an output head tied to the token embedding, instruction-tuned.",
+      "license": "Apache-2.0",
+      "family": "qwen2",
+      "tags": [
+        "text-generation",
+        "decoder-only",
+        "grouped-query-attention",
+        "chat"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
+        "github": "https://github.com/QwenLM/Qwen2.5",
+        "arxiv": "https://arxiv.org/abs/2412.15115"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "qwen2",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 151936,
+        "H": 896,
+        "Heads": 14,
+        "KvHeads": 2,
+        "Inner": 4864,
+        "Layers": 24,
+        "Batch": 1,
+        "MaxSeq": 32768,
+        "T": "bf16"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 494461184,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "next_token",
+          "signature": "pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "decode",
+          "signature": "pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        },
+        {
+          "name": "generate",
+          "signature": "pub entry generate<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Steps; i32]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Steps; i32]"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        },
+        {
+          "name": "sample",
+          "signature": "pub entry sample<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32, key: Tensor[2; i64], temperature: f32) -> Tensor[Batch, Steps; i32]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            },
+            {
+              "name": "key",
+              "type": "Tensor[2; i64]"
+            },
+            {
+              "name": "temperature",
+              "type": "f32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Steps; i32]"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        },
+        {
+          "name": "generate_until",
+          "signature": "pub entry generate_until<MaxNew: Dim>(token: Tensor[Batch, 1; i32], pos: i32, eos: i32) -> (Tensor[Batch, MaxNew; i32], i32)",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            },
+            {
+              "name": "eos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "(Tensor[Batch, MaxNew; i32], i32)"
+          ],
+          "states": [
+            "layers[*].attention.cache_k",
+            "layers[*].attention.cache_v"
+          ]
+        }
+      ],
+      "blocks": {
+        "DecoderLayer": "qwen2::DecoderLayer<H: Dim, Heads: Dim, KvHeads: Dim, Inner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub attention_norm: RmsNorm<H, T>\n  sub attention: GroupedQueryAttention<H, Heads, KvHeads, Batch, MaxSeq, T>\n  sub mlp_norm: RmsNorm<H, T>\n  sub mlp: SwiGlu<H, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "GroupedQueryAttention": "qwen2.attention::GroupedQueryAttention<H: Dim, Heads: Dim, KvHeads: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub q_proj: Linear<H, H, T>\n  sub k_proj: Linear<H, KvHeads * (H / Heads), T>\n  sub v_proj: Linear<H, KvHeads * (H / Heads), T>\n  sub o_proj: Linear<H, H, T>\n  state cache_k: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]\n  state cache_v: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "qwen2::Model<Vocab: Dim, H: Dim, Heads: Dim, KvHeads: Dim, Inner: Dim, Layers: Dim, Batch: Dim, MaxSeq: Dim, T: Float = bf16>\n  sub embedding: Embedding<Vocab, H, T>\n  sub layers: [DecoderLayer<H, Heads, KvHeads, Inner, Batch, MaxSeq, T>; Layers]\n  sub norm: RmsNorm<H, T>\n  sub lm_head: Linear<H, Vocab, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]\n  pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]\n  pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry generate<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Steps; i32]\n  pub entry sample<Steps: Dim>(token: Tensor[Batch, 1; i32], pos: i32, key: Tensor[2; i64], temperature: f32) -> Tensor[Batch, Steps; i32]\n  pub entry generate_until<MaxNew: Dim>(token: Tensor[Batch, 1; i32], pos: i32, eos: i32) -> (Tensor[Batch, MaxNew; i32], i32)\n  fn step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]\n  fn hidden_states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "SwiGlu": "std.nn.mlp::SwiGlu<H: Dim, Inner: Dim, T: Float = bf16>\n  sub gate: Linear<H, Inner, T>\n  sub up: Linear<H, Inner, T>\n  sub down: Linear<Inner, H, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "Qwen/Qwen2.5-0.5B-Instruct",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/attention.linnet",
+        "src/lib.linnet",
+        "src/rope.linnet"
+      ]
+    },
+    {
       "name": "resnet-18",
       "title": "ResNet-18",
       "summary": "The 18-layer residual network for ImageNet-1k: a 7x7 stem, four stages of two residual blocks, and a linear classifier.",
@@ -135,6 +695,364 @@
       },
       "weights": {
         "repo": "microsoft/resnet-18",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "resnet-50",
+      "title": "ResNet-50",
+      "summary": "The 50-layer residual network (v1.5) for ImageNet-1k: a 7x7 stem, four stages of bottleneck blocks 3, 4, 6, and 3 deep, and a linear classifier.",
+      "license": "Apache-2.0",
+      "family": "resnet",
+      "tags": [
+        "image-classification",
+        "vision",
+        "convolutional"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/microsoft/resnet-50",
+        "github": "https://github.com/KaimingHe/deep-residual-networks",
+        "arxiv": "https://arxiv.org/abs/1512.03385"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "resnet",
+      "entry": "forward",
+      "generics": {
+        "Height": 224,
+        "Width": 224,
+        "Classes": 1000,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1
+      },
+      "parameters": 25636712,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim>(image: Tensor[B, 3, Height, Width; T]) -> Tensor[B, Classes; T]",
+          "inputs": [
+            {
+              "name": "image",
+              "type": "Tensor[B, 3, Height, Width; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Classes; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Bottleneck": "resnet::Bottleneck<C: Dim, T: Float>\n  sub reduce: ConvNorm<C, C / 4, 1, 1, 0, T>\n  sub conv: ConvNorm<C / 4, C / 4, 3, 1, 1, T>\n  sub expand: ConvNorm<C / 4, C, 1, 1, 0, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T]",
+        "Conv2d": "std.nn.conv::Conv2d<Cin: Dim, Cout: Dim, K: Dim, Stride: Dim, Pad: Dim, T: Float = f32>\n  param weight: Tensor[Cout, Cin, K, K; T]\n  param bias: Tensor[Cout; T]?\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 * K + H + 2 * Pad) / Stride, 1 + (-1 * K + W + 2 * Pad) / Stride; T]",
+        "ConvNorm": "resnet::ConvNorm<Cin: Dim, Cout: Dim, K: Dim, Stride: Dim, Pad: Dim, T: Float>\n  sub convolution: Conv2d<Cin, Cout, K, Stride, Pad, T>\n  param running_mean: Tensor[Cout; T]\n  param running_var: Tensor[Cout; T]\n  param weight: Tensor[Cout; T]\n  param bias: Tensor[Cout; T]\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 * K + 2 * Pad + H) / Stride, 1 + (-1 * K + 2 * Pad + W) / Stride; T]",
+        "DownBottleneck": "resnet::DownBottleneck<Cin: Dim, Cout: Dim, Stride: Dim, T: Float>\n  sub reduce: ConvNorm<Cin, Cout / 4, 1, 1, 0, T>\n  sub conv: ConvNorm<Cout / 4, Cout / 4, 3, Stride, 1, T>\n  sub expand: ConvNorm<Cout / 4, Cout, 1, 1, 0, T>\n  sub shortcut: ConvNorm<Cin, Cout, 1, Stride, 0, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 + H) / Stride, 1 + (-1 + W) / Stride; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "resnet::Model<Height: Dim, Width: Dim, Classes: Dim, T: Float = f32>\n  sub stem: ConvNorm<3, 64, 7, 2, 3, T>\n  sub stage_0: Stage<64, 256, 1, 3, T>\n  sub stage_1: Stage<256, 512, 2, 4, T>\n  sub stage_2: Stage<512, 1024, 2, 6, T>\n  sub stage_3: Stage<1024, 2048, 2, 3, T>\n  sub classifier: Linear<2048, Classes, T>\n  pub entry forward<B: Dim>(image: Tensor[B, 3, Height, Width; T]) -> Tensor[B, Classes; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "Stage": "resnet::Stage<Cin: Dim, Cout: Dim, Stride: Dim, Depth: Dim, T: Float>\n  sub down: DownBottleneck<Cin, Cout, Stride, T>\n  sub rest: [Bottleneck<Cout, T>; -1 + Depth]\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 + H) / Stride, 1 + (-1 + W) / Stride; T]"
+      },
+      "weights": {
+        "repo": "microsoft/resnet-50",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "roberta-base",
+      "title": "RoBERTa Base",
+      "summary": "Meta's more thoroughly trained BERT: the same post-norm encoder, dynamic masking, no next-sentence-prediction, and a byte-level BPE vocabulary of 50265.",
+      "license": "MIT",
+      "family": "bert",
+      "tags": [
+        "fill-mask",
+        "text-encoder",
+        "encoder-only"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/FacebookAI/roberta-base",
+        "github": "https://github.com/facebookresearch/fairseq/tree/main/examples/roberta",
+        "arxiv": "https://arxiv.org/abs/1907.11692"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "roberta",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 50265,
+        "MaxPositions": 514,
+        "TypeVocab": 1,
+        "D": 768,
+        "Heads": 12,
+        "Inner": 3072,
+        "Layers": 12,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 124055040,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, D; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "roberta::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "Embeddings": "roberta::Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float>\n  param word_embeddings: Tensor[Vocab, D; T]\n  param position_embeddings: Tensor[MaxPositions, D; T]\n  param token_type_embeddings: Tensor[TypeVocab, D; T]\n  sub norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "EncoderLayer": "roberta::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "LayerNorm": "roberta::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "roberta::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "FacebookAI/roberta-base",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "sd-vae-ft-mse",
+      "title": "SD VAE ft-MSE (decoder)",
+      "summary": "Stability AI's MSE-finetuned autoencoder for Stable Diffusion, decoder half: group-normalized residual blocks, one spatial self-attention, and nearest-neighbour upsampling turn a 4-channel latent into an RGB image.",
+      "license": "MIT",
+      "family": "sd-vae",
+      "tags": [
+        "image-generation",
+        "vision",
+        "convolutional",
+        "diffusion",
+        "autoencoder"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/stabilityai/sd-vae-ft-mse",
+        "github": "https://github.com/CompVis/stable-diffusion",
+        "arxiv": "https://arxiv.org/abs/2112.10752"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "sd_vae",
+      "entry": "decode",
+      "generics": {
+        "H": 16,
+        "W": 16,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1
+      },
+      "parameters": 49490199,
+      "entries": [
+        {
+          "name": "decode",
+          "signature": "pub entry decode<B: Dim>(latent: Tensor[B, 4, H, W; T]) -> Tensor[B, 3, 8 * H, 8 * W; T]",
+          "inputs": [
+            {
+              "name": "latent",
+              "type": "Tensor[B, 4, H, W; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, 3, 8 * H, 8 * W; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Conv2d": "std.nn.conv::Conv2d<Cin: Dim, Cout: Dim, K: Dim, Stride: Dim, Pad: Dim, T: Float = f32>\n  param weight: Tensor[Cout, Cin, K, K; T]\n  param bias: Tensor[Cout; T]?\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 1 + (-1 * K + H + 2 * Pad) / Stride, 1 + (-1 * K + W + 2 * Pad) / Stride; T]",
+        "GroupNorm": "sd_vae::GroupNorm<C: Dim, T: Float>\n  param weight: Tensor[C; T]\n  param bias: Tensor[C; T]\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "MidBlock": "sd_vae::MidBlock<C: Dim, T: Float>\n  sub first: ResBlock<C, T>\n  sub attention: SpatialAttention<C, T>\n  sub second: ResBlock<C, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T]",
+        "Model": "sd_vae::Model<H: Dim, W: Dim, T: Float = f32>\n  sub post_quant_conv: Conv2d<4, 4, 1, 1, 0, T>\n  sub conv_in: Conv2d<4, 512, 3, 1, 1, T>\n  sub mid_block: MidBlock<512, T>\n  sub up_block_0: UpBlock<512, T>\n  sub up_block_1: UpBlock<512, T>\n  sub up_block_2: UpBlockWiden<512, 256, T>\n  sub up_block_3: UpBlockWidenFinal<256, 128, T>\n  sub norm_out: GroupNorm<128, T>\n  sub conv_out: Conv2d<128, 3, 3, 1, 1, T>\n  pub entry decode<B: Dim>(latent: Tensor[B, 4, H, W; T]) -> Tensor[B, 3, 8 * H, 8 * W; T]",
+        "ResBlock": "sd_vae::ResBlock<C: Dim, T: Float>\n  sub norm1: GroupNorm<C, T>\n  sub conv1: Conv2d<C, C, 3, 1, 1, T>\n  sub norm2: GroupNorm<C, T>\n  sub conv2: Conv2d<C, C, 3, 1, 1, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T]",
+        "ResBlockWiden": "sd_vae::ResBlockWiden<Cin: Dim, Cout: Dim, T: Float>\n  sub norm1: GroupNorm<Cin, T>\n  sub conv1: Conv2d<Cin, Cout, 3, 1, 1, T>\n  sub norm2: GroupNorm<Cout, T>\n  sub conv2: Conv2d<Cout, Cout, 3, 1, 1, T>\n  sub shortcut: Conv2d<Cin, Cout, 1, 1, 0, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, H, W; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "SpatialAttention": "sd_vae::SpatialAttention<C: Dim, T: Float>\n  sub norm: GroupNorm<C, T>\n  sub query: Linear<C, C, T>\n  sub key: Linear<C, C, T>\n  sub value: Linear<C, C, T>\n  sub proj: Linear<C, C, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T]",
+        "UpBlock": "sd_vae::UpBlock<C: Dim, T: Float>\n  sub first: ResBlock<C, T>\n  sub second: ResBlock<C, T>\n  sub third: ResBlock<C, T>\n  sub upsample: Conv2d<C, C, 3, 1, 1, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, 2 * H, 2 * W; T]",
+        "UpBlockWiden": "sd_vae::UpBlockWiden<Cin: Dim, Cout: Dim, T: Float>\n  sub first: ResBlockWiden<Cin, Cout, T>\n  sub second: ResBlock<Cout, T>\n  sub third: ResBlock<Cout, T>\n  sub upsample: Conv2d<Cout, Cout, 3, 1, 1, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, 2 * H, 2 * W; T]",
+        "UpBlockWidenFinal": "sd_vae::UpBlockWidenFinal<Cin: Dim, Cout: Dim, T: Float>\n  sub first: ResBlockWiden<Cin, Cout, T>\n  sub second: ResBlock<Cout, T>\n  sub third: ResBlock<Cout, T>\n  pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, Cin, H, W; T]) -> Tensor[B, Cout, H, W; T]"
+      },
+      "weights": {
+        "repo": "stabilityai/sd-vae-ft-mse",
+        "files": [
+          "diffusion_pytorch_model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "siglip-base-patch16-224",
+      "title": "SigLIP Base/16 224",
+      "summary": "Google's image-text model that replaces CLIP's softmax contrastive loss with a sigmoid one: 16-pixel patches through a headless ViT tower and a 64-token bidirectional text tower, meeting only in a scaled, biased dot product.",
+      "license": "Apache-2.0",
+      "family": "siglip",
+      "tags": [
+        "image-text",
+        "vision",
+        "text",
+        "zero-shot-image-classification",
+        "multimodal",
+        "encoder-only"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/google/siglip-base-patch16-224",
+        "github": "https://github.com/google-research/big_vision",
+        "arxiv": "https://arxiv.org/abs/2303.15343"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "siglip",
+      "entry": "similarity",
+      "generics": {
+        "Height": 224,
+        "Width": 224,
+        "Channels": 3,
+        "Patch": 16,
+        "VisionD": 768,
+        "VisionHeads": 12,
+        "VisionInner": 3072,
+        "VisionLayers": 12,
+        "Vocab": 32000,
+        "MaxPositions": 64,
+        "TextD": 768,
+        "TextHeads": 12,
+        "TextInner": 3072,
+        "TextLayers": 12,
+        "T": "f32"
+      },
+      "check": {
+        "Bi": 1,
+        "Bt": 1
+      },
+      "parameters": 203155970,
+      "entries": [
+        {
+          "name": "image_features",
+          "signature": "pub entry image_features<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, VisionD; T]",
+          "inputs": [
+            {
+              "name": "image",
+              "type": "Tensor[B, Channels, Height, Width; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, VisionD; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "text_features",
+          "signature": "pub entry text_features<B: Dim>(tokens: Tensor[B, MaxPositions; i32]) -> Tensor[B, TextD; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, MaxPositions; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, TextD; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "similarity",
+          "signature": "pub entry similarity<Bi: Dim, Bt: Dim>(image: Tensor[Bi, Channels, Height, Width; T], tokens: Tensor[Bt, MaxPositions; i32]) -> Tensor[Bt, Bi; T]",
+          "inputs": [
+            {
+              "name": "image",
+              "type": "Tensor[Bi, Channels, Height, Width; T]"
+            },
+            {
+              "name": "tokens",
+              "type": "Tensor[Bt, MaxPositions; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[Bt, Bi; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "siglip::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "AttentionPool": "siglip::AttentionPool<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  param probe: Tensor[1, 1, D; T]\n  param in_proj_weight: Tensor[3 * D, D; T]\n  param in_proj_bias: Tensor[3 * D; T]\n  sub out: Linear<D, D, T>\n  sub norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, D; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "EncoderLayer": "siglip::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub norm1: LayerNorm<D, T>\n  sub attention: Attention<D, Heads, T>\n  sub norm2: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "LayerNorm": "siglip::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Mlp": "siglip::Mlp<D: Dim, Inner: Dim, T: Float>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Model": "siglip::Model<Height: Dim, Width: Dim, Channels: Dim, Patch: Dim, VisionD: Dim, VisionHeads: Dim, VisionInner: Dim, VisionLayers: Dim, Vocab: Dim, MaxPositions: Dim, TextD: Dim, TextHeads: Dim, TextInner: Dim, TextLayers: Dim, T: Float = f32>\n  param patch_weight: Tensor[VisionD, Channels, Patch, Patch; T]\n  param patch_bias: Tensor[VisionD; T]\n  param vision_positions: Tensor[(Height / Patch) * (Width / Patch), VisionD; T]\n  sub vision_layers: [EncoderLayer<VisionD, VisionHeads, VisionInner, T>; VisionLayers]\n  sub vision_post_norm: LayerNorm<VisionD, T>\n  sub vision_head: AttentionPool<VisionD, VisionHeads, VisionInner, T>\n  param token_embedding: Tensor[Vocab, TextD; T]\n  param text_positions: Tensor[MaxPositions, TextD; T]\n  sub text_layers: [EncoderLayer<TextD, TextHeads, TextInner, T>; TextLayers]\n  sub text_final_norm: LayerNorm<TextD, T>\n  sub text_head: Linear<TextD, TextD, T>\n  param logit_scale: Tensor[1; T]\n  param logit_bias: Tensor[1; T]\n  pub entry image_features<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, VisionD; T]\n  pub entry text_features<B: Dim>(tokens: Tensor[B, MaxPositions; i32]) -> Tensor[B, TextD; T]\n  pub entry similarity<Bi: Dim, Bt: Dim>(image: Tensor[Bi, Channels, Height, Width; T], tokens: Tensor[Bt, MaxPositions; i32]) -> Tensor[Bt, Bi; T]\n  fn embed<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, (Height / Patch) * (Width / Patch), VisionD; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "google/siglip-base-patch16-224",
         "files": [
           "model.safetensors"
         ],
@@ -596,6 +1514,107 @@
       },
       "weights": {
         "repo": "google/vit-base-patch16-224",
+        "files": [
+          "model.safetensors"
+        ],
+        "revision": null,
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/lib.linnet"
+      ]
+    },
+    {
+      "name": "whisper-tiny",
+      "title": "Whisper tiny",
+      "summary": "OpenAI's smallest multilingual speech recognition model: a convolutional stem over a log-mel spectrogram, four encoder layers, and a four-layer decoder that cross-attends to them.",
+      "license": "Apache-2.0",
+      "family": "whisper",
+      "tags": [
+        "automatic-speech-recognition",
+        "audio",
+        "encoder-decoder",
+        "cross-attention",
+        "multilingual"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/openai/whisper-tiny",
+        "github": "https://github.com/openai/whisper",
+        "arxiv": "https://arxiv.org/abs/2212.04356"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "whisper",
+      "entry": "encode",
+      "generics": {
+        "Mels": 80,
+        "Frames": 3000,
+        "D": 384,
+        "Heads": 6,
+        "Inner": 1536,
+        "EncoderLayers": 4,
+        "DecoderLayers": 4,
+        "Vocab": 51865,
+        "MaxTokens": 448,
+        "T": "f32"
+      },
+      "check": {
+        "B": 1
+      },
+      "parameters": 37765248,
+      "entries": [
+        {
+          "name": "encode",
+          "signature": "pub entry encode<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]",
+          "inputs": [
+            {
+              "name": "mel",
+              "type": "Tensor[B, Mels, Frames; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, 1 + (-1 + Frames) / 2, D; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "decode",
+          "signature": "pub entry decode<B: Dim, S: Dim, A: Dim>(tokens: Tensor[B, S; i32], audio: Tensor[B, A, D; T]) -> Tensor[B, S, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "audio",
+              "type": "Tensor[B, A, D; T]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, Vocab; T]"
+          ],
+          "states": []
+        }
+      ],
+      "blocks": {
+        "Attention": "whisper::Attention<D: Dim, Heads: Dim, T: Float>\n  sub q_proj: Linear<D, D, T>\n  sub k_proj: Linear<D, D, T>\n  sub v_proj: Linear<D, D, T>\n  sub out_proj: Linear<D, D, T>\n  pub fn forward<B: Dim, Q: Dim, Src: Dim>(x: Tensor[B, Q, D; T], source: Tensor[B, Src, D; T], mask: Tensor[Q, Src; bool]?) -> Tensor[B, Q, D; T]",
+        "DecoderLayer": "whisper::DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub encoder_attn_layer_norm: LayerNorm<D, T>\n  sub encoder_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim, A: Dim>(x: Tensor[B, S, D; T], audio: Tensor[B, A, D; T]) -> Tensor[B, S, D; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "EncoderLayer": "whisper::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
+        "LayerNorm": "whisper::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Mlp": "whisper::Mlp<D: Dim, Inner: Dim, T: Float>\n  sub fc1: Linear<D, Inner, T>\n  sub fc2: Linear<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "Model": "whisper::Model<Mels: Dim, Frames: Dim, D: Dim, Heads: Dim, Inner: Dim, EncoderLayers: Dim, DecoderLayers: Dim, Vocab: Dim, MaxTokens: Dim, T: Float = f32>\n  param conv1_weight: Tensor[D, Mels, 3; T]\n  param conv1_bias: Tensor[D; T]\n  param conv2_weight: Tensor[D, D, 3; T]\n  param conv2_bias: Tensor[D; T]\n  param encoder_positions: Tensor[1 + (-1 + Frames) / 2, D; T]\n  sub encoder_layers: [EncoderLayer<D, Heads, Inner, T>; EncoderLayers]\n  sub encoder_norm: LayerNorm<D, T>\n  param token_embedding: Tensor[Vocab, D; T]\n  param decoder_positions: Tensor[MaxTokens, D; T]\n  sub decoder_layers: [DecoderLayer<D, Heads, Inner, T>; DecoderLayers]\n  sub decoder_norm: LayerNorm<D, T>\n  pub entry encode<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  pub entry decode<B: Dim, S: Dim, A: Dim>(tokens: Tensor[B, S; i32], audio: Tensor[B, A, D; T]) -> Tensor[B, S, Vocab; T]",
+        "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "openai/whisper-tiny",
         "files": [
           "model.safetensors"
         ],

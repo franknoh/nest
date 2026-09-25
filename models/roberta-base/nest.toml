@@ -1,0 +1,36 @@
+[model]
+name = "roberta-base"
+title = "RoBERTa Base"
+summary = "Meta's more thoroughly trained BERT: the same post-norm encoder, dynamic masking, no next-sentence-prediction, and a byte-level BPE vocabulary of 50265."
+license = "MIT"
+family = "bert"
+tags = ["fill-mask", "text-encoder", "encoder-only"]
+
+[links]
+huggingface = "https://huggingface.co/FacebookAI/roberta-base"
+github = "https://github.com/facebookresearch/fairseq/tree/main/examples/roberta"
+arxiv = "https://arxiv.org/abs/1907.11692"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 50265
+MaxPositions = 514
+TypeVocab = 1
+D = 768
+Heads = 12
+Inner = 3072
+Layers = 12
+T = "f32"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "FacebookAI/roberta-base"
+files = ["model.safetensors"]
+bindings = "bindings.json"

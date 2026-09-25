@@ -1,0 +1,37 @@
+[model]
+name = "qwen2.5-0.5b-instruct"
+title = "Qwen2.5 0.5B Instruct"
+summary = "A 0.5B-parameter Qwen2 decoder with grouped-query attention, biased query/key/value projections, and an output head tied to the token embedding, instruction-tuned."
+license = "Apache-2.0"
+family = "qwen2"
+tags = ["text-generation", "decoder-only", "grouped-query-attention", "chat"]
+
+[links]
+huggingface = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct"
+github = "https://github.com/QwenLM/Qwen2.5"
+arxiv = "https://arxiv.org/abs/2412.15115"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 151936
+H = 896
+Heads = 14
+KvHeads = 2
+Inner = 4864
+Layers = 24
+Batch = 1
+MaxSeq = 32768
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "Qwen/Qwen2.5-0.5B-Instruct"
+files = ["model.safetensors"]
+bindings = "bindings.json"

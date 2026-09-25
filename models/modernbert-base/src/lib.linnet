@@ -1,0 +1,307 @@
+// ModernBERT: the 2024 redesign of the BERT encoder. Almost nothing of the
+// original block survives. Normalization moved before the residual branches,
+// every bias was removed, the absolute position table was replaced by rotary
+// embeddings, and the feed-forward network became a GeGLU whose two halves
+// come out of one fused projection.
+//
+// The part with no analogue in BERT is the attention pattern. Only every
+// `Period`-th layer looks at the whole sequence; the layers between it attend
+// inside a sliding window `Window` positions wide, so most of the depth costs
+// linear rather than quadratic work. The two kinds of layer also use
+// different rotary base frequencies: a global layer has to resolve positions
+// thousands of tokens apart, a local layer never more than half a window, so
+// the local layers keep the usual base of 10000 while the global layers
+// stretch theirs to 160000.
+//
+// That alternation is written into the block structure rather than tested
+// against a layer index, because a layer index is not something a `static
+// for` can carry: `LayerCycle` holds the `Period - 1` local layers and the
+// global one that closes the cycle. Layer 0 is a cycle-closing global layer
+// too, but it is the one layer whose attention normalization upstream
+// replaces with an identity -- the embedding LayerNorm has already normalized
+// its input -- so it is peeled off as `FirstLayer`.
+module modernbert
+
+use std.nn.attention::{attention}
+use std.nn.embedding::{Embedding}
+use std.nn.linear::{linear}
+use std.nn.norm::{layer_norm}
+use std.nn.rope::{rope}
+
+pub const EPS: f32 = 1e-5
+
+// The rotary base of a layer that sees the whole sequence, and of a layer
+// that sees only its window (`global_rope_theta` and `local_rope_theta`).
+pub const GLOBAL_THETA: f32 = 160000.0
+pub const LOCAL_THETA: f32 = 10000.0
+
+// Every projection in the model is a bare weight: `attention_bias` and
+// `mlp_bias` are both false, so the standard library's optional bias is
+// never declared and no parameter of this model is optional.
+pub block Dense<In: Dim, Out: Dim, T: Float> {
+    param weight: Tensor[Out, In; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T] {
+        return linear(x, weight)
+    }
+}
+
+// LayerNorm without a bias (`norm_bias` is false), which is every
+// normalization in the model.
+pub block Norm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return layer_norm(x, weight, none, EPS)
+    }
+}
+
+// The input side: a token table and a LayerNorm, and nothing else. There is
+// no position table at all; position reaches the model only through the
+// rotary tables inside each attention block.
+pub block Embeddings<Vocab: Dim, D: Dim, T: Float> {
+    sub tok_embeddings: Embedding<Vocab, D, T>
+    sub norm: Norm<D, T>
+
+    pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, D; T] {
+        return norm.forward(tok_embeddings.forward(ids))
+    }
+}
+
+// A `[Q, K]` band: each query keeps the keys within `Window / 2` positions of
+// it, on either side. This is the sliding window of the local layers, and the
+// halving is the checkpoint's convention -- `local_attention` counts the
+// whole window, so 128 means 64 back and 64 forward, 129 positions in all.
+//
+// Written as an `op` for the same reason `std.nn.attention::causal_mask` is:
+// the body is the definition, and a backend with a banded attention kernel is
+// free to recognize it and drop the mask.
+op band_mask<Q: Dim, K: Dim, Window: Dim>() -> Tensor[Q, K; bool] {
+    let queries = iota<i32>(Q)
+    let keys = iota<i32>(K)
+    let mask[q, k] = abs(keys[k] - queries[q]) <= cast<i32>(Window / 2)
+    return mask
+}
+
+// The error function, which is not an intrinsic: Abramowitz and Stegun
+// 7.1.26, a fifth-degree polynomial in `t = 1 / (1 + p|x|)` times
+// `exp(-x^2)`, whose absolute error is at most 1.5e-7 -- below what f32
+// resolves. Written in Horner form because the language has no polynomial
+// helper, and folded around zero because `erf` is odd.
+fn erf<*S: Shape>(x: Tensor[*S; f32]) -> Tensor[*S; f32] {
+    let magnitude = abs(x)
+    let t = 1.0 / (1.0 + 0.3275911 * magnitude)
+    let poly =
+        t *
+        (0.254829592 +
+            t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
+    let folded = 1.0 - poly * exp(-magnitude * magnitude)
+    return select(x < 0.0, -folded, folded)
+}
+
+// GELU in its exact form, `x * Phi(x)`, which is what `hidden_activation:
+// "gelu"` means to the reference implementation.
+//
+// `std.nn.activations::gelu` is the tanh approximation, and the two differ by
+// up to 5e-4 per activation. That is usually an acceptable rounding, but not
+// here: the GeGLU multiplies the activated half by an unbounded gate, and
+// twenty-two residual additions accumulate the result, so using the tanh form
+// moves the last hidden state by 7e-1 -- three orders of magnitude worse than
+// everything else in the model. So the erf form is spelled out.
+op gelu_exact<*S: Shape, T: Float>(x: Tensor[*S; T]) -> Tensor[*S; T] {
+    let xf = cast<f32>(x)
+    return cast<T>(0.5 * xf * (1.0 + erf(xf * 0.70710678118654752)))
+}
+
+// `(cos, sin)` tables of shape `[S, D]`, each frequency repeated across both
+// halves of the head as `rope` expects. The tables come from `iota`, so a
+// layer needs no precomputed input and the base frequency is just an
+// argument -- which is what lets one block serve both the local and the
+// global layers.
+fn rope_tables<S: Dim, D: Dim, T: Float>(theta: f32) -> (Tensor[S, D; T], Tensor[S, D; T])
+where D % 2 == 0 {
+    let inv_freq[i] = exp(-(cast<f32>(iota<i64>(D / 2)[i]) * 2.0 / cast<f32>(D)) * log(theta))
+    let angles[s, i] = cast<f32>(iota<i64>(S)[s]) * inv_freq[i]
+    let full = concat(angles, angles, axis = -1)
+    return (cast<T>(cos(full)), cast<T>(sin(full)))
+}
+
+// Self-attention with one fused input projection. `Wqkv` stores its rows as
+// query, then key, then value, each already laid out head by head, so the
+// three parts are three slices of the last axis.
+//
+// The rotary base and the mask are arguments rather than properties of the
+// block: the same weights shape serves a local layer (a band mask, base
+// 10000) and a global layer (no mask, base 160000).
+pub block Attention<D: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0,
+    (D / Heads) % 2 == 0
+{
+    sub qkv: Dense<D, 3 * D, T>
+    sub out: Dense<D, D, T>
+
+    pub fn forward<B: Dim, S: Dim>(
+        x: Tensor[B, S, D; T],
+        theta: f32,
+        window: Tensor[S, S; bool]?,
+    ) -> Tensor[B, S, D; T] {
+        let fused = qkv.forward(x)
+        let (cos_table, sin_table) = rope_tables<S, D / Heads, T>(theta)
+        // Rotation is applied to the queries and the keys; values carry no
+        // position of their own.
+        let q = rope(
+            split_heads<B, S, Heads, D / Heads, T>(fused[..., 0:D]),
+            cos_table,
+            sin_table,
+        )
+        let k = rope(
+            split_heads<B, S, Heads, D / Heads, T>(fused[..., D:2 * D]),
+            cos_table,
+            sin_table,
+        )
+        let v = split_heads<B, S, Heads, D / Heads, T>(fused[..., 2 * D:3 * D])
+        let mixed = attention(q, k, v, rsqrt(cast<f32>(D / Heads)), window)
+        return out.forward(merge_heads<B, S, Heads, D / Heads, T>(mixed))
+    }
+}
+
+// `[B, S, N * Dh]` -> `[B, N, S, Dh]`.
+fn split_heads<B: Dim, S: Dim, N: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, S, N * Dh; T],
+) -> Tensor[B, N, S, Dh; T] {
+    return permute(reshape(x, [B, S, N, Dh]), [0, 2, 1, 3])
+}
+
+fn merge_heads<B: Dim, S: Dim, N: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, N, S, Dh; T],
+) -> Tensor[B, S, N * Dh; T] {
+    return reshape(permute(x, [0, 2, 1, 3]), [B, S, N * Dh])
+}
+
+// The gated feed-forward network. One projection `Wi` produces `2 * Inner`
+// values per position: the first half is the branch the activation runs on,
+// the second half multiplies it. Reading the halves the other way round is a
+// silent error, so the order is spelled out here -- upstream names them
+// `input, gate = Wi(x).chunk(2, dim=-1)`.
+pub block GeGlu<D: Dim, Inner: Dim, T: Float> {
+    sub up: Dense<D, 2 * Inner, T>
+    sub down: Dense<Inner, D, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        let fused = up.forward(x)
+        let activated = gelu_exact(fused[..., 0:Inner])
+        let gate = fused[..., Inner:2 * Inner]
+        return down.forward(activated * gate)
+    }
+}
+
+// A pre-norm encoder layer: normalize, attend, add; normalize, gate, add.
+pub block EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0,
+    (D / Heads) % 2 == 0
+{
+    sub attn_norm: Norm<D, T>
+    sub attn: Attention<D, Heads, T>
+    sub mlp_norm: Norm<D, T>
+    sub mlp: GeGlu<D, Inner, T>
+
+    pub fn forward<B: Dim, S: Dim>(
+        x: Tensor[B, S, D; T],
+        theta: f32,
+        window: Tensor[S, S; bool]?,
+    ) -> Tensor[B, S, D; T] {
+        let attended = x + attn.forward(attn_norm.forward(x), theta, window)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+}
+
+// Layer 0, which is the same layer without the attention normalization: the
+// embedding LayerNorm runs immediately before it, so upstream makes this one
+// `attn_norm` an identity and the checkpoint carries no weight for it.
+pub block FirstLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0,
+    (D / Heads) % 2 == 0
+{
+    sub attn: Attention<D, Heads, T>
+    sub mlp_norm: Norm<D, T>
+    sub mlp: GeGlu<D, Inner, T>
+
+    pub fn forward<B: Dim, S: Dim>(
+        x: Tensor[B, S, D; T],
+        theta: f32,
+        window: Tensor[S, S; bool]?,
+    ) -> Tensor[B, S, D; T] {
+        let attended = x + attn.forward(x, theta, window)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+}
+
+// One turn of the alternation: `Period - 1` windowed layers, then the global
+// layer that closes the cycle. Holding the two kinds as different members is
+// what makes the pattern checkable -- each member is reached by name, so each
+// gets its own mask and its own rotary base with no index arithmetic.
+pub block LayerCycle<D: Dim, Heads: Dim, Inner: Dim, Period: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0,
+    (D / Heads) % 2 == 0,
+    Period > 1
+{
+    sub local: [EncoderLayer<D, Heads, Inner, T>; Period - 1]
+    sub global: EncoderLayer<D, Heads, Inner, T>
+
+    pub fn forward<B: Dim, S: Dim>(
+        x: Tensor[B, S, D; T],
+        window: Tensor[S, S; bool],
+    ) -> Tensor[B, S, D; T] {
+        var h = x
+        static for layer in local {
+            h = layer.forward(h, LOCAL_THETA, some(window))
+        }
+        return global.forward(h, GLOBAL_THETA, none)
+    }
+}
+
+pub block Model<
+    Vocab: Dim,
+    D: Dim,
+    Heads: Dim,
+    Inner: Dim,
+    Layers: Dim,
+    Window: Dim,
+    Period: Dim,
+    T: Float = f32,
+>
+where
+    Heads > 0,
+    D % Heads == 0,
+    (D / Heads) % 2 == 0,
+    Period > 1,
+    (Layers - 1) % Period == 0
+{
+    sub embeddings: Embeddings<Vocab, D, T>
+    sub first: FirstLayer<D, Heads, Inner, T>
+    sub cycles: [LayerCycle<D, Heads, Inner, Period, T>; (Layers - 1) / Period]
+    sub final_norm: Norm<D, T>
+
+    // The last hidden state, normalized: what a downstream classifier or
+    // masked-language head reads. Every position attends over every other
+    // position it is allowed to see; there is no padding mask, because
+    // `std.nn.attention` masks are per-sequence-pair rather than per-batch
+    // element, so a batch here must be sequences of the same real length.
+    pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, D; T] {
+        let window = band_mask<S, S, Window>()
+        var x = embeddings.forward(tokens)
+        x = first.forward(x, GLOBAL_THETA, none)
+        static for cycle in cycles {
+            x = cycle.forward(x, window)
+        }
+        return final_norm.forward(x)
+    }
+}

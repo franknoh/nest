@@ -1,0 +1,138 @@
+// RoBERTa: the same post-norm BERT encoder as `bert-base-uncased`, but
+// with one training-only quirk baked into the checkpoint's position table:
+// positions are not zero-based. `padding_idx` (RoBERTa's pad token, id 1)
+// reserves position row 0, and the embedding module offsets every real
+// position by `padding_idx + 1`, so token index i (0-based) reads position
+// row `i + 2`. Upstream computes this from the attention mask
+// (`create_position_ids_from_input_ids`, cumulative count of non-pad
+// tokens); with no padding in the sequence -- the only case this encoder's
+// full attention supports -- that count is just the token's own index, so
+// the offset collapses to a constant. `type_vocab_size` is 1: RoBERTa has
+// no next-sentence-prediction pretraining, so the token-type table is a
+// single row broadcast to every token, kept as an explicit embedding
+// lookup so the checkpoint's tensor loads unmodified.
+module roberta
+
+use std.nn.activations::{gelu}
+use std.nn.attention::{attention}
+use std.nn.embedding::{embedding}
+use std.nn.linear::{Linear}
+use std.nn.norm::{layer_norm}
+
+pub const EPS: f32 = 1e-5
+
+// RoBERTa's padding index is 1; real positions start at `padding_idx + 1`.
+const POSITION_OFFSET = 2
+
+pub block LayerNorm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+    param bias: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return layer_norm(x, weight, some(bias), EPS)
+    }
+}
+
+pub block Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float> {
+    param word_embeddings: Tensor[Vocab, D; T]
+    param position_embeddings: Tensor[MaxPositions, D; T]
+    param token_type_embeddings: Tensor[TypeVocab, D; T]
+    sub norm: LayerNorm<D, T>
+
+    pub fn forward<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        token_types: Tensor[B, S; i32],
+    ) -> Tensor[B, S, D; T]
+    where S + POSITION_OFFSET <= MaxPositions {
+        // Token i reads position row i + 2, not i; see the module comment.
+        let positions = iota<i32>(S) + POSITION_OFFSET
+        let x =
+            embedding(tokens, word_embeddings) +
+            embedding(positions, position_embeddings) +
+            embedding(token_types, token_type_embeddings)
+        return norm.forward(x)
+    }
+}
+
+pub block Attention<D: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub query: Linear<D, D, T>
+    sub key: Linear<D, D, T>
+    sub value: Linear<D, D, T>
+    sub out: Linear<D, D, T>
+
+    // Full attention over every position: the language's attention op takes
+    // an unbatched [Q, K] mask, so a per-sequence padding mask cannot be
+    // expressed here. Callers pad-free or accept attention onto padding.
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
+        let mixed = attention(
+            heads<B, S, Heads, D / Heads, T>(query.forward(x)),
+            heads<B, S, Heads, D / Heads, T>(key.forward(x)),
+            heads<B, S, Heads, D / Heads, T>(value.forward(x)),
+            rsqrt(cast<f32>(D / Heads)),
+            none,
+        )
+        return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, S, D]))
+    }
+}
+
+fn heads<B: Dim, S: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, S, Heads * Dh; T],
+) -> Tensor[B, Heads, S, Dh; T] {
+    return permute(reshape(x, [B, S, Heads, Dh]), [0, 2, 1, 3])
+}
+
+// Post-norm encoder block: `h = LayerNorm(x + attention(x))`, then
+// `out = LayerNorm(h + ffn(h))`.
+pub block EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub attention: Attention<D, Heads, T>
+    sub attention_norm: LayerNorm<D, T>
+    sub up: Linear<D, Inner, T>
+    sub down: Linear<Inner, D, T>
+    sub output_norm: LayerNorm<D, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
+        let attended = attention_norm.forward(x + attention.forward(x))
+        return output_norm.forward(attended + down.forward(gelu(up.forward(attended))))
+    }
+}
+
+pub block Model<
+    Vocab: Dim,
+    MaxPositions: Dim,
+    TypeVocab: Dim,
+    D: Dim,
+    Heads: Dim,
+    Inner: Dim,
+    Layers: Dim,
+    T: Float = f32,
+>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>
+    sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]
+
+    // The last hidden state: every token's contextualized representation.
+    // This checkpoint (`RobertaForMaskedLM`) carries no pooler; only the
+    // masked-language-model head, which this card does not expose.
+    pub entry forward<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        token_types: Tensor[B, S; i32],
+    ) -> Tensor[B, S, D; T]
+    where S + POSITION_OFFSET <= MaxPositions {
+        var x = embeddings.forward(tokens, token_types)
+        static for layer in layers {
+            x = layer.forward(x)
+        }
+        return x
+    }
+}

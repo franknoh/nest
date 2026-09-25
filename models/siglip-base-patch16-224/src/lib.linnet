@@ -1,0 +1,281 @@
+// SigLIP: one checkpoint holding two independent encoder towers -- an image
+// tower and a text tower -- that never mix until their pooled outputs meet
+// in a single dot product. That is the whole idea behind the sigmoid loss
+// this model is named for: unlike CLIP's softmax contrastive loss, which
+// needs every pair in a batch normalized against each other, a sigmoid loss
+// scores each image-text pair independently, so the two towers only need to
+// agree on the width of the vector they hand to the dot product, not on
+// anything about their internal shape. The `where VisionD == TextD` clause
+// on `similarity` below is that agreement, written down: nothing else ties
+// the towers together.
+//
+// The vision tower is a plain ViT encoder over 16-pixel patches with no
+// class token: the image embedding instead comes from an attention pooling
+// head, where a single learned probe vector attends over the patch tokens.
+// The text tower is a plain bidirectional encoder (no causal mask) over a
+// fixed 64-token sequence with learned positions; its sentence embedding is
+// a linear projection of the encoder's *last* position, not a class token
+// or an end-of-sequence position picked out of a padding mask -- SigLIP
+// always runs the full 64 positions, so "last" is simply index 63.
+//
+// Both towers use `gelu_pytorch_tanh`, which is exactly the tanh
+// approximation `std.nn.activations::gelu` computes. Unlike BERT-style
+// checkpoints whose config says plain (erf) `gelu`, there is no
+// approximation gap to budget for here.
+module siglip
+
+use std.nn.activations::{gelu}
+use std.nn.attention::{attention}
+use std.nn.embedding::{embedding}
+use std.nn.linear::{linear, Linear}
+use std.nn.norm::{layer_norm}
+
+// Both configs (`vision_config` and `text_config` in `config.json`) set the
+// same `layer_norm_eps`, so one constant covers every LayerNorm in the file.
+pub const EPS: f32 = 1e-6
+
+pub block LayerNorm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+    param bias: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return layer_norm(x, weight, some(bias), EPS)
+    }
+}
+
+// `fc1` / `fc2` in the checkpoint, named for what they do: widen, activate,
+// narrow back. Shared by the encoder layers of both towers and by the
+// vision head's own small MLP.
+pub block Mlp<D: Dim, Inner: Dim, T: Float> {
+    sub up: Linear<D, Inner, T>
+    sub down: Linear<Inner, D, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return down.forward(gelu(up.forward(x)))
+    }
+}
+
+// Ordinary multi-head self-attention with separate query/key/value/out
+// projections (SigLIP does not fuse them the way GPT-2's `Conv1D` does).
+// Reused by both towers: `D`, `Heads`, and `Inner` differ between them even
+// though this checkpoint happens to give both the same width.
+pub block Attention<D: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub query: Linear<D, D, T>
+    sub key: Linear<D, D, T>
+    sub value: Linear<D, D, T>
+    sub out: Linear<D, D, T>
+
+    // Full attention over every position: neither tower has padding to mask
+    // here. Images are one fixed grid of patches, and text is always the
+    // model's full 64-token window (see the module comment).
+    pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T] {
+        let mixed = attention(
+            heads<B, N, Heads, D / Heads, T>(query.forward(x)),
+            heads<B, N, Heads, D / Heads, T>(key.forward(x)),
+            heads<B, N, Heads, D / Heads, T>(value.forward(x)),
+            rsqrt(cast<f32>(D / Heads)),
+            none,
+        )
+        return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, N, D]))
+    }
+}
+
+fn heads<B: Dim, N: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, N, Heads * Dh; T],
+) -> Tensor[B, Heads, N, Dh; T] {
+    return permute(reshape(x, [B, N, Heads, Dh]), [0, 2, 1, 3])
+}
+
+// The pre-norm block both towers share: `h = x + attn(norm1(x))`, then
+// `out = h + mlp(norm2(h))`. Identical in shape to the ViT and DINOv2
+// encoders already in the zoo.
+pub block EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub norm1: LayerNorm<D, T>
+    sub attention: Attention<D, Heads, T>
+    sub norm2: LayerNorm<D, T>
+    sub mlp: Mlp<D, Inner, T>
+
+    pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T] {
+        let attended = x + attention.forward(norm1.forward(x))
+        return attended + mlp.forward(norm2.forward(attended))
+    }
+}
+
+// The vision tower's image embedding: a single learned probe vector attends
+// over the patch tokens (query length 1, key/value length `N`), followed by
+// a LayerNorm and an MLP added back as a residual around the probe's own
+// attention output. This is `SiglipMultiheadAttentionPoolingHead` in the
+// reference code, built on PyTorch's `nn.MultiheadAttention`, which the
+// checkpoint stores as one fused `[3D, D]` projection rather than three
+// separate ones; slicing it by row recovers the query, key, and value
+// weights the same way GPT-2's fused QKV projection is split here by
+// column.
+pub block AttentionPool<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    param probe: Tensor[1, 1, D; T]
+    param in_proj_weight: Tensor[3 * D, D; T]
+    param in_proj_bias: Tensor[3 * D; T]
+    sub out: Linear<D, D, T>
+    sub norm: LayerNorm<D, T>
+    sub mlp: Mlp<D, Inner, T>
+
+    pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, D; T] {
+        let probe_b = broadcast_to(probe, [B, 1, D])
+        let q = linear(probe_b, in_proj_weight[0:D, :], some(in_proj_bias[0:D]))
+        let k = linear(x, in_proj_weight[D:2 * D, :], some(in_proj_bias[D:2 * D]))
+        let v = linear(x, in_proj_weight[2 * D:3 * D, :], some(in_proj_bias[2 * D:3 * D]))
+        let mixed = attention(
+            heads<B, 1, Heads, D / Heads, T>(q),
+            heads<B, N, Heads, D / Heads, T>(k),
+            heads<B, N, Heads, D / Heads, T>(v),
+            rsqrt(cast<f32>(D / Heads)),
+            none,
+        )
+        let pooled = out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, 1, D]))
+        // The residual wraps only the MLP: the probe's attention output has
+        // no earlier stream to add back into, since it is not a token of
+        // the input sequence.
+        let normed = norm.forward(pooled)
+        let result = pooled + mlp.forward(normed)
+        return result[:, 0, :]
+    }
+}
+
+// Normalizes each row to unit length in f32, the way cosine similarity
+// requires. Used on both towers' pooled output before their dot product.
+fn l2_normalize<B: Dim, D: Dim, T: Float>(x: Tensor[B, D; T]) -> Tensor[B, D; T] {
+    let xf = cast<f32>(x)
+    let norm[b] = sqrt(sum<f32>[d] xf[b, d] * xf[b, d])
+    let normalized[b, d] = xf[b, d] / norm[b]
+    return cast<T>(normalized)
+}
+
+pub block Model<
+    Height: Dim,
+    Width: Dim,
+    Channels: Dim,
+    Patch: Dim,
+    VisionD: Dim,
+    VisionHeads: Dim,
+    VisionInner: Dim,
+    VisionLayers: Dim,
+    Vocab: Dim,
+    MaxPositions: Dim,
+    TextD: Dim,
+    TextHeads: Dim,
+    TextInner: Dim,
+    TextLayers: Dim,
+    T: Float = f32,
+>
+where
+    Patch > 0,
+    Height % Patch == 0,
+    Width % Patch == 0,
+    VisionHeads > 0,
+    VisionD % VisionHeads == 0,
+    TextHeads > 0,
+    TextD % TextHeads == 0
+{
+    // -- Vision tower: patches of a fixed grid, no class token. --
+    // The shapes a `Conv2d` checkpoint stores, read as a contraction below.
+    param patch_weight: Tensor[VisionD, Channels, Patch, Patch; T]
+    param patch_bias: Tensor[VisionD; T]
+    // An `nn.Embedding` table in the checkpoint, but since the vision tower
+    // always sees exactly this many patches (there is no shorter input to
+    // slice down to, unlike a language model's position table), looking up
+    // every row in order is the same as adding the table directly.
+    param vision_positions: Tensor[(Height / Patch) * (Width / Patch), VisionD; T]
+    sub vision_layers: [EncoderLayer<VisionD, VisionHeads, VisionInner, T>; VisionLayers]
+    sub vision_post_norm: LayerNorm<VisionD, T>
+    sub vision_head: AttentionPool<VisionD, VisionHeads, VisionInner, T>
+
+    // -- Text tower: a fixed 64-token window, learned positions. --
+    param token_embedding: Tensor[Vocab, TextD; T]
+    param text_positions: Tensor[MaxPositions, TextD; T]
+    sub text_layers: [EncoderLayer<TextD, TextHeads, TextInner, T>; TextLayers]
+    sub text_final_norm: LayerNorm<TextD, T>
+    // The checkpoint's `projection_size` equals `hidden_size` here, so this
+    // is a square projection, but it is still a distinct parameter from the
+    // encoder body -- SigLIP has no separate `text_projection` matrix the
+    // way CLIP does, because this head already is the projection.
+    sub text_head: Linear<TextD, TextD, T>
+
+    // -- Where the towers meet. --
+    param logit_scale: Tensor[1; T]
+    param logit_bias: Tensor[1; T]
+
+    // The image embedding: patch tokens through the encoder, then the
+    // attention pooling head. `B` is free -- nothing here constrains it to
+    // match the batch of a `text_features` call, since the towers do not
+    // interact until `similarity` explicitly asks them to.
+    pub entry image_features<B: Dim>(
+        image: Tensor[B, Channels, Height, Width; T],
+    ) -> Tensor[B, VisionD; T] {
+        var x = embed<B>(image)
+        static for layer in vision_layers {
+            x = layer.forward(x)
+        }
+        return vision_head.forward(vision_post_norm.forward(x))
+    }
+
+    // The sentence embedding: token and position embeddings through the
+    // encoder, then a linear projection of the last position. `tokens` is
+    // fixed at width `MaxPositions` rather than a free `S` because SigLIP's
+    // "last position" pooling only means what it says when every input is
+    // padded (or truncated) to that exact width -- there is no shorter
+    // sequence to take the last token of.
+    pub entry text_features<B: Dim>(tokens: Tensor[B, MaxPositions; i32]) -> Tensor[B, TextD; T] {
+        var x = embedding(tokens, token_embedding) + text_positions
+        static for layer in text_layers {
+            x = layer.forward(x)
+        }
+        let normed = text_final_norm.forward(x)
+        return text_head.forward(normed[:, MaxPositions - 1, :])
+    }
+
+    // The two towers' only point of contact: each side's embedding is
+    // L2-normalized, their dot product taken, then rescaled by the
+    // checkpoint's learned `logit_scale` (stored as a log, so it is
+    // exponentiated here) and shifted by `logit_bias`. The result is
+    // `logits_per_text`: row `bt` holds how well text `bt` matches every
+    // image. A caller after `logits_per_image` transposes it -- there is no
+    // separate computation, just the same matrix read the other way.
+    pub entry similarity<Bi: Dim, Bt: Dim>(
+        image: Tensor[Bi, Channels, Height, Width; T],
+        tokens: Tensor[Bt, MaxPositions; i32],
+    ) -> Tensor[Bt, Bi; T]
+    where VisionD == TextD {
+        let img = l2_normalize(image_features(image))
+        let txt = l2_normalize(text_features(tokens))
+        let dot[bt, bi] = sum<f32>[d] cast<f32>(txt[bt, d]) * cast<f32>(img[bi, d])
+        let scaled = dot * exp(cast<f32>(logit_scale)) + cast<f32>(logit_bias)
+        return cast<T>(scaled)
+    }
+
+    // `[B, C, Height, Width]` -> `[B, Patches, VisionD]`: each patch
+    // contracted with the convolution's window, in the order a convolution
+    // reads it, then the position table added directly (see the field
+    // comment on `vision_positions`).
+    fn embed<B: Dim>(
+        image: Tensor[B, Channels, Height, Width; T],
+    ) -> Tensor[B, (Height / Patch) * (Width / Patch), VisionD; T] {
+        let grid = reshape(image, [B, Channels, Height / Patch, Patch, Width / Patch, Patch])
+        let windows = reshape(
+            permute(grid, [0, 2, 4, 1, 3, 5]),
+            [B, (Height / Patch) * (Width / Patch), Channels, Patch, Patch],
+        )
+        let embedded[b, p, d] = sum[c, i, j] windows[b, p, c, i, j] * patch_weight[d, c, i, j]
+        return embedded + patch_bias + vision_positions
+    }
+}

@@ -1,0 +1,31 @@
+[model]
+name = "resnet-50"
+title = "ResNet-50"
+summary = "The 50-layer residual network (v1.5) for ImageNet-1k: a 7x7 stem, four stages of bottleneck blocks 3, 4, 6, and 3 deep, and a linear classifier."
+license = "Apache-2.0"
+family = "resnet"
+tags = ["image-classification", "vision", "convolutional"]
+
+[links]
+huggingface = "https://huggingface.co/microsoft/resnet-50"
+github = "https://github.com/KaimingHe/deep-residual-networks"
+arxiv = "https://arxiv.org/abs/1512.03385"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Height = 224
+Width = 224
+Classes = 1000
+T = "f32"
+
+[check]
+B = 1
+
+[weights]
+repo = "microsoft/resnet-50"
+files = ["model.safetensors"]
+bindings = "bindings.json"

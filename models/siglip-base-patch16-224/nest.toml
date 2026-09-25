@@ -1,0 +1,43 @@
+[model]
+name = "siglip-base-patch16-224"
+title = "SigLIP Base/16 224"
+summary = "Google's image-text model that replaces CLIP's softmax contrastive loss with a sigmoid one: 16-pixel patches through a headless ViT tower and a 64-token bidirectional text tower, meeting only in a scaled, biased dot product."
+license = "Apache-2.0"
+family = "siglip"
+tags = ["image-text", "vision", "text", "zero-shot-image-classification", "multimodal", "encoder-only"]
+
+[links]
+huggingface = "https://huggingface.co/google/siglip-base-patch16-224"
+github = "https://github.com/google-research/big_vision"
+arxiv = "https://arxiv.org/abs/2303.15343"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "similarity"
+
+[generics]
+Height = 224
+Width = 224
+Channels = 3
+Patch = 16
+VisionD = 768
+VisionHeads = 12
+VisionInner = 3072
+VisionLayers = 12
+Vocab = 32000
+MaxPositions = 64
+TextD = 768
+TextHeads = 12
+TextInner = 3072
+TextLayers = 12
+T = "f32"
+
+[check]
+Bi = 1
+Bt = 1
+
+[weights]
+repo = "google/siglip-base-patch16-224"
+files = ["model.safetensors"]
+bindings = "bindings.json"

@@ -1,0 +1,149 @@
+// BERT: absolute learned positions summed with token-type embeddings,
+// normalized once before the encoder, then twelve post-norm blocks. Post-
+// norm is the opposite order from the pre-norm ViT and GPT-2 already in the
+// zoo: the residual add happens first and LayerNorm reads the sum --
+// `h = LayerNorm(x + attention(x))`, then `out = LayerNorm(h + ffn(h))` --
+// rather than normalizing the branch's input. There is no final norm after
+// the last layer, since each block already ends with one.
+module bert
+
+use std.nn.activations::{gelu}
+use std.nn.attention::{attention}
+use std.nn.embedding::{embedding}
+use std.nn.linear::{Linear}
+use std.nn.norm::{layer_norm}
+
+pub const EPS: f32 = 1e-12
+
+pub block LayerNorm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+    param bias: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return layer_norm(x, weight, some(bias), EPS)
+    }
+}
+
+pub block Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float> {
+    param word_embeddings: Tensor[Vocab, D; T]
+    param position_embeddings: Tensor[MaxPositions, D; T]
+    param token_type_embeddings: Tensor[TypeVocab, D; T]
+    sub norm: LayerNorm<D, T>
+
+    pub fn forward<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        token_types: Tensor[B, S; i32],
+    ) -> Tensor[B, S, D; T]
+    where S <= MaxPositions {
+        // The three lookups agree on width D; positions are the sequence's
+        // own indices, shared across the batch by right-aligned broadcast.
+        let x =
+            embedding(tokens, word_embeddings) +
+            embedding(iota<i32>(S), position_embeddings) +
+            embedding(token_types, token_type_embeddings)
+        return norm.forward(x)
+    }
+}
+
+pub block Attention<D: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub query: Linear<D, D, T>
+    sub key: Linear<D, D, T>
+    sub value: Linear<D, D, T>
+    sub out: Linear<D, D, T>
+
+    // Full attention over every position: the language's attention op takes
+    // an unbatched [Q, K] mask, so a per-sequence padding mask cannot be
+    // expressed here. Callers pad-free or accept attention onto padding.
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
+        let mixed = attention(
+            heads<B, S, Heads, D / Heads, T>(query.forward(x)),
+            heads<B, S, Heads, D / Heads, T>(key.forward(x)),
+            heads<B, S, Heads, D / Heads, T>(value.forward(x)),
+            rsqrt(cast<f32>(D / Heads)),
+            none,
+        )
+        return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, S, D]))
+    }
+}
+
+fn heads<B: Dim, S: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, S, Heads * Dh; T],
+) -> Tensor[B, Heads, S, Dh; T] {
+    return permute(reshape(x, [B, S, Heads, Dh]), [0, 2, 1, 3])
+}
+
+// Post-norm encoder block: `h = LayerNorm(x + attention(x))`, then
+// `out = LayerNorm(h + ffn(h))`.
+pub block EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub attention: Attention<D, Heads, T>
+    sub attention_norm: LayerNorm<D, T>
+    sub up: Linear<D, Inner, T>
+    sub down: Linear<Inner, D, T>
+    sub output_norm: LayerNorm<D, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
+        let attended = attention_norm.forward(x + attention.forward(x))
+        return output_norm.forward(attended + down.forward(gelu(up.forward(attended))))
+    }
+}
+
+// `tanh(dense(hidden[:, 0, :]))`: BERT's sentence representation, trained
+// against next-sentence prediction and read by downstream classifiers.
+pub block Pooler<D: Dim, T: Float> {
+    sub dense: Linear<D, D, T>
+
+    pub fn forward<B: Dim>(x: Tensor[B, D; T]) -> Tensor[B, D; T] {
+        return tanh(dense.forward(x))
+    }
+}
+
+pub block Model<
+    Vocab: Dim,
+    MaxPositions: Dim,
+    TypeVocab: Dim,
+    D: Dim,
+    Heads: Dim,
+    Inner: Dim,
+    Layers: Dim,
+    T: Float = f32,
+>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>
+    sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]
+    sub pooler: Pooler<D, T>
+
+    // The last hidden state: every token's contextualized representation.
+    pub entry forward<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        token_types: Tensor[B, S; i32],
+    ) -> Tensor[B, S, D; T]
+    where S <= MaxPositions {
+        var x = embeddings.forward(tokens, token_types)
+        static for layer in layers {
+            x = layer.forward(x)
+        }
+        return x
+    }
+
+    // The pooled output classifiers read: the first token of the last
+    // hidden state, through the pooler.
+    pub entry pool<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        token_types: Tensor[B, S; i32],
+    ) -> Tensor[B, D; T]
+    where S <= MaxPositions {
+        let hidden = forward(tokens, token_types)
+        return pooler.forward(hidden[:, 0, :])
+    }
+}
