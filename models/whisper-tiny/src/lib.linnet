@@ -10,6 +10,7 @@
 // per token against the states it produced.
 module whisper
 
+use std.nn.activations::{gelu_erf}
 use std.nn.attention::{attention, causal_mask}
 use std.nn.embedding::{embedding}
 use std.nn.linear::{Linear, linear}
@@ -25,30 +26,6 @@ pub block LayerNorm<D: Dim, T: Float> {
     pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
         return layer_norm(x, weight, some(bias), EPS)
     }
-}
-
-// GELU as Whisper's `config.json` asks for it: `x * Phi(x)` with the true
-// normal distribution function. `std.nn.activations::gelu` is the tanh
-// approximation, and the substitution is not free here: it moves the stem's
-// output by 2e-3, and the four encoder layers that read it amplify that into
-// 6e-2 on the encoder states, thirty times the tolerance a card should need.
-// Linnet has no `erf`, so `Phi` is Abramowitz and Stegun
-// 26.2.17: the normal density times a fifth-degree polynomial in
-// `1 / (1 + 0.2316419 |x|)`, whose error is below 7.5e-8. That leaves this
-// GELU within 5e-7 of the error-function form in f32, which is rounding.
-//
-// The polynomial gives the upper tail `Phi(-|x|)`, so the sign of `x` chooses
-// between it and its complement.
-fn gelu<*S: Shape, T: Float>(x: Tensor[*S; T]) -> Tensor[*S; T] {
-    let xf = cast<f32>(x)
-    let a = abs(xf)
-    let t = 1.0 / (1.0 + 0.2316419 * a)
-    let poly =
-        t *
-        (0.319381530 +
-            t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
-    let tail = 0.3989422804014327 * exp(-0.5 * a * a) * poly
-    return cast<T>(xf * select(xf >= 0.0, 1.0 - tail, tail))
 }
 
 // Zero padding on the position axis of a `[B, Positions, Channels]` signal.
@@ -153,7 +130,7 @@ pub block Mlp<D: Dim, Inner: Dim, T: Float> {
     sub fc2: Linear<Inner, D, T>
 
     pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
-        return fc2.forward(gelu(fc1.forward(x)))
+        return fc2.forward(gelu_erf(fc1.forward(x)))
     }
 }
 
@@ -246,8 +223,10 @@ where
         mel: Tensor[B, Mels, Frames; T],
     ) -> Tensor[B, (Frames - 1) / 2 + 1, D; T] {
         let signal = permute(mel, [0, 2, 1])
-        let first = gelu(conv1d<B, Frames, Mels, D, 3, 1, 1, T>(signal, conv1_weight, conv1_bias))
-        let second = gelu(conv1d<B, Frames, D, D, 3, 2, 1, T>(first, conv2_weight, conv2_bias))
+        let first = gelu_erf(
+            conv1d<B, Frames, Mels, D, 3, 1, 1, T>(signal, conv1_weight, conv1_bias),
+        )
+        let second = gelu_erf(conv1d<B, Frames, D, D, 3, 2, 1, T>(first, conv2_weight, conv2_bias))
         var x = second + encoder_positions
         static for layer in encoder_layers {
             x = layer.forward(x)

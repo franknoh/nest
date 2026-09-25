@@ -99,24 +99,19 @@ batch here has to be sequences of the same real length.
 | --- | --- |
 | `forward<B, S>(tokens)` | the last hidden state, after the final norm |
 
-## Why the GELU is written out
+## Why the GELU matters
 
 `hidden_activation` in the config is plain `gelu`, which to `transformers`
-means the erf form, and `std.nn.activations::gelu` is the tanh approximation.
+means the error-function form, so the source uses
+`std.nn.activations::gelu_erf` rather than the tanh approximation `gelu`.
 The two differ by at most 4.7e-4 per activation, which is normally an
-acceptable rounding. It is not acceptable here, and the reason is worth
-recording: a GeGLU multiplies the activated half by an unbounded gate, and
-twenty-two pre-norm layers add the result straight into the residual stream.
-With the stdlib `gelu` the last hidden state came out **6.9e-1** from the
-reference -- and substituting the tanh GELU into `transformers` brought its
-own output back to 1.2e-4 of the Linnet one, which is how the cause was
-pinned down rather than guessed.
-
-So `src/lib.linnet` carries its own `gelu_exact`, built on an `erf` from
-Abramowitz and Stegun 7.1.26. The approximation is good to 1.4e-7 in `erf`
-and 2.1e-7 in the activation, below what f32 resolves. `erf` is not a Linnet
-intrinsic, and only `exp`, `log`, `sqrt`, `rsqrt`, `sin`, `cos` and `tanh`
-are, so the polynomial is written out in Horner form and folded around zero.
+acceptable rounding. It is not here, and the reason is worth recording: a
+GeGLU multiplies the activated half by an unbounded gate, and twenty-two
+pre-norm layers add the result straight into the residual stream. With the
+tanh form the last hidden state came out 6.9e-1 from the reference, and
+substituting the tanh GELU into `transformers` brought its own output back to
+within 1.2e-4 of the Linnet one -- which is how the cause was pinned down
+rather than guessed, and why the standard library now has `gelu_erf`.
 
 ## Provenance
 
@@ -124,7 +119,7 @@ are, so the polynomial is written out in Horner form and folded around zero.
 - Code: [AnswerDotAI/ModernBERT](https://github.com/AnswerDotAI/ModernBERT).
 - Paper: [Smarter, Better, Faster, Longer](https://arxiv.org/abs/2412.13663).
 
-The last hidden state matches `transformers.AutoModel` to **2.6e-4** absolute
+The last hidden state matches `transformers.AutoModel` to **1.6e-4** absolute
 in f32, over a fixed 256-token sequence -- twice the local window, so the
 windowed layers really do mask most of the sequence rather than quietly
 degenerating to full attention.

@@ -22,9 +22,10 @@ This checkpoint (`RobertaForMaskedLM`) carries no pooler, only a
 masked-language-model head this card does not expose, so there is a single
 entry.
 
-Upstream's `hidden_act` is plain (erf) GELU; the standard library's `gelu`
-is the tanh approximation, so hidden states differ by roughly 1e-3 per
-activation. See "Numerics" below.
+Upstream's `hidden_act` is plain GELU, the error-function form, so the
+source uses `std.nn.activations::gelu_erf` rather than the tanh
+approximation `gelu`; over twelve layers the tanh form would move the hidden
+states by 5e-2.
 
 ## Loading
 
@@ -54,15 +55,10 @@ results; padded batches attend onto the padding.
 
 Validated against `transformers.RobertaModel` (`AutoModel.from_pretrained`,
 `numerics="fast"`) on CPU in f32, comparing `last_hidden_state` on
-pad-free sentences with RoBERTa's own BPE tokenizer. Max abs diff was
-5.2e-2 over two test sentences. The position-id formula above (`i + 2`)
-was checked directly against transformers' own
-`create_position_ids_from_input_ids` on both tokenized sentences and
-matches exactly, so it is not the source of the gap; re-running the
-checkpoint through `transformers` twice with only the activation swapped
-(erf vs. the tanh approximation), all other weights fixed, reproduces
-4.1e-2 of the 5.2e-2 by itself, confirming the gap is the tanh-vs-erf GELU
-noted above compounding over 12 layers.
+pad-free sentences with RoBERTa's own BPE tokenizer: the maximum absolute
+difference is 4.8e-6. The position-id formula above (`i + 2`) was checked
+directly against `transformers`' own `create_position_ids_from_input_ids`
+and matches on every position.
 
 ## Provenance
 

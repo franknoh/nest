@@ -66,18 +66,12 @@ The class token (`features[:, 0, :]`) is the image-level embedding used for
 retrieval; the patch tokens (`features[:, 1:, :]`) are the dense per-patch
 features used for segmentation and depth.
 
-This model has upstream `gelu` (erf) as its activation; `std.nn.activations::gelu`
-is the tanh approximation. Unlike a classifier, DINOv2 has no final coarsening
-head to average this out, so the gap compounds more than it would on
-`vit-base-patch16-224`: on a fixed random image at 518x518, the max absolute
-difference against `transformers`'s `last_hidden_state` is about 0.089 (mean
-about 0.007), well above the usual ~2e-3 target. This was isolated, not
-assumed: the architecture matches the installed `transformers` source
-line for line, the embeddings match to 3e-6, and patching the reference
-model's activation to the exact same tanh formula brings the max difference
-down to about 2e-4 (mean about 4e-6) with zero elements over 2e-3 — so the
-entire gap is the erf-vs-tanh approximation, not an architectural error.
-A future `erf` builtin (or an exact-GELU stdlib op) would close it.
+The activation is `std.nn.activations::gelu_erf`, the error-function GELU
+upstream uses. It matters more here than in a classifier: DINOv2 has no
+final head to average an activation error away, so with the tanh
+approximation instead the features drift by 9e-2. On a fixed random image
+at 518x518 the maximum absolute difference against `transformers`'s
+`last_hidden_state` is 1.7e-4, and 9.8e-6 on the class token.
 
 Attention runs full, unmasked, over every token: there is no padding mask to
 apply, since every input is one square image rather than variable-length

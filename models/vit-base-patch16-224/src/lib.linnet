@@ -8,7 +8,7 @@
 // and no mask: every token attends to every other.
 module vit
 
-use std.nn.activations::{gelu}
+use std.nn.activations::{gelu_erf}
 use std.nn.attention::{attention}
 use std.nn.linear::{Linear}
 use std.nn.norm::{layer_norm}
@@ -65,7 +65,7 @@ where
 
     pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T] {
         let attended = x + attention.forward(norm_before.forward(x))
-        return attended + down.forward(gelu(up.forward(norm_after.forward(attended))))
+        return attended + down.forward(gelu_erf(up.forward(norm_after.forward(attended))))
     }
 }
 

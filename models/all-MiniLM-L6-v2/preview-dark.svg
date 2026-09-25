@@ -108,7 +108,7 @@
 <text class="label" x="254.8" y="892.0" text-anchor="middle">up.forward</text>
 <text class="sub" x="254.8" y="908.0" text-anchor="middle">Linear&lt;D, Inner, T&gt;</text>
 <rect x="187.0" y="982.0" width="135.6" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
-<text class="label" x="254.8" y="1000.0" text-anchor="middle">gelu</text>
+<text class="label" x="254.8" y="1000.0" text-anchor="middle">gelu_erf</text>
 <text class="sub" x="254.8" y="1016.0" text-anchor="middle">std.nn.activations</text>
 <rect x="183.9" y="1090.0" width="141.8" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
 <text class="label" x="254.8" y="1108.0" text-anchor="middle">down.forward</text>

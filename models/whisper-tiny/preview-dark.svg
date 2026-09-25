@@ -77,15 +77,15 @@
 <rect x="181.1" y="254.0" width="67.4" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
 <text class="label" x="214.8" y="272.0" text-anchor="middle">conv1d</text>
 <text class="sub" x="214.8" y="288.0" text-anchor="middle">whisper</text>
-<rect x="181.1" y="362.0" width="67.4" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
-<text class="label" x="214.8" y="380.0" text-anchor="middle">gelu</text>
-<text class="sub" x="214.8" y="396.0" text-anchor="middle">whisper</text>
+<rect x="147.0" y="362.0" width="135.6" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="214.8" y="380.0" text-anchor="middle">gelu_erf</text>
+<text class="sub" x="214.8" y="396.0" text-anchor="middle">std.nn.activations</text>
 <rect x="181.1" y="470.0" width="67.4" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
 <text class="label" x="214.8" y="488.0" text-anchor="middle">conv1d</text>
 <text class="sub" x="214.8" y="504.0" text-anchor="middle">whisper</text>
-<rect x="181.1" y="578.0" width="67.4" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
-<text class="label" x="214.8" y="596.0" text-anchor="middle">gelu</text>
-<text class="sub" x="214.8" y="612.0" text-anchor="middle">whisper</text>
+<rect x="147.0" y="578.0" width="135.6" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="214.8" y="596.0" text-anchor="middle">gelu_erf</text>
+<text class="sub" x="214.8" y="612.0" text-anchor="middle">std.nn.activations</text>
 <rect x="186.8" y="686.0" width="56.0" height="30.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
 <text class="label" x="214.8" y="705.0" text-anchor="middle">+</text>
 <rect x="60.0" y="780.0" width="225.6" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>

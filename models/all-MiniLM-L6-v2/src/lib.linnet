@@ -7,7 +7,7 @@
 // not learned weights, so `embed` computes them directly.
 module minilm
 
-use std.nn.activations::{gelu}
+use std.nn.activations::{gelu_erf}
 use std.nn.attention::{attention}
 use std.nn.embedding::{embedding}
 use std.nn.linear::{Linear}
@@ -91,7 +91,7 @@ where
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
         let attended = attention_norm.forward(x + attention.forward(x))
-        return output_norm.forward(attended + down.forward(gelu(up.forward(attended))))
+        return output_norm.forward(attended + down.forward(gelu_erf(up.forward(attended))))
     }
 }
 

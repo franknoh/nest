@@ -45,6 +45,13 @@ the values.
 | --- | --- |
 | `forward<B>(image)` | class logits |
 
+## Numerics
+
+The MLP's activation is `std.nn.activations::gelu_erf`, the error-function
+GELU the checkpoint was trained with. Against
+`transformers.ViTForImageClassification` on a fixed random image, in f32,
+the logits differ by at most 1.8e-6 and the predicted class agrees.
+
 ## Provenance
 
 - Weights: [google/vit-base-patch16-224](https://huggingface.co/google/vit-base-patch16-224), Apache-2.0.

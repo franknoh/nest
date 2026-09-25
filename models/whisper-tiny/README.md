@@ -88,24 +88,20 @@ be expressed even if the reference used one.
 
 Whisper's `config.json` asks for plain `gelu`, the error-function form, and
 its encoder applies that activation twice in the convolutional stem before
-any transformer layer runs. `std.nn.activations::gelu` is the tanh
-approximation instead, and substituting it is not free here: it perturbs the
-stem by 2.0e-3 per activation and the four encoder layers amplify that into
-5.7e-2 on the encoder states -- thirty times the tolerance a card should
-need. So the source carries its own GELU, `x * Phi(x)` with the normal
-distribution function from Abramowitz and Stegun 26.2.17, since Linnet has no
-`erf`. It agrees with `F.gelu` to 4.8e-7 in f32 over `[-60, 60]`, against
-4.7e-4 for the tanh form.
+any transformer layer runs. The source uses `std.nn.activations::gelu_erf`.
+The tanh approximation `gelu` would not do here: it perturbs the stem by
+2.0e-3 per activation, and the four encoder layers amplify that into 5.7e-2
+on the encoder states.
 
 Against `WhisperForConditionalGeneration` exactly as published, in f32 on CPU
 with a fixed random mel and the five-token prefix above:
 
 | | max abs diff |
 | --- | --- |
-| encoder states, mel from `N(0, 1)` | 1.2e-4 |
-| encoder states, mel from `U(-1, 1)`, a real log-mel's range | 2.4e-4 |
-| decoder logits, end to end | 2.1e-5 |
-| decoder logits, on the reference's own encoder states | 2.1e-5 |
+| encoder states, mel from `N(0, 1)` | 1.3e-4 |
+| encoder states, mel from `U(-1, 1)`, a real log-mel's range | 3.7e-4 |
+| decoder logits, end to end | 2.8e-5 |
+| decoder logits, on the reference's own encoder states | 2.4e-5 |
 
 The argmax agrees at every position. What remains is f32 rounding, most of it
 the difference between `scaled_dot_product_attention` over 1500 positions and

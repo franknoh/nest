@@ -13,7 +13,7 @@
 //   it is (the reference's interpolation is a no-op exactly there too).
 module dinov2
 
-use std.nn.activations::{gelu}
+use std.nn.activations::{gelu_erf}
 use std.nn.attention::{attention}
 use std.nn.linear::{Linear}
 use std.nn.norm::{layer_norm}
@@ -88,7 +88,7 @@ where
     pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T] {
         let attended = x + layer_scale1.forward(attention.forward(norm1.forward(x)))
         return attended +
-            layer_scale2.forward(down.forward(gelu(up.forward(norm2.forward(attended)))))
+            layer_scale2.forward(down.forward(gelu_erf(up.forward(norm2.forward(attended)))))
     }
 }
 

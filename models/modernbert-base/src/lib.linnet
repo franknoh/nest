@@ -22,6 +22,7 @@
 // its input -- so it is peeled off as `FirstLayer`.
 module modernbert
 
+use std.nn.activations::{gelu_erf}
 use std.nn.attention::{attention}
 use std.nn.embedding::{Embedding}
 use std.nn.linear::{linear}
@@ -81,36 +82,6 @@ op band_mask<Q: Dim, K: Dim, Window: Dim>() -> Tensor[Q, K; bool] {
     let keys = iota<i32>(K)
     let mask[q, k] = abs(keys[k] - queries[q]) <= cast<i32>(Window / 2)
     return mask
-}
-
-// The error function, which is not an intrinsic: Abramowitz and Stegun
-// 7.1.26, a fifth-degree polynomial in `t = 1 / (1 + p|x|)` times
-// `exp(-x^2)`, whose absolute error is at most 1.5e-7 -- below what f32
-// resolves. Written in Horner form because the language has no polynomial
-// helper, and folded around zero because `erf` is odd.
-fn erf<*S: Shape>(x: Tensor[*S; f32]) -> Tensor[*S; f32] {
-    let magnitude = abs(x)
-    let t = 1.0 / (1.0 + 0.3275911 * magnitude)
-    let poly =
-        t *
-        (0.254829592 +
-            t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
-    let folded = 1.0 - poly * exp(-magnitude * magnitude)
-    return select(x < 0.0, -folded, folded)
-}
-
-// GELU in its exact form, `x * Phi(x)`, which is what `hidden_activation:
-// "gelu"` means to the reference implementation.
-//
-// `std.nn.activations::gelu` is the tanh approximation, and the two differ by
-// up to 5e-4 per activation. That is usually an acceptable rounding, but not
-// here: the GeGLU multiplies the activated half by an unbounded gate, and
-// twenty-two residual additions accumulate the result, so using the tanh form
-// moves the last hidden state by 7e-1 -- three orders of magnitude worse than
-// everything else in the model. So the erf form is spelled out.
-op gelu_exact<*S: Shape, T: Float>(x: Tensor[*S; T]) -> Tensor[*S; T] {
-    let xf = cast<f32>(x)
-    return cast<T>(0.5 * xf * (1.0 + erf(xf * 0.70710678118654752)))
 }
 
 // `(cos, sin)` tables of shape `[S, D]`, each frequency repeated across both
@@ -191,7 +162,7 @@ pub block GeGlu<D: Dim, Inner: Dim, T: Float> {
 
     pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
         let fused = up.forward(x)
-        let activated = gelu_exact(fused[..., 0:Inner])
+        let activated = gelu_erf(fused[..., 0:Inner])
         let gate = fused[..., Inner:2 * Inner]
         return down.forward(activated * gate)
     }

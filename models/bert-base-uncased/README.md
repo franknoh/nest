@@ -13,9 +13,10 @@ The checkpoint's `LayerNorm` weight and bias are stored as `gamma` and
 `beta` (an older naming convention this repository predates); `bindings.json`
 maps Linnet's `weight`/`bias` names onto them.
 
-Upstream's `hidden_act` is plain (erf) GELU; the standard library's `gelu`
-is the tanh approximation, so hidden states differ by roughly 1e-3 per
-activation. See "Numerics" below.
+Upstream's `hidden_act` is plain GELU, the error-function form, so the
+source uses `std.nn.activations::gelu_erf` rather than the tanh
+approximation `gelu`. The distinction is not cosmetic: over twelve post-norm
+layers the tanh form moves some tokens' hidden states by 1.8e-1.
 
 ## Loading
 
@@ -47,17 +48,8 @@ batch of one) give exact results; padded batches attend onto the padding.
 
 Validated against `transformers.BertModel` (`AutoModel.from_pretrained`,
 `numerics="fast"`) on CPU in f32, comparing `last_hidden_state` for
-`forward` and `pooler_output` for `pool` on pad-free sentences. Typical
-per-position error is 6e-3 to 1e-2; the reported maximum, 1.8e-1 on
-`forward`, comes from a single token (a period) in one test sentence, where
-the residual stream is unusually sensitive to the tanh-vs-erf GELU gap.
-This was isolated by re-running the published checkpoint through
-`transformers` twice, swapping only the activation function between calls
-(erf vs. the tanh approximation) with every weight held fixed: that
-ablation alone reproduces the same 1.8e-1 outlier at the same token,
-confirming the gap is the documented GELU approximation compounding over
-12 layers, not an architecture difference. `pool` reads only the first
-token, which this outlier does not touch, so its worst case is 5.7e-3.
+`forward` and `pooler_output` for `pool` on pad-free sentences. The maximum
+absolute difference is 3.7e-5 for `forward` and 1.1e-6 for `pool`.
 
 ## Provenance
 

@@ -18,9 +18,9 @@ architecture and go unused by the sentence-transformers pipeline, so this
 card does not bind them. The `embed` entry below computes the two stages
 directly.
 
-Upstream's `hidden_act` is plain (erf) GELU; the standard library's `gelu`
-is the tanh approximation, so hidden states differ by roughly 1e-3 per
-activation. See "Numerics" below.
+Upstream's `hidden_act` is plain GELU, the error-function form, so the
+source uses `std.nn.activations::gelu_erf` rather than the tanh
+approximation `gelu`.
 
 ## Loading
 
@@ -52,15 +52,9 @@ batch does not.
 ## Numerics
 
 Validated against `transformers.AutoModel.from_pretrained` (`numerics=
-"fast"`) for `last_hidden_state`, and against
-`sentence_transformers.SentenceTransformer`, which installed cleanly, for
-the sentence embedding, on CPU in f32 over pad-free sentences. Max abs
-diff on `forward` (`last_hidden_state`) was 3.7e-3 over two test sentences;
-`embed` (mean-pooled, L2-normalized) was 2.5e-4, an order of magnitude
-tighter, since averaging over positions cancels most of the per-position
-tanh-vs-erf GELU noise. With only 6 layers, the gap compounds far less
-than in the 12-layer `bert-base-uncased` and `roberta-base` cards -- see
-their READMEs for an ablation isolating the same cause.
+"fast"`) on CPU in f32 over pad-free sentences: the maximum absolute
+difference is 1.8e-6 on `forward` (`last_hidden_state`) and 1.2e-7 on
+`embed`, the mean-pooled, L2-normalized sentence embedding.
 
 ## Provenance
 
