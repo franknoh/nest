@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "The printing press changed Europe because",
+  "chat": false,
+  "output": "of the printing press.\n\nThe printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The",
+  "reference": "of the printing press.\n\nThe printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The printing press changed Europe because of the printing press. The",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 96,
+  "agreeing_prefix": 96
+}

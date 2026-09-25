@@ -1,0 +1,127 @@
+{
+  "date": "2026-09-25T12:39:16+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 2.667207270860672,
+        "throughput_per_s": 23529.232601520234,
+        "load_s": 1.1808404140174389,
+        "peak_vram_mib": 874.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "unpadded batches of exactly 128 tokens (this card takes no padding mask)",
+      "error": null,
+      "key": "transformers-eager"
+    },
+    {
+      "method": "transformers (torch.compile)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 1.0860152542591095,
+        "throughput_per_s": 47694.037322672884,
+        "load_s": 1.9338654465973377,
+        "peak_vram_mib": 888.0
+      },
+      "max_abs_diff": 0.046875,
+      "notes": "unpadded batches of exactly 128 tokens (this card takes no padding mask)",
+      "error": null,
+      "key": "transformers-compile"
+    },
+    {
+      "method": "sentence-transformers (SentenceTransformer.encode)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 4.445010796189308,
+        "throughput_per_s": 6386.4770649193315,
+        "load_s": 1.6285641081631184,
+        "peak_vram_mib": 820.0
+      },
+      "max_abs_diff": null,
+      "notes": "natural text tokenizing to 65 tokens, identical across the batch (no padding wasted); not the fixed-length random-token workload the other rows use, since this is the library's own string-in interface",
+      "error": null,
+      "key": "sentence-transformers"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 1.6332808881998062,
+        "throughput_per_s": 39992.85147710462,
+        "load_s": 1.1534383967518806,
+        "peak_vram_mib": 860.0
+      },
+      "max_abs_diff": 0.0625,
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 0.9621195495128632,
+        "throughput_per_s": 52970.826308016294,
+        "load_s": 1.0424929708242416,
+        "peak_vram_mib": 964.0
+      },
+      "max_abs_diff": 0.0625,
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 0.7129032164812088,
+        "throughput_per_s": 41958.55934018564,
+        "load_s": 0.31676311045885086,
+        "peak_vram_mib": 1134.0
+      },
+      "max_abs_diff": 0.046875,
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "error": null,
+      "key": "linnet-jax"
+    },
+    {
+      "method": "Linnet ONNX -> ONNX Runtime (CUDAExecutionProvider)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 1.1717714369297028,
+        "throughput_per_s": 14181.795144968273,
+        "load_s": 5.784748900681734,
+        "peak_vram_mib": 1474.0
+      },
+      "max_abs_diff": 0.06287145614624023,
+      "notes": "unpadded batches of exactly 128 tokens; runs in f32, the published checkpoint's own dtype -- export embeds its tensors as initializers as they are, with no cast; optional Linear biases compiled as present (checkpoint-detected)",
+      "error": null,
+      "key": "linnet-onnx"
+    }
+  ],
+  "reference": "transformers-eager"
+}

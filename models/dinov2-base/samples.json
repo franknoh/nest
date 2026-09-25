@@ -1,0 +1,6 @@
+{
+  "kind": "image",
+  "input": "samples/input.png",
+  "output": "samples/output.png",
+  "caption": "a PCA of the patch tokens to 3 components, mapped to RGB and upsampled"
+}

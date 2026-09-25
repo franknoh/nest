@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "Here is a two-sentence explanation:\n\nThe sky appears blue because of a phenomenon called Rayleigh scattering, in which shorter (blue) wavelengths of light are scattered more than longer (red) wavelengths by the tiny molecules of gases in the Earth's atmosphere. As a result, the blue light is dispersed in all directions, reaching our eyes from every part of the sky and giving it its blue color.",
+  "reference": "Here is a two-sentence explanation:\n\nThe sky appears blue because of a phenomenon called Rayleigh scattering, in which shorter (blue) wavelengths of light are scattered more than longer (red) wavelengths by the tiny molecules of gases in the Earth's atmosphere. As a result, the blue light is dispersed in all directions, reaching our eyes from every part of the sky and giving it its blue color.",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 81,
+  "agreeing_prefix": 81
+}

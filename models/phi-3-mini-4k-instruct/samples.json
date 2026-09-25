@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "The sky appears blue due to a phenomenon called Rayleigh scattering, where molecules and small particles in the Earth's atmosphere scatter sunlight in all directions, and blue light is scattered more than other colors because it travels as shorter, smaller waves. This scattered blue light is what we see when we look up at the sky on a clear day.",
+  "reference": "The sky appears blue due to a phenomenon called Rayleigh scattering, where molecules and small particles in the Earth's atmosphere scatter sunlight in all directions, and blue light is scattered more than other colors because it travels as shorter, smaller waves. This scattered blue light is what we see when we look up at the sky on a clear day.",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 76,
+  "agreeing_prefix": 76
+}

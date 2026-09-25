@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "analysisThe user asks: \"Explain in two sentences why the sky is blue.\" They want a concise explanation in exactly two sentences. So we need to produce two sentences. The explanation: Rayleigh scattering of sunlight by air molecules, shorter wavelengths scatter more, so blue dominates. Also mention that the sky appears blue because of scattering of shorter wavelengths. So produce two sentences. Ensure exactly two sentences. Let's craft: \"The sky appears blue because sunlight is scattered by the Earth's",
+  "reference": "analysisThe user asks: \"Explain in two sentences why the sky is blue.\" They want a concise explanation in two sentences. So we need to produce exactly two sentences. The explanation: Rayleigh scattering of sunlight by air molecules, shorter wavelengths scatter more, making sky appear blue. Also mention that the sun's light is white, but blue is scattered. So produce two sentences. Ensure exactly two sentences. Let's craft: \"The sky appears blue because sunlight, which contains",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 96,
+  "agreeing_prefix": 24
+}

@@ -1,0 +1,113 @@
+{
+  "kind": "similarity",
+  "sentences": [
+    "The cat curled up on the warm windowsill and fell asleep in the sun.",
+    "Our new kitten refuses to eat anything except wet food.",
+    "The central bank raised interest rates again to cool inflation.",
+    "She rebalanced her portfolio after the market's sharp swings.",
+    "The function threw an exception when the array index ran out of bounds.",
+    "He refactored the module to remove three copies of the same logic."
+  ],
+  "matrix": [
+    [
+      1.0,
+      0.275979,
+      0.085964,
+      0.051419,
+      0.112605,
+      0.023628
+    ],
+    [
+      0.275979,
+      1.0,
+      -0.049659,
+      0.050696,
+      0.10739,
+      -0.01439
+    ],
+    [
+      0.085964,
+      -0.049659,
+      1.0,
+      0.307588,
+      -0.010309,
+      0.186634
+    ],
+    [
+      0.051419,
+      0.050696,
+      0.307588,
+      1.0,
+      0.088557,
+      0.126785
+    ],
+    [
+      0.112605,
+      0.10739,
+      -0.010309,
+      0.088557,
+      1.0,
+      0.085097
+    ],
+    [
+      0.023628,
+      -0.01439,
+      0.186634,
+      0.126785,
+      0.085097,
+      1.0
+    ]
+  ],
+  "caption": "The card's own `embed` entry: mean-pooled, L2-normalized sentence embeddings.",
+  "reference_matrix": [
+    [
+      1.0,
+      0.274703,
+      0.085527,
+      0.051399,
+      0.112673,
+      0.023784
+    ],
+    [
+      0.274703,
+      1.0,
+      -0.050362,
+      0.04726,
+      0.108435,
+      -0.01416
+    ],
+    [
+      0.085527,
+      -0.050362,
+      1.0,
+      0.306304,
+      -0.011378,
+      0.186581
+    ],
+    [
+      0.051399,
+      0.04726,
+      0.306304,
+      1.0,
+      0.08871,
+      0.125638
+    ],
+    [
+      0.112673,
+      0.108435,
+      -0.011378,
+      0.08871,
+      1.0,
+      0.084571
+    ],
+    [
+      0.023784,
+      -0.01416,
+      0.186581,
+      0.125638,
+      0.084571,
+      1.0
+    ]
+  ],
+  "reference_stack": "sentence-transformers (SentenceTransformer.encode)"
+}

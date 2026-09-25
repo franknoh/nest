@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "The sky appears blue because molecules in the Earth's atmosphere, such as nitrogen and oxygen, scatter sunlight in all directions. However, blue light is scattered more because it has a shorter wavelength and is less energetic, which allows it to be scattered more easily. This scattering of blue light is what we perceive as the blue sky.",
+  "reference": "The sky appears blue because molecules in the Earth's atmosphere, such as nitrogen and oxygen, scatter sunlight in all directions. However, blue light is scattered more because it has a shorter wavelength and is less energetic, which allows it to be scattered more easily. This scattering of blue light is what we perceive as the blue sky.",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 72,
+  "agreeing_prefix": 72
+}

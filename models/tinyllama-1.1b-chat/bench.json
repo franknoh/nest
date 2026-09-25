@@ -1,0 +1,114 @@
+{
+  "date": "2026-09-25T13:46:57+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 16.61776378750801,
+        "decode_tok_s": 65.18554508395991,
+        "load_s": 2.200932890176773,
+        "peak_vram_mib": 2988.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "",
+      "error": null,
+      "key": "transformers-eager"
+    },
+    {
+      "method": "transformers (torch.compile, static cache)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 10.999651625752449,
+        "decode_tok_s": 107.58198112974021,
+        "load_s": 2.715215243399143,
+        "peak_vram_mib": 3038.0
+      },
+      "max_abs_diff": 0.09375,
+      "notes": "",
+      "error": null,
+      "key": "transformers-compile"
+    },
+    {
+      "method": "vLLM",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 11.732157319784164,
+        "decode_tok_s": 597.5764706201994,
+        "load_s": 52.51417067274451,
+        "first_token": 29871.0,
+        "peak_vram_mib": 68726.8
+      },
+      "max_abs_diff": null,
+      "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "vllm"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 11.385850608348846,
+        "decode_tok_s": 86.41258934388205,
+        "load_s": 1.2767010852694511,
+        "peak_vram_mib": 2968.0
+      },
+      "max_abs_diff": 0.125,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 5.463598296046257,
+        "decode_tok_s": 266.2142710274901,
+        "load_s": 1.1722752451896667,
+        "peak_vram_mib": 3126.0
+      },
+      "max_abs_diff": 0.125,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 22.490255534648895,
+        "decode_tok_s": 403.2327612429423,
+        "load_s": 2.071742683649063,
+        "peak_vram_mib": 8816.0
+      },
+      "max_abs_diff": 0.09375,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-jax"
+    }
+  ],
+  "reference": "transformers-eager"
+}

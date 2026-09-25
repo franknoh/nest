@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-25T12:57:29+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 3.761734813451767,
+        "throughput_per_s": 5886.597227590328,
+        "load_s": 6.363330394029617,
+        "peak_vram_mib": 1286.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "",
+      "error": null,
+      "key": "transformers-eager"
+    },
+    {
+      "method": "transformers (torch.compile)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 1.9870679825544357,
+        "throughput_per_s": 7852.193527421412,
+        "load_s": 5.772649526596069,
+        "peak_vram_mib": 1308.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "",
+      "error": null,
+      "key": "transformers-compile"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 4.485664889216423,
+        "throughput_per_s": 6374.036025079315,
+        "load_s": 3.2135329470038414,
+        "peak_vram_mib": 1266.0
+      },
+      "max_abs_diff": 0.015625,
+      "notes": "",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 2.056935802102089,
+        "throughput_per_s": 4959.7183459011285,
+        "load_s": 3.4957884177565575,
+        "peak_vram_mib": 1418.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 2.108100801706314,
+        "throughput_per_s": 2894.1725751981,
+        "load_s": 1.0642212107777596,
+        "peak_vram_mib": 2668.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "bf16, like the torch rows",
+      "error": null,
+      "key": "linnet-jax"
+    },
+    {
+      "method": "Linnet ONNX -> ONNX Runtime",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 2.0947083830833435,
+        "throughput_per_s": 2020.0776059052562,
+        "load_s": 21.097882986068726,
+        "peak_vram_mib": 2358.0
+      },
+      "max_abs_diff": 0.04524040222167969,
+      "notes": "the exporter embeds the checkpoint's own f32 tensors, so this always runs f32",
+      "error": null,
+      "key": "linnet-onnx"
+    }
+  ],
+  "reference": "transformers-eager"
+}

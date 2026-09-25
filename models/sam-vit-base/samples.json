@@ -1,0 +1,6 @@
+{
+  "kind": "image",
+  "input": "samples/input.png",
+  "output": "samples/masks.png",
+  "caption": "A point prompt at (490.0, 170.0) on the right cat: Linnet's mask (left, blue) vs transformers.SamModel's (right, orange). IoU between the two masks: 1.000; predicted IoU, Linnet 0.979, reference 0.979."
+}

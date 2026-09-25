@@ -1,0 +1,6 @@
+{
+  "kind": "transcription",
+  "audio": "hf-internal-testing/librispeech_asr_dummy, clean/validation[0]",
+  "text": "Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel.",
+  "reference_text": "Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel."
+}

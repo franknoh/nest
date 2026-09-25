@@ -1,0 +1,22 @@
+{
+  "kind": "text-to-image",
+  "prompt": "A red fox curled up asleep on a mossy boulder in a misty pine forest at dawn, soft golden light through the trees, dew on the moss, detailed fur, shallow depth of field, wildlife photograph",
+  "output": "samples/linnet.png",
+  "reference_output": "samples/diffusers.png",
+  "caption": "StableDiffusionXLPipeline, 25 steps, 1024x1024, seed 1234, guidance 5.0: once with this card's UNet (Linnet torch) in place of the pipeline's own, once stock. The text encoders, scheduler and VAE are the pipeline's in both.",
+  "backend": "Linnet torch (generated source), bf16, cuda",
+  "reference": "diffusers StableDiffusionXLPipeline (stock UNet), bf16",
+  "steps": 25,
+  "size": [
+    1024,
+    1024
+  ],
+  "seed": 1234,
+  "psnr_db": {
+    "linnet_vs_diffusers": 27.12
+  },
+  "seconds": {
+    "linnet": 4.74,
+    "diffusers": 1.27
+  }
+}

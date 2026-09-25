@@ -1,0 +1,103 @@
+{
+  "date": "2026-09-25T13:31:34+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "diffusers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "step_ms": 53.094927221536636,
+        "load_s": 13.306119322776794,
+        "peak_vram_mib": 6440.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
+      "error": null,
+      "key": "diffusers-eager"
+    },
+    {
+      "method": "diffusers (torch.compile)",
+      "kind": "reference",
+      "metrics": {
+        "step_ms": 38.90383243560791,
+        "load_s": 13.84949665516615,
+        "peak_vram_mib": 6448.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
+      "error": null,
+      "key": "diffusers-compile"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 62.117675319314,
+        "load_s": 22.448555678129196,
+        "peak_vram_mib": 6656.0
+      },
+      "max_abs_diff": 0.015625,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 43.44396851956844,
+        "load_s": 21.780594553798437,
+        "peak_vram_mib": 6576.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 56.82857893407345,
+        "load_s": 22.459892936050892,
+        "peak_vram_mib": 8832.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
+      "error": null,
+      "key": "linnet-jax"
+    },
+    {
+      "method": "Linnet ONNX -> ONNX Runtime",
+      "kind": "linnet",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "not run: the export embeds the f32 checkpoint as published, a 10 GB graph at twice the other rows' precision, so it would not be a like-for-like row",
+      "error": null,
+      "key": "linnet-onnx"
+    }
+  ],
+  "reference": "diffusers-eager"
+}

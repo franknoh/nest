@@ -1,0 +1,62 @@
+{
+  "kind": "similarity",
+  "sentences": [
+    "The cat curled up on the warm windowsill and fell asleep in the sun.",
+    "Our new kitten refuses to eat anything except wet food.",
+    "The central bank raised interest rates again to cool inflation.",
+    "She rebalanced her portfolio after the market's sharp swings.",
+    "The function threw an exception when the array index ran out of bounds.",
+    "He refactored the module to remove three copies of the same logic."
+  ],
+  "matrix": [
+    [
+      1.0,
+      0.921806,
+      0.880466,
+      0.905468,
+      0.894608,
+      0.905349
+    ],
+    [
+      0.921806,
+      1.0,
+      0.875562,
+      0.888944,
+      0.893319,
+      0.894432
+    ],
+    [
+      0.880466,
+      0.875562,
+      1.0,
+      0.927401,
+      0.867407,
+      0.898476
+    ],
+    [
+      0.905468,
+      0.888944,
+      0.927401,
+      1.0,
+      0.882896,
+      0.921987
+    ],
+    [
+      0.894608,
+      0.893319,
+      0.867407,
+      0.882896,
+      1.0,
+      0.915595
+    ],
+    [
+      0.905349,
+      0.894432,
+      0.898476,
+      0.921987,
+      0.915595,
+      1.0
+    ]
+  ],
+  "caption": "Not a trained sentence embedder: the last hidden state, mean-pooled over tokens and L2-normalized by hand, since this checkpoint has no embedding head."
+}

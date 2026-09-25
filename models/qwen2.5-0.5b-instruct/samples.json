@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "The sky is blue because of the scattering of sunlight by tiny particles in the Earth's atmosphere, particularly water vapor and nitrogen oxides. This scattering causes the blue light from the sun to be scattered in all directions, creating the characteristic blue color we see in the sky.",
+  "reference": "The sky is blue because it is a reflection of the sunlight that falls on Earth. The Earth's atmosphere scatters and disperses the sunlight, causing it to be scattered and refracted by the various particles in the atmosphere, resulting in the characteristic blue color of the sky.",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 55,
+  "agreeing_prefix": 5
+}

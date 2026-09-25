@@ -1,0 +1,112 @@
+{
+  "date": "2026-09-25T13:02:21+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "encode_ms": 3.13650444149971,
+        "transcribe_ms": 74.83847253024578,
+        "load_s": 0.5342437103390694,
+        "peak_vram_mib": 930.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "",
+      "error": null,
+      "key": "transformers-eager"
+    },
+    {
+      "method": "transformers (torch.compile, static cache)",
+      "kind": "reference",
+      "metrics": {
+        "encode_ms": 2.2056959569454193,
+        "transcribe_ms": 62.5744741410017,
+        "load_s": 0.8448061868548393,
+        "peak_vram_mib": 1116.0
+      },
+      "max_abs_diff": 0.0008831024169921875,
+      "notes": "",
+      "error": null,
+      "key": "transformers-compile"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 2.813868224620819,
+        "transcribe_ms": 50.80490745604038,
+        "load_s": 0.3594564087688923,
+        "peak_vram_mib": 956.0
+      },
+      "max_abs_diff": 0.07941150665283203,
+      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 2.575177699327469,
+        "transcribe_ms": 49.90416206419468,
+        "load_s": 0.35317839682102203,
+        "peak_vram_mib": 1334.0
+      },
+      "max_abs_diff": 0.07965850830078125,
+      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 1.2742150574922562,
+        "load_s": 0.30287882313132286,
+        "transcribe_ms": 42.21401549875736,
+        "peak_vram_mib": 4804.0
+      },
+      "max_abs_diff": 0.6236057281494141,
+      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "error": null,
+      "key": "linnet-jax"
+    },
+    {
+      "method": "Linnet ONNX -> ONNX Runtime",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 2.0163189619779587,
+        "load_s": 4.675102204084396,
+        "peak_vram_mib": 1196.0
+      },
+      "max_abs_diff": 0.750401496887207,
+      "notes": "encoder only: decode's shape grows every step with no cache, so it is not exported",
+      "error": null,
+      "key": "linnet-onnx"
+    }
+  ],
+  "reference": "transformers-eager"
+}

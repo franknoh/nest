@@ -1,0 +1,98 @@
+{
+  "date": "2026-09-25T14:27:12+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 43.712787330150604,
+        "decode_tok_s": 38.04684105641538,
+        "load_s": 117.74465833604336,
+        "peak_vram_mib": 41382.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "eager attention: no SDPA for this architecture",
+      "error": null,
+      "key": "transformers-eager"
+    },
+    {
+      "method": "transformers (torch.compile, static cache)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 26.456788182258606,
+        "decode_tok_s": 98.112646792392,
+        "load_s": 131.16866621002555,
+        "peak_vram_mib": 41280.0
+      },
+      "max_abs_diff": 0.203125,
+      "notes": "eager attention: no SDPA for this architecture",
+      "error": null,
+      "key": "transformers-compile"
+    },
+    {
+      "method": "vLLM",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 12.701768428087234,
+        "decode_tok_s": 303.01944862087623,
+        "load_s": 95.55397436767817,
+        "first_token": 220.0,
+        "peak_vram_mib": 70788.8
+      },
+      "max_abs_diff": null,
+      "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "vllm"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 807.045966386795,
+        "load_s": 3.1021024882793427,
+        "peak_vram_mib": 20004.0
+      },
+      "max_abs_diff": 0.1953125,
+      "notes": "the card has no KV-cache entries, so only the first token is timed",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 84.58547294139862,
+        "load_s": 2.9778531454503536,
+        "peak_vram_mib": 17604.0
+      },
+      "max_abs_diff": 0.048828125,
+      "notes": "the card has no KV-cache entries, so only the first token is timed",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    }
+  ],
+  "reference": "transformers-eager"
+}

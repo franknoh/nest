@@ -1,0 +1,14 @@
+{
+  "kind": "image",
+  "input": "samples/input.png",
+  "output": "samples/output.png",
+  "caption": "A COCO val2017 photo (512x512) encoded to a 64x64x4 latent by diffusers' AutoencoderKL encoder (Linnet implements only the decoder), then decoded by this card with Linnet torch in bf16.",
+  "source": "http://images.cocodataset.org/val2017/000000039769.jpg",
+  "backend": "Linnet torch (generated source), bf16, cuda",
+  "psnr_db": {
+    "linnet_vs_input": 23.29,
+    "diffusers_vs_input": 23.29,
+    "linnet_vs_diffusers": 54.82
+  },
+  "reference": "diffusers AutoencoderKL.decode, bf16"
+}

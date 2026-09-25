@@ -1,0 +1,110 @@
+{
+  "date": "2026-09-25T13:23:52+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "diffusers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 22.4246084690094,
+        "throughput_per_s": 65.60269179898705,
+        "load_s": 7.425287559628487,
+        "peak_vram_mib": 9156.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
+      "error": null,
+      "key": "diffusers-eager"
+    },
+    {
+      "method": "diffusers (torch.compile)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 10.770866647362709,
+        "throughput_per_s": 108.31523053868159,
+        "load_s": 7.308876544237137,
+        "peak_vram_mib": 7572.0
+      },
+      "max_abs_diff": 0.033203125,
+      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
+      "error": null,
+      "key": "diffusers-compile"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 28.423136100172997,
+        "load_s": 1.2419853061437607,
+        "throughput_per_s": 39.34728032046868,
+        "peak_vram_mib": 12512.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 14.756785705685616,
+        "load_s": 1.353365246206522,
+        "throughput_per_s": 89.5376230680026,
+        "peak_vram_mib": 6570.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 7.530886679887772,
+        "throughput_per_s": 171.6838833934971,
+        "load_s": 0.5248654745519161,
+        "peak_vram_mib": 8822.0
+      },
+      "max_abs_diff": 0.0439453125,
+      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
+      "error": null,
+      "key": "linnet-jax"
+    },
+    {
+      "method": "linnet-onnx",
+      "kind": "linnet",
+      "metrics": {
+        "peak_vram_mib": 76618.0
+      },
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned while running Concat node. Name:'' Status Message: CUDA error cudaErrorInvalidValue:invalid argument",
+      "key": "linnet-onnx"
+    }
+  ],
+  "reference": "diffusers-eager"
+}

@@ -1,0 +1,122 @@
+{
+  "date": "2026-09-25T12:43:27+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "x86_64",
+    "torch": "2.14.0",
+    "jax": "0.11.2",
+    "transformers": "5.17.0",
+    "diffusers": "0.40.0",
+    "onnxruntime": "1.30.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpus": "1",
+    "driver": "580.126.09"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 4.93999756872654,
+        "throughput_per_s": 10444.864123928832,
+        "load_s": 1.2937820181250572,
+        "peak_vram_mib": 1186.0
+      },
+      "max_abs_diff": 0.0,
+      "notes": "unpadded batches of exactly 128 tokens (this card takes no padding mask)",
+      "error": null,
+      "key": "transformers-eager"
+    },
+    {
+      "method": "transformers (torch.compile)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 1.9644182175397873,
+        "throughput_per_s": 12269.428987996507,
+        "load_s": 2.25875336304307,
+        "peak_vram_mib": 1166.0
+      },
+      "max_abs_diff": 0.125,
+      "notes": "unpadded batches of exactly 128 tokens (this card takes no padding mask)",
+      "error": null,
+      "key": "transformers-compile"
+    },
+    {
+      "method": "sentence-transformers (SentenceTransformer.encode)",
+      "kind": "reference",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "offered only for all-MiniLM-L6-v2, the sentence-transformers checkpoint",
+      "error": null,
+      "key": "sentence-transformers"
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 2.612583339214325,
+        "throughput_per_s": 11814.859591909717,
+        "load_s": 1.6441251188516617,
+        "peak_vram_mib": 1132.0
+      },
+      "max_abs_diff": 0.15625,
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "error": null,
+      "key": "linnet-torch"
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 1.3512931764125824,
+        "throughput_per_s": 15231.28517739972,
+        "load_s": 2.1971573531627655,
+        "peak_vram_mib": 1172.0
+      },
+      "max_abs_diff": 0.125,
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "error": null,
+      "key": "linnet-cudagraphs"
+    },
+    {
+      "method": "Linnet JAX (XLA, gpu)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 0.9155906736850739,
+        "throughput_per_s": 12861.941714297265,
+        "load_s": 0.6365881115198135,
+        "peak_vram_mib": 2670.0
+      },
+      "max_abs_diff": 0.15625,
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "error": null,
+      "key": "linnet-jax"
+    },
+    {
+      "method": "Linnet ONNX -> ONNX Runtime (CUDAExecutionProvider)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 1.6069170087575912,
+        "throughput_per_s": 4585.930850683304,
+        "load_s": 16.2384560033679,
+        "peak_vram_mib": 3510.0
+      },
+      "max_abs_diff": 0.08825016021728516,
+      "notes": "unpadded batches of exactly 128 tokens; runs in f32, the published checkpoint's own dtype -- export embeds its tensors as initializers as they are, with no cast; optional Linear biases compiled as present (checkpoint-detected)",
+      "error": null,
+      "key": "linnet-onnx"
+    }
+  ],
+  "reference": "transformers-eager"
+}

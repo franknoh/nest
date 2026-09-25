@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "<think>\nOkay, the user wants to know why the sky is blue in two sentences. Let me start by recalling the basic explanation. The sky appears blue because of Rayleigh scattering. Sunlight, which is white, is made up of different colors, each with different wavelengths. When sunlight enters Earth's atmosphere, the shorter wavelengths (like blue and violet) scatter more than the longer ones (like red and yellow). \n\nWait, but why blue and not violet? Oh right",
+  "reference": "<think>\nOkay, the user wants to know why the sky is blue in two sentences. Let me start by recalling the basic explanation. The sky appears blue because of Rayleigh scattering. Sunlight, which is white, is made up of different colors, each with different wavelengths. When sunlight enters Earth's atmosphere, the shorter wavelengths (like blue and violet) scatter more than the longer ones (like red and yellow). \n\nWait, but why blue and not violet? Oh right",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 96,
+  "agreeing_prefix": 96
+}

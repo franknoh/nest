@@ -1,0 +1,49 @@
+{
+  "kind": "classification",
+  "image": "samples/input.png",
+  "top": [
+    {
+      "label": "Egyptian cat",
+      "p": 0.9374895691871643
+    },
+    {
+      "label": "tabby, tabby cat",
+      "p": 0.03842123597860336
+    },
+    {
+      "label": "tiger cat",
+      "p": 0.014402344822883606
+    },
+    {
+      "label": "lynx, catamount",
+      "p": 0.0032747352961450815
+    },
+    {
+      "label": "Siamese cat, Siamese",
+      "p": 0.0006791073246859014
+    }
+  ],
+  "reference": [
+    {
+      "label": "Egyptian cat",
+      "p": 0.9374894499778748
+    },
+    {
+      "label": "tabby, tabby cat",
+      "p": 0.038421303033828735
+    },
+    {
+      "label": "tiger cat",
+      "p": 0.014402370899915695
+    },
+    {
+      "label": "lynx, catamount",
+      "p": 0.0032747364602983
+    },
+    {
+      "label": "Siamese cat, Siamese",
+      "p": 0.000679106917232275
+    }
+  ],
+  "reference_stack": "transformers (eager, fp32)"
+}

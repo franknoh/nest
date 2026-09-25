@@ -1,0 +1,49 @@
+{
+  "kind": "classification",
+  "image": "samples/input.png",
+  "top": [
+    {
+      "label": "tabby, tabby cat",
+      "p": 0.6031150817871094
+    },
+    {
+      "label": "Egyptian cat",
+      "p": 0.30430248379707336
+    },
+    {
+      "label": "tiger cat",
+      "p": 0.08754804730415344
+    },
+    {
+      "label": "lynx, catamount",
+      "p": 0.0017645600019022822
+    },
+    {
+      "label": "tiger, Panthera tigris",
+      "p": 0.0005033357301726937
+    }
+  ],
+  "reference": [
+    {
+      "label": "tabby, tabby cat",
+      "p": 0.6031150817871094
+    },
+    {
+      "label": "Egyptian cat",
+      "p": 0.30430248379707336
+    },
+    {
+      "label": "tiger cat",
+      "p": 0.08754804730415344
+    },
+    {
+      "label": "lynx, catamount",
+      "p": 0.0017645600019022822
+    },
+    {
+      "label": "tiger, Panthera tigris",
+      "p": 0.0005033357301726937
+    }
+  ],
+  "reference_stack": "transformers (eager, fp32)"
+}

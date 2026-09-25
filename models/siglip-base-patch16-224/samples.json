@@ -1,0 +1,32 @@
+{
+  "kind": "similarity",
+  "images": [
+    "samples/input.png"
+  ],
+  "sentences": [
+    "a photo of two cats",
+    "a photo of a dog",
+    "a photo of a remote control",
+    "a photo of a person",
+    "a photo of a pizza"
+  ],
+  "matrix": [
+    [
+      0.27025106549263,
+      4.2607797468008357e-07,
+      2.1277315681800246e-05,
+      1.4148913152212117e-09,
+      1.5716344137217675e-07
+    ]
+  ],
+  "reference": [
+    [
+      0.27025070786476135,
+      4.2607393879734445e-07,
+      2.127709194610361e-05,
+      1.4148752169873546e-09,
+      1.571640382280748e-07
+    ]
+  ],
+  "reference_stack": "transformers SiglipModel (eager, fp32)"
+}
