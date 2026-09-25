@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms
+from bench.methods import stacks
+from bench.methods.stacks import Adapter
 
 LATENCY_BATCH = 1
 THROUGHPUT_BATCH = 64
@@ -313,12 +315,36 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     )
 
 
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    import numpy as np
-    import onnxruntime as ort
+def linnet_onnx_export(data: dict[str, Any], batch: int) -> tuple[Any, str]:
+    """The card's `forward` as ONNX at one batch size, and how its optional
+    biases were compiled. The Q/K/V/output and MLP `Linear` blocks declare
+    their bias optional (`std.nn.linear::Linear`); a static ONNX graph picks
+    one branch at export time. Every card here has the biases in its
+    checkpoint (ModernBERT's source never declares them, so this is a no-op
+    for it), so "present" comes first and "absent" only if the checkpoint
+    disagrees."""
     from linnet.compiler import LinnetError
     from linnet.nest import Card, download_weights
     from linnet.onnx import export_model
+
+    card = Card.read(data["directory"])
+    kwargs: dict[str, Any] = {
+        "generics": {**data["generics"], "B": batch, "S": seq_len(data)},
+        "weights": download_weights(card),
+        "entry": card.entry,
+        "root": card.root,
+        "bindings": card.bindings_path,
+        "numerics": "fast",
+    }
+    try:
+        return export_model(card.source_path, optionals="present", **kwargs), "present"
+    except LinnetError:
+        return export_model(card.source_path, optionals="absent", **kwargs), "absent"
+
+
+def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+    import numpy as np
+    import onnxruntime as ort
 
     device = workload.get("device", "cuda")
     seq = seq_len(data)
@@ -331,32 +357,11 @@ def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         else ["CPUExecutionProvider"]
     )
 
-    card = Card.read(data["directory"])
-    weights = download_weights(card)
-
-    # The Q/K/V/output and MLP `Linear` blocks declare their bias optional
-    # (`std.nn.linear::Linear`); a static ONNX graph has to pick one branch
-    # at export time, and the default is to compile it out. Every card here
-    # actually has bias tensors in its checkpoint (ModernBERT's source never
-    # populates the field at all, so this is a no-op for it), so ask for
-    # "present" first and only fall back if a checkpoint genuinely disagrees.
     optionals = "present"
 
     def build(batch: int) -> tuple[Any, list[str]]:
         nonlocal optionals
-        kwargs: dict[str, Any] = {
-            "generics": {**data["generics"], "B": batch, "S": seq},
-            "weights": weights,
-            "entry": card.entry,
-            "root": card.root,
-            "bindings": card.bindings_path,
-            "numerics": "fast",
-        }
-        try:
-            exported = export_model(card.source_path, optionals=optionals, **kwargs)
-        except LinnetError:
-            optionals = "absent"
-            exported = export_model(card.source_path, optionals=optionals, **kwargs)
+        exported, optionals = linnet_onnx_export(data, batch)
         session = ort.InferenceSession(exported.model.SerializeToString(), providers=providers)
         return session, [port.name for port in exported.inputs]
 
@@ -392,6 +397,72 @@ def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     )
 
 
+# ------------------------------------------------- ONNX, Triton, KerasHub
+
+
+def adapter(data: dict[str, Any], workload: dict[str, Any]) -> Adapter:
+    """This family for the shared rows in `bench.methods.stacks`: the
+    reference's last hidden state, from unpadded token ids (and zero segment
+    ids where the card has them)."""
+    import numpy as np
+
+    seq = seq_len(data)
+    types = has_token_types(data)
+
+    def reference(device: str) -> Any:
+        import torch
+        from transformers import AutoModel
+
+        model = AutoModel.from_pretrained(
+            data["weights"]["repo"], torch_dtype=torch.float32, attn_implementation="eager"
+        )
+
+        class Hidden(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.model = model
+
+            def forward(self, ids: Any, segments: Any = None) -> Any:
+                kwargs = {} if segments is None else {"token_type_ids": segments.long()}
+                return self.model(ids.long(), **kwargs).last_hidden_state
+
+        return Hidden().to(device).eval()
+
+    def inputs(batch: int) -> list[Any]:
+        ids = np.asarray(random_ids(data, workload, batch, seq), dtype=np.int32)
+        return [ids, np.zeros_like(ids)] if types else [ids]
+
+    return Adapter(
+        reference=reference,
+        inputs=inputs,
+        linnet=lambda batch: linnet_onnx_export(data, batch)[0],
+        save=lambda method, out: save_output(workload, method, np.asarray(out)[0]),
+        batches=(LATENCY_BATCH, THROUGHPUT_BATCH),
+        note=f"unpadded batches of exactly {seq} tokens",
+    )
+
+
+def _keras_load(keras_hub: Any, data: dict[str, Any]) -> Any:
+    return keras_hub.models.Backbone.from_preset(
+        f"hf://{data['weights']['repo']}", dtype="bfloat16"
+    )
+
+
+def _keras_call(model: Any, arrays: list[Any]) -> Any:
+    import numpy as np
+
+    ids = arrays[0]
+    feed = {"token_ids": ids, "padding_mask": np.ones_like(ids, dtype=bool)}
+    if "segment_ids" in getattr(model, "input", {}):
+        feed["segment_ids"] = arrays[1] if len(arrays) > 1 else np.zeros_like(ids)
+    return model.predict_on_batch(feed)["sequence_output"]
+
+
+# Card families KerasHub converts from a Transformers checkpoint (BERT and
+# RoBERTa, the MiniLM sentence encoder among them); ModernBERT it does not.
+KERAS_FAMILIES = {"bert"}
+
+
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "transformers-eager": _transformers(compiled=False),
     "transformers-compile": _transformers(compiled=True),
@@ -400,7 +471,25 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
     "linnet-jax": linnet_jax,
     "linnet-onnx": linnet_onnx,
+    "keras-hub": stacks.keras_hub(adapter, _keras_load, _keras_call),
+    "onnx-reference": stacks.onnx_reference(adapter),
+    "triton-onnx": stacks.triton(adapter, linnet=False),
+    "triton-linnet-onnx": stacks.triton(adapter, linnet=True),
 }
+
+
+def methods_for(data: dict[str, Any]) -> list[str]:
+    """Every method but KerasHub where it has no converter for the card, and
+    sentence-transformers where the checkpoint is not one of its models."""
+    chosen = []
+    for name in METHODS:
+        if name == "keras-hub" and data["model"].get("family") not in KERAS_FAMILIES:
+            continue
+        if name == "sentence-transformers" and not is_sentence_embedder(data):
+            continue
+        chosen.append(name)
+    return chosen
+
 
 REFERENCE = "transformers-eager"
 

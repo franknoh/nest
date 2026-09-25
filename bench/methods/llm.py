@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms
+from bench.methods.serving import METHODS as SERVING
 
 SAFE_TOKENS = (100, 20000)  # ordinary vocabulary, clear of special tokens
 
@@ -319,46 +320,32 @@ def _linnet_torch(
 
 
 def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    """The StableHLO export under XLA. Both entries share one copy of the
-    weights on the device: `linnet.jax` takes parameters as arguments."""
+    """The entries as XLA programs over one copy of the weights on the
+    device (`linnet.jax.load_model`), the caches kept there and donated to
+    each step so they are updated in place."""
     import statistics
 
     import jax
     import jax.numpy as jnp
     from linnet import nest
-    from linnet.jax import load as load_jax
 
     generics = cache_generics(data, max_seq(workload))
     start = time.perf_counter()
-    prefill = nest.load(
-        data["directory"], backend="jax", entry="prefill", generics=generics, cast_dtype=True
-    )
-    # The second entry reuses the first one's arrays, already bound by path
-    # and on the device, so the weights are not read or placed twice.
-    decode = load_jax(
-        Path(data["directory"]) / data["source"]["path"],
-        generics=prefill.generics,
-        weights=prefill.weights,
-        root=prefill.root,
-        entry="decode",
-        cast_dtype=True,
-    )
+    model = nest.load(data["directory"], backend="jax_model", generics=generics, cast_dtype=True)
     load_s = time.perf_counter() - start
     ids = jnp.asarray([prompt_ids(data, workload)], dtype=jnp.int32)
     new = int(workload["new_tokens"])
     length = ids.shape[1]
 
-    def first() -> tuple[Any, Any]:
-        logits, state = prefill(ids, jnp.int32(0))
-        return logits, state
+    def first() -> Any:
+        return model.run_entry("prefill", [ids, jnp.int32(0)])
 
     def generate() -> float:
-        logits, state = first()
-        token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
+        token = jnp.argmax(first(), -1).reshape(1, 1).astype(jnp.int32)
         jax.block_until_ready(token)
         begin = time.perf_counter()
         for step in range(new - 1):
-            logits, state = decode(token, jnp.int32(length + step), state=state)
+            logits = model.run_entry("decode", [token, jnp.int32(length + step)])
             token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
         jax.block_until_ready(token)
         return (new - 1) / (time.perf_counter() - begin)
@@ -366,18 +353,85 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     for _ in range(int(workload["warmup"])):
         generate()
     ttft = median_ms(
-        lambda: jax.block_until_ready(jnp.argmax(first()[0], -1)),
+        lambda: jax.block_until_ready(jnp.argmax(first(), -1)),
         lambda: None,
         0,
         int(workload["iters"]),
     )
     rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
-    save_logits(workload, "linnet-jax", jax.device_get(first()[0])[0])
+    save_logits(workload, "linnet-jax", jax.device_get(first())[0])
     return Result(
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
         {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
         notes=f"KV cache compiled for {max_seq(workload)} positions",
+    )
+
+
+# HF model types KerasHub converts from a Transformers checkpoint, by card
+# family; the others have no JAX implementation that loads their checkpoint.
+KERAS_FAMILIES = {"llama", "qwen2", "qwen3", "gpt2", "gpt_oss"}
+
+
+def keras_hub(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+    """KerasHub on its JAX backend: the maintained JAX implementation of
+    these architectures, loading the same Transformers checkpoint. Its
+    `generate` is one XLA program over a fixed-length buffer, so the first
+    token is timed as a generation of one token and the decode rate from a
+    generation of all of them."""
+    import os
+    import statistics
+
+    os.environ.setdefault("KERAS_BACKEND", "jax")
+    import jax
+
+    # Before KerasHub: it imports TensorFlow, whose CUDA 12 libraries, loaded
+    # first, leave JAX's CUDA 13 plugin unable to start -- it then runs on
+    # the CPU without saying so.
+    jax.devices()
+    import keras_hub  # type: ignore[import-not-found]
+    import numpy as np
+
+    new = int(workload["new_tokens"])
+    start = time.perf_counter()
+    lm = keras_hub.models.CausalLM.from_preset(f"hf://{data['weights']['repo']}", dtype="bfloat16")
+    lm.preprocessor = None
+    lm.compile(sampler="greedy")
+    load_s = time.perf_counter() - start
+    ids = prompt_ids(data, workload)
+
+    def inputs(extra: int) -> dict[str, Any]:
+        width = len(ids) + extra
+        tokens = np.zeros((1, width), dtype="int32")
+        tokens[0, : len(ids)] = ids
+        mask = np.zeros((1, width), dtype=bool)
+        mask[0, : len(ids)] = True
+        return {"token_ids": tokens, "padding_mask": mask}
+
+    one, whole = inputs(1), inputs(new)
+
+    def timed(batch: dict[str, Any]) -> float:
+        begin = time.perf_counter()
+        out = lm.generate(batch, stop_token_ids=None)
+        jax.block_until_ready(out["token_ids"])
+        return (time.perf_counter() - begin) * 1e3
+
+    for _ in range(int(workload["warmup"])):
+        timed(one)
+        timed(whole)
+    ttft = statistics.median(timed(one) for _ in range(int(workload["iters"])))
+    total = statistics.median(timed(whole) for _ in range(max(3, int(workload["iters"]) // 3)))
+    logits = lm(
+        {
+            "token_ids": one["token_ids"][:, : len(ids)],
+            "padding_mask": one["padding_mask"][:, : len(ids)],
+        }
+    )
+    save_logits(workload, "keras-hub", np.asarray(logits[0, len(ids) - 1], dtype="float32"))
+    return Result(
+        "KerasHub (JAX)",
+        "reference",
+        {"ttft_ms": ttft, "decode_tok_s": (new - 1) / ((total - ttft) / 1e3), "load_s": load_s},
     )
 
 
@@ -508,21 +562,37 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "linnet-gpus": _linnet_torch(True, placement="gpus"),
     "linnet-offload": _linnet_torch(True, placement="offload"),
     "linnet-jax": linnet_jax,
+    "keras-hub": keras_hub,
+    **SERVING,
 }
 
 REFERENCE = "transformers-eager"
 
 
 def methods_for(data: dict[str, Any]) -> list[str]:
-    """Every method, less the ones a card cannot take part in: without
-    KV-cache entries (gpt-oss here) the JAX path, which is built around
-    `prefill` and `decode`, has nothing to run."""
+    """Every method, less the ones a card cannot take part in: the JAX path
+    needs `prefill` and `decode`, the serving rows `prefill_slot` and
+    `decode_rows`, and KerasHub a converter for the checkpoint's
+    architecture."""
     source = Path(data["directory"]) / data["source"]["path"]
     sources = [source] if source.is_file() else sorted(source.parent.glob("*.linnet"))
     text = "".join(path.read_text(encoding="utf-8") for path in sources)
     cached = "entry prefill" in text
+    serving = "entry decode_rows" in text
+    keras = data["model"].get("family") in KERAS_FAMILIES
     # Placement rows are opt-in (`--methods`): they need a second GPU or a
     # deliberately starved one, and say something about Linnet rather than
     # about each model.
     optional = {"linnet-gpus", "linnet-offload"}
-    return [name for name in METHODS if name not in optional and (cached or name != "linnet-jax")]
+    chosen: list[str] = []
+    for name in METHODS:
+        if name in optional:
+            continue
+        if name == "linnet-jax" and not cached:
+            continue
+        if name.startswith("serve-linnet") and not serving:
+            continue
+        if name in ("keras-hub", "serve-keras-hub") and not keras:
+            continue
+        chosen.append(name)
+    return chosen

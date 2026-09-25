@@ -36,6 +36,8 @@ Every name, shape, and dtype is checked before anything runs.
 | `next_token<B, S>(tokens)` | logits for the last position |
 | `decode(token, pos)` | one token through the KV caches (`Batch = 1`, `MaxSeq = 32768`) |
 | `prefill<S>(tokens, pos)` | a whole prompt through the KV caches in one pass; logits after its last token, `decode` continues at `pos + S` |
+| `prefill_slot<S>(tokens, slot, length)` | one request's prompt into row `slot` of the caches (padded to `S`, the first `length` tokens real), as it joins a batch being served |
+| `decode_rows(tokens, positions)` | one token for every row of the caches, each at its own position: the step `linnet.serve` takes for continuous batching |
 | `generate<Steps>(token, pos)` | greedy decoding in the graph |
 | `sample<Steps>(token, pos, key, temperature)` | sampling with `std.random` |
 | `generate_until<MaxNew>(token, pos, eos)` | decoding until an end token |

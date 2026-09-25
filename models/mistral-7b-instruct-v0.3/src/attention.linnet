@@ -8,13 +8,15 @@
 // the block's `Batch` and `MaxSeq`: the block assigns them, the runtime
 // keeps them between calls, and graph exports thread them in and out.
 // `prefill` is `decode` for a whole prompt: every position in one pass.
+// `decode_rows` and `prefill_slot` serve many requests at once: each row of
+// the caches belongs to one request, at its own length.
 module llama.attention
 
 use crate.rope::{THETA, tables}
-use std.nn.attention::{causal_mask, grouped_attention}
-use std.nn.cache::{write_at, write_span}
+use std.nn.attention::{causal_mask, grouped_attention, grouped_attention_rows}
+use std.nn.cache::{write_at, write_rows, write_slot, write_span}
 use std.nn.linear::{Linear}
-use std.nn.rope::{rope}
+use std.nn.rope::{rope, rope_rows}
 
 pub block GroupedQueryAttention<H: Dim, Heads: Dim, KvHeads: Dim, Batch: Dim, MaxSeq: Dim, T: Float>
 where
@@ -119,6 +121,75 @@ where
         let seen[i, s] = positions[s] <= pos + queries[i]
         let mixed = grouped_attention(q, cache_k, cache_v, rsqrt(cast<f32>(H / Heads)), some(seen))
         return o_proj.forward(merge_heads<Batch, S, Heads, H / Heads, T>(mixed))
+    }
+
+    // One new position per sequence, each at its own `positions[b]`: the
+    // step a server takes for every request it is decoding together. Row `b`
+    // of the caches is written at `positions[b]`, and its query attends over
+    // that row up to there.
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
+        let cos_at[b, d] = cos_table[cast<i64>(positions[b]), d]
+        let sin_at[b, d] = sin_table[cast<i64>(positions[b]), d]
+        let cos_rows = reshape(cos_at, [Batch, 1, H / Heads])
+        let sin_rows = reshape(sin_at, [Batch, 1, H / Heads])
+        let q = rope_rows(
+            split_heads<Batch, 1, Heads, H / Heads, T>(q_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let k = rope_rows(
+            split_heads<Batch, 1, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let v = split_heads<Batch, 1, KvHeads, H / Heads, T>(v_proj.forward(x))
+        cache_k = write_rows(cache_k, k, positions)
+        cache_v = write_rows(cache_v, v, positions)
+        let slots = iota<i32>(MaxSeq)
+        let seen[b, s] = slots[s] <= positions[b]
+        let mixed = grouped_attention_rows(
+            q,
+            cache_k,
+            cache_v,
+            rsqrt(cast<f32>(H / Heads)),
+            reshape(seen, [Batch, 1, MaxSeq]),
+        )
+        return o_proj.forward(merge_heads<Batch, 1, Heads, H / Heads, T>(mixed))
+    }
+
+    // One request's prompt of `S` tokens, from its first position, into row
+    // `slot` of the caches: its keys and values fill that row, and its
+    // queries attend causally among themselves. The rest of the row keeps
+    // what an earlier request left there; decoding never reads past its own
+    // position, so nothing needs clearing.
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let (cos_table, sin_table) = tables<S, H / Heads, T>(THETA)
+        let q = rope(
+            split_heads<1, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            cos_table,
+            sin_table,
+        )
+        let k = rope(
+            split_heads<1, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            cos_table,
+            sin_table,
+        )
+        let v = split_heads<1, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        cache_k = write_slot(cache_k, k, slot, 0)
+        cache_v = write_slot(cache_v, v, slot, 0)
+        let mixed = grouped_attention(
+            q,
+            k,
+            v,
+            rsqrt(cast<f32>(H / Heads)),
+            some(causal_mask<S, S>()),
+        )
+        return o_proj.forward(merge_heads<1, S, Heads, H / Heads, T>(mixed))
     }
 }
 

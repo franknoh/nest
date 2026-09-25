@@ -63,6 +63,18 @@ def main() -> None:
         default=8.0,
         help="the GPU cap for `linnet-offload`, so part of the model streams from the host",
     )
+    parser.add_argument("--serve-requests", type=int, default=256, help="requests per serving run")
+    parser.add_argument(
+        "--serve-concurrency", type=int, default=64, help="most requests in flight when serving"
+    )
+    parser.add_argument("--serve-prompt-min", type=int, default=128)
+    parser.add_argument("--serve-prompt-max", type=int, default=512)
+    parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
+    parser.add_argument(
+        "--output",
+        help="write bench.json here instead of beside the card (a dry run that must not "
+        "replace published numbers)",
+    )
     parser.add_argument(
         "--samples",
         choices=("also", "only", "skip"),
@@ -96,6 +108,11 @@ def main() -> None:
             "workdir": str(workdir),
             "seed": 0,
             "offload_gib": args.offload_gib,
+            "serve_requests": args.serve_requests,
+            "serve_concurrency": args.serve_concurrency,
+            "serve_prompt_min": args.serve_prompt_min,
+            "serve_prompt_max": args.serve_prompt_max,
+            "serve_new": args.serve_new,
         }
         results: list[Result] = []
         keys: dict[str, str] = {}
@@ -127,7 +144,13 @@ def main() -> None:
                 key = row.get("key", "")
                 kept.append(fresh.pop(key) if key in fresh else Result(**row))
             results = kept + list(fresh.values())
-        path = write(model, public, results, {"reference": family.REFERENCE})
+        path = write(
+            model,
+            public,
+            results,
+            {"reference": family.REFERENCE},
+            Path(args.output) if args.output else None,
+        )
         print(f"[{model}] wrote {path}", flush=True)
 
 

@@ -14,11 +14,17 @@
 // attention (`layer_types` in config.json). `window_mask` covers both: the
 // window is a runtime bound, and a bound at least as large as the key length
 // leaves plain causal attention.
+//
+// `decode`, `prefill`, `decode_rows`, and `prefill_slot` keep the keys and
+// values in two `state` caches of `MaxSeq` positions per row, as the other
+// decoders in the zoo do; a sliding-window layer still caches every position
+// and masks all but the last `window` of them.
 module gpt_oss.attention
 
 use crate.rope::{tables}
+use std.nn.cache::{write_at, write_rows, write_slot, write_span}
 use std.nn.linear::{Linear}
-use std.nn.rope::{rope}
+use std.nn.rope::{rope, rope_rows}
 
 // Keys at or before each query position and no further back than `window`
 // positions, counting the query itself. `K - Q` aligns the query block with
@@ -32,7 +38,8 @@ pub fn window_mask<Q: Dim, K: Dim>(window: i32) -> Tensor[Q, K; bool] {
 }
 
 // Scaled dot-product attention over `Hk` key/value heads shared by `Hq` query
-// heads, with one sink logit per query head.
+// heads, with one sink logit per query head. The mask is per sequence
+// (`[B, Q, K]`): rows of a batch being served sit at different positions.
 //
 // The softmax runs over the `K` masked scores and the sink together -- the
 // maximum subtracted for stability is the maximum of both -- and the sink's
@@ -53,7 +60,7 @@ pub op sink_attention<
     value: Tensor[B, Hk, K, D; T],
     sinks: Tensor[Hq; T],
     scale: f32,
-    mask: Tensor[Q, K; bool],
+    mask: Tensor[B, Q, K; bool],
 ) -> Tensor[B, Hq, Q, D; T]
 where
     Hk > 0,
@@ -69,7 +76,7 @@ where
     )
     let score[b, h, q, k] = sum<f32>[d] cast<f32>(query[b, h, q, d]) * cast<f32>(keys[b, h, k, d])
     let scaled = score * scale
-    let masked = select(mask, scaled, fill<f32>([Q, K], -1e30))
+    let masked[b, h, q, k] = select(mask[b, q, k], scaled[b, h, q, k], -1e30)
     let sink = cast<f32>(sinks)
     let key_peak[b, h, q] = max[k] masked[b, h, q, k]
     let peak[b, h, q] = max(key_peak[b, h, q], sink[h])
@@ -84,12 +91,21 @@ where
 // gpt-oss puts a bias on all four projections (`attention_bias` is true) and
 // its head dimension is 64, which `H / Heads` does not give: 2880 / 64 is 45.
 // `HeadDim` is therefore its own generic rather than derived.
-pub block SinkAttention<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, T: Float>
+pub block SinkAttention<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float,
+>
 where
     Heads > 0,
     KvHeads > 0,
     Heads % KvHeads == 0,
-    HeadDim % 2 == 0
+    HeadDim % 2 == 0,
+    MaxSeq > 0
 {
     sub q_proj: Linear<H, Heads * HeadDim, T>
     sub k_proj: Linear<H, KvHeads * HeadDim, T>
@@ -97,6 +113,9 @@ where
     sub o_proj: Linear<Heads * HeadDim, H, T>
 
     param sinks: Tensor[Heads; T]
+
+    state cache_k: Tensor[Batch, KvHeads, MaxSeq, HeadDim; T]
+    state cache_v: Tensor[Batch, KvHeads, MaxSeq, HeadDim; T]
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T], window: i32) -> Tensor[B, S, H; T] {
         let (cos_table, sin_table) = tables<S, HeadDim, T>()
@@ -117,9 +136,144 @@ where
             v,
             sinks,
             rsqrt(cast<f32>(HeadDim)),
-            window_mask<S, S>(window),
+            broadcast_to(reshape(window_mask<S, S>(window), [1, S, S]), [B, S, S]),
         )
         return o_proj.forward(merge_heads<B, S, Heads, HeadDim, T>(mixed))
+    }
+
+    // One new position `pos` for every row: its key and value go into the
+    // caches there, and the query attends over the cached positions in its
+    // window.
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32, window: i32) -> Tensor[Batch, 1, H; T] {
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim, T>()
+        let cos_at[d] = cos_table[cast<i64>(pos), d]
+        let sin_at[d] = sin_table[cast<i64>(pos), d]
+        let cos_row = reshape(cos_at, [1, HeadDim])
+        let sin_row = reshape(sin_at, [1, HeadDim])
+        let q = rope(split_heads<Batch, 1, Heads, HeadDim, T>(q_proj.forward(x)), cos_row, sin_row)
+        let k = rope(
+            split_heads<Batch, 1, KvHeads, HeadDim, T>(k_proj.forward(x)),
+            cos_row,
+            sin_row,
+        )
+        let v = split_heads<Batch, 1, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_at(cache_k, k, pos)
+        cache_v = write_at(cache_v, v, pos)
+        let slots = iota<i32>(MaxSeq)
+        let seen[s] = slots[s] <= pos && slots[s] > pos - window
+        let mixed = sink_attention(
+            q,
+            cache_k,
+            cache_v,
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            broadcast_to(reshape(seen, [1, 1, MaxSeq]), [Batch, 1, MaxSeq]),
+        )
+        return o_proj.forward(merge_heads<Batch, 1, Heads, HeadDim, T>(mixed))
+    }
+
+    // `S` new positions from `pos`, as a prompt arrives: written into the
+    // caches as one span, each query attending over the cached positions in
+    // its window.
+    pub fn prefill<S: Dim>(
+        x: Tensor[Batch, S, H; T],
+        pos: i32,
+        window: i32,
+    ) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim, T>()
+        let rows[i] = cast<i64>(pos) + iota<i64>(S)[i]
+        let cos_rows[i, d] = cos_table[rows[i], d]
+        let sin_rows[i, d] = sin_table[rows[i], d]
+        let q = rope(
+            split_heads<Batch, S, Heads, HeadDim, T>(q_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let k = rope(
+            split_heads<Batch, S, KvHeads, HeadDim, T>(k_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let v = split_heads<Batch, S, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_span(cache_k, k, pos)
+        cache_v = write_span(cache_v, v, pos)
+        let slots = iota<i32>(MaxSeq)
+        let queries = iota<i32>(S)
+        let seen[i, s] = slots[s] <= pos + queries[i] && slots[s] > pos + queries[i] - window
+        let mixed = sink_attention(
+            q,
+            cache_k,
+            cache_v,
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            broadcast_to(reshape(seen, [1, S, MaxSeq]), [Batch, S, MaxSeq]),
+        )
+        return o_proj.forward(merge_heads<Batch, S, Heads, HeadDim, T>(mixed))
+    }
+
+    // One new position per row, each at its own `positions[b]`: the step a
+    // server takes for every request it is decoding together.
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+        window: i32,
+    ) -> Tensor[Batch, 1, H; T] {
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim, T>()
+        let cos_at[b, d] = cos_table[cast<i64>(positions[b]), d]
+        let sin_at[b, d] = sin_table[cast<i64>(positions[b]), d]
+        let cos_rows = reshape(cos_at, [Batch, 1, HeadDim])
+        let sin_rows = reshape(sin_at, [Batch, 1, HeadDim])
+        let q = rope_rows(
+            split_heads<Batch, 1, Heads, HeadDim, T>(q_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let k = rope_rows(
+            split_heads<Batch, 1, KvHeads, HeadDim, T>(k_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let v = split_heads<Batch, 1, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_rows(cache_k, k, positions)
+        cache_v = write_rows(cache_v, v, positions)
+        let slots = iota<i32>(MaxSeq)
+        let seen[b, s] = slots[s] <= positions[b] && slots[s] > positions[b] - window
+        let mixed = sink_attention(
+            q,
+            cache_k,
+            cache_v,
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            reshape(seen, [Batch, 1, MaxSeq]),
+        )
+        return o_proj.forward(merge_heads<Batch, 1, Heads, HeadDim, T>(mixed))
+    }
+
+    // One request's prompt of `S` tokens, from its first position, into row
+    // `slot` of the caches; its queries attend among themselves, within the
+    // window.
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32, window: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let (cos_table, sin_table) = tables<S, HeadDim, T>()
+        let q = rope(split_heads<1, S, Heads, HeadDim, T>(q_proj.forward(x)), cos_table, sin_table)
+        let k = rope(
+            split_heads<1, S, KvHeads, HeadDim, T>(k_proj.forward(x)),
+            cos_table,
+            sin_table,
+        )
+        let v = split_heads<1, S, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_slot(cache_k, k, slot, 0)
+        cache_v = write_slot(cache_v, v, slot, 0)
+        let mixed = sink_attention(
+            q,
+            k,
+            v,
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            reshape(window_mask<S, S>(window), [1, S, S]),
+        )
+        return o_proj.forward(merge_heads<1, S, Heads, HeadDim, T>(mixed))
     }
 }
 

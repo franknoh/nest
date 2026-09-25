@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The benchmarks tab: `models/<name>/bench.json` from `bench/run.py`, one
 // horizontal bar chart per metric. Speed is drawn as speed-up over the
-// reference method, peak GPU memory in absolute GiB; Linnet rows carry the
-// accent, reference rows gray, and a table below holds every raw number.
+// reference method, peak GPU memory in absolute GiB; Linnet rows are dark
+// gray, reference rows light gray, the best bar of each chart carries the
+// accent, and a table below holds every raw number.
 import { computed, onBeforeUnmount, onMounted, ref, useId } from "vue";
 
 interface Method {
@@ -40,11 +41,20 @@ const METRICS: Metric[] = [
   { key: "step_ms", label: "Denoising step", unit: "ms", lower: true },
   { key: "encode_ms", label: "Encode", unit: "ms", lower: true },
   { key: "transcribe_ms", label: "Transcribe", unit: "ms", lower: true },
+  { key: "serve_tok_s", label: "Serving throughput", unit: "tok/s", lower: false },
+  { key: "serve_ttft_ms", label: "Serving time to first token", unit: "ms", lower: true },
   { key: "load_s", label: "Load time", unit: "s", lower: true },
 ];
 const MEMORY = "peak_vram_mib";
 // Values a method records for the harness's own use, not for the page.
-const INTERNAL = new Set(["first_token"]);
+const INTERNAL = new Set(["first_token", "serve_s"]);
+
+// Serving rows (`serve-*`) measure many requests at once, the others one at a
+// time; a chart shows the rows that measured its metric, and a failed row
+// where its kind of measurement is charted, never "not measured" filler.
+function serving(key: string): boolean {
+  return key.startsWith("serve");
+}
 
 const methods = computed<Method[]>(() =>
   (props.data?.methods ?? []).map((m) => ({
@@ -105,6 +115,9 @@ function distance(m: Method, index: number): string {
   if (d < 1e-3) return d.toExponential(1);
   return d.toPrecision(3).replace(/\.?0+$/, "");
 }
+function capped(m: Method): boolean {
+  return m.key === "linnet-offload";
+}
 function reserved(m: Method): boolean {
   return /reserv\w* .*pool|pool .*reserv|gpu_memory_utilization/i.test(m.notes);
 }
@@ -119,6 +132,7 @@ interface Row {
   raw: string;
   extra: string; // the tooltip's second fact
   hatched: boolean;
+  best?: boolean; // the chart's best value, drawn in the accent
 }
 interface Chart {
   key: string;
@@ -134,56 +148,84 @@ const charts = computed<Chart[]>(() => {
   const ref = rows[referenceIndex.value];
   for (const metric of METRICS) {
     if (!rows.some((m) => value(m, metric.key) != null)) continue;
+    const shown = rows
+      .map((m, index) => ({ m, index }))
+      .filter(({ m }) => value(m, metric.key) != null || (m.error != null && serving(m.key) === serving(metric.key) && metric.key !== "load_s"));
+    // Raw values, so a bar's length is the number itself and the red bar is
+    // the shortest where lower is better and the longest where higher is;
+    // the ratio to the reference is in the tooltip.
     const base = ref ? value(ref, metric.key) : null;
-    const ratio = base != null && base > 0;
     const direction = metric.lower ? "lower is better" : "higher is better";
     out.push({
       key: metric.key,
       title: metric.label,
-      subtitle: ratio
-        ? `Speed-up over ${referenceName.value}, drawn as the 1.0x rule; the raw ${metric.unit} (${direction}) are in the tooltip and the table.`
-        : `Raw ${metric.unit}, ${direction}; the reference has no value here to compare against.`,
-      ratio,
-      rows: rows.map((m, index) => {
-        const v = value(m, metric.key);
-        let bar: number | null = null;
-        let label = m.error ? "failed" : "not measured";
-        let extra = "";
-        if (v != null && ratio) {
-          bar = v > 0 ? (metric.lower ? base! / v : v / base!) : null;
-          if (bar != null) {
-            label = times(bar);
-            extra = index === referenceIndex.value ? "the reference (1.0x)" : `${times(bar)} the reference's speed`;
-          }
-        } else if (v != null) {
-          bar = v;
-          label = raw(v, metric.unit);
-        }
-        return { index, method: m, bar, label, raw: raw(v, metric.unit), extra, hatched: false };
-      }),
-    });
-  }
-  if (rows.some((m) => value(m, MEMORY) != null)) {
-    out.push({
-      key: MEMORY,
-      title: "Peak GPU memory",
-      subtitle: "What the driver reports the process holding at its peak, in GiB; lower is better.",
+      subtitle: `${metric.unit}, ${direction}; the best bar is red.`,
       ratio: false,
-      rows: rows.map((m, index) => {
-        const mib = value(m, MEMORY);
-        const gib = mib == null ? null : mib / 1024;
-        const pool = gib != null && reserved(m);
+      rows: shown.map(({ m, index }) => {
+        const v = value(m, metric.key);
+        let extra = "";
+        if (v != null && v > 0 && base != null && base > 0 && index !== referenceIndex.value) {
+          extra = `${times(metric.lower ? base / v : v / base)} the reference's speed`;
+        } else if (index === referenceIndex.value) {
+          extra = "the reference";
+        }
         return {
           index,
           method: m,
-          bar: gib,
-          label: gib == null ? (m.error ? "failed" : "not measured") : raw(gib, "GiB"),
-          raw: gib == null ? "not measured" : `${raw(gib, "GiB")} (${num(mib!)} MiB)`,
-          extra: pool ? "a reserved pool: this is a setting, not what the model needs" : "",
-          hatched: pool,
+          bar: v,
+          label: v == null ? (m.error ? "failed" : "not measured") : raw(v, metric.unit),
+          raw: raw(v, metric.unit),
+          extra,
+          hatched: false,
         };
       }),
     });
+  }
+  // Two rows' memory is not a measurement to compare: vLLM reserves most of
+  // the GPU for its cache pool before it runs, and the offloaded row is held
+  // under a cap on purpose. They stay in the table, out of the chart.
+  const unlike = (m: Method) => reserved(m) || capped(m);
+  if (rows.some((m) => value(m, MEMORY) != null && !unlike(m))) {
+    const left = rows.filter((m) => value(m, MEMORY) != null && unlike(m)).map((m) => m.method);
+    out.push({
+      key: MEMORY,
+      title: "Peak GPU memory",
+      subtitle:
+        "What the driver reports the process holding at its peak, in GiB; lower is better; the best bar is red." +
+        (left.length ? ` Not drawn, since theirs is a setting rather than a need: ${left.join(", ")} (in the table).` : ""),
+      ratio: false,
+      rows: rows
+        .map((m, index) => ({ m, index }))
+        .filter(({ m }) => value(m, MEMORY) != null && !unlike(m))
+        .map(({ m, index }) => {
+          const mib = value(m, MEMORY);
+          const gib = mib == null ? null : mib / 1024;
+          const pool = gib != null && reserved(m);
+          return {
+            index,
+            method: m,
+            bar: gib,
+            label: gib == null ? (m.error ? "failed" : "not measured") : raw(gib, "GiB"),
+            raw: gib == null ? "not measured" : `${raw(gib, "GiB")} (${num(mib!)} MiB)`,
+            extra: pool ? "a reserved pool: this is a setting, not what the model needs" : "",
+            hatched: pool,
+          };
+        }),
+    });
+  }
+  // The best bar of each chart in the accent: a speed-up is always higher
+  // is better, a raw value goes the metric's way, memory lower. A reserved
+  // pool is a setting, not a result, so it never wins memory.
+  for (const chart of out) {
+    const metric = METRICS.find((m) => m.key === chart.key);
+    const lower = chart.key === MEMORY || (metric?.lower ?? false);
+    // The offloaded row runs under a memory cap by design: it shows what a
+    // small GPU can do, and wins nothing against unconstrained rows.
+    const candidates = chart.rows.filter((r) => r.bar != null && !r.hatched && !r.method.error && !capped(r.method));
+    if (!candidates.length) continue;
+    const bars = candidates.map((r) => r.bar as number);
+    const target = lower ? Math.min(...bars) : Math.max(...bars);
+    for (const r of candidates) r.best = r.bar === target;
   }
   return out;
 });
@@ -399,6 +441,7 @@ function cell(m: Method, key: string, unit: string): string {
       <p v-if="software" class="nest-bench-software">{{ software }}</p>
 
       <div class="nest-bench-legend" aria-hidden="true">
+        <span><i class="nest-swatch is-best"></i>Best in the chart</span>
         <span><i class="nest-swatch is-linnet"></i>Linnet</span>
         <span><i class="nest-swatch is-reference"></i>Reference</span>
         <span v-if="anyReserved"><i class="nest-swatch is-reserved"></i>Reserved pool (a setting, not a need)</span>
@@ -458,7 +501,7 @@ function cell(m: Method, key: string, unit: string): string {
               <path
                 v-if="row.bar != null"
                 class="nest-bench-bar"
-                :class="[`is-${row.method.kind}`, { 'is-hatched': row.hatched }]"
+                :class="[`is-${row.method.kind}`, { 'is-hatched': row.hatched, 'is-best': row.best }]"
                 :style="row.hatched ? { fill: `url(#${uid}-hatch-${row.method.kind})` } : undefined"
                 :d="barPath(layouts[ci].x(0), layouts[ci].x(row.bar), layouts[ci].bar(ri))"
               />

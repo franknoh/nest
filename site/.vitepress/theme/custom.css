@@ -44,10 +44,12 @@
   --vp-custom-block-tip-text: var(--vp-c-text-1);
   --vp-custom-block-tip-code-bg: var(--vp-code-bg);
   --nest-max: 78rem;
-  /* Benchmark series: Linnet in the accent, every reference in gray. The pair
-     is validated for colorblind separation and contrast; use only these. */
-  --nest-bench-linnet: #ed1d23;
-  --nest-bench-reference: #7c828d;
+  /* Benchmark bars: Linnet in dark gray, every reference in light gray, and
+     the best bar of each chart (by that metric's direction) in the accent.
+     Validated for colorblind separation; every bar is also labeled. */
+  --nest-bench-linnet: #3d4249;
+  --nest-bench-reference: #aeb3bb;
+  --nest-bench-best: #ed1d23;
 }
 
 .dark {
@@ -65,8 +67,9 @@
   --vp-code-color: hsl(216 10% 88%);
   --vp-c-default-soft: hsl(0 0% 10%);
   --vp-c-brand-soft: hsl(358 85% 52% / 0.16);
-  --nest-bench-linnet: #f0353b;
-  --nest-bench-reference: #8b919c;
+  --nest-bench-linnet: #4b5058;
+  --nest-bench-reference: #a9aeb6;
+  --nest-bench-best: #f0353b;
 }
 
 html,
@@ -885,6 +888,9 @@ a.nest-row:hover .nest-row-name {
 .nest-swatch.is-reference {
   background: var(--nest-bench-reference);
 }
+.nest-swatch.is-best {
+  background: var(--nest-bench-best);
+}
 .nest-swatch.is-reserved {
   background: repeating-linear-gradient(45deg, var(--nest-bench-reference) 0 2px, transparent 2px 5px);
   box-shadow: inset 0 0 0 1px var(--nest-bench-reference);
@@ -1014,6 +1020,9 @@ a.nest-row:hover .nest-row-name {
 }
 .nest-bench-bar.is-reference {
   fill: var(--nest-bench-reference);
+}
+.nest-bench-bar.is-best {
+  fill: var(--nest-bench-best);
 }
 .nest-bench-bar.is-hatched {
   stroke-width: 1.25;
@@ -1225,7 +1234,7 @@ a.nest-row:hover .nest-row-name {
   display: block;
   height: 100%;
   border-radius: 0 2px 2px 0;
-  background: var(--nest-bench-linnet);
+  background: var(--nest-bench-best);
 }
 .vp-doc .nest-sample-sentences {
   margin: 0 0 1rem;

@@ -210,11 +210,15 @@ def card(model: str) -> dict[str, Any]:
 
 
 def write(
-    model: str, workload: dict[str, Any], results: list[Result], extra: dict[str, Any]
+    model: str,
+    workload: dict[str, Any],
+    results: list[Result],
+    extra: dict[str, Any],
+    path: Path | None = None,
 ) -> Path:
     from datetime import UTC, datetime
 
-    path = MODELS / model / "bench.json"
+    path = path or MODELS / model / "bench.json"
     document = {
         "date": datetime.now(UTC).isoformat(timespec="seconds"),
         "environment": environment(),
@@ -229,6 +233,6 @@ def write(
 def python_for(method: str) -> str:
     """vLLM pins its own PyTorch, so it lives in its own environment; the
     pod's setup script exports where. Everything else runs here."""
-    if method.startswith("vllm") and "NEST_VLLM_PYTHON" in os.environ:
+    if method in ("vllm", "serve-vllm") and "NEST_VLLM_PYTHON" in os.environ:
         return os.environ["NEST_VLLM_PYTHON"]
     return sys.executable

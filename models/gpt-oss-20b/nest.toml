@@ -40,6 +40,8 @@ Experts = 32
 TopK = 4
 Layers = 24
 Window = 128
+Batch = 1
+MaxSeq = 4096
 T = "bf16"
 
 [check]

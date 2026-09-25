@@ -10,8 +10,8 @@
 module examples.gpt2
 
 use std.nn.activations::{gelu}
-use std.nn.attention::{attention, causal_mask}
-use std.nn.cache::{write_at, write_span}
+use std.nn.attention::{attention, attention_rows, causal_mask}
+use std.nn.cache::{write_at, write_rows, write_slot, write_span}
 use std.nn.embedding::{embedding}
 use std.nn.linear::{linear}
 use std.nn.norm::{layer_norm}
@@ -101,6 +101,44 @@ where
         let mixed = attention(q, cache_k, cache_v, rsqrt(cast<f32>(H / Heads)), some(seen))
         return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [Batch, S, H]))
     }
+
+    // One new position per sequence, each at its own `positions[b]`: the
+    // step a server takes for every request it is decoding together.
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        let projected = qkv.forward(x)
+        let q = heads<Batch, 1, Heads, H / Heads, T>(projected[:, :, 0:H])
+        let k = heads<Batch, 1, Heads, H / Heads, T>(projected[:, :, H:2 * H])
+        let v = heads<Batch, 1, Heads, H / Heads, T>(projected[:, :, 2 * H:3 * H])
+        cache_k = write_rows(cache_k, k, positions)
+        cache_v = write_rows(cache_v, v, positions)
+        let slots = iota<i32>(MaxSeq)
+        let seen[b, s] = slots[s] <= positions[b]
+        let mixed = attention_rows(
+            q,
+            cache_k,
+            cache_v,
+            rsqrt(cast<f32>(H / Heads)),
+            reshape(seen, [Batch, 1, MaxSeq]),
+        )
+        return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [Batch, 1, H]))
+    }
+
+    // One request's prompt of `S` tokens, from its first position, into row
+    // `slot` of the caches; its queries attend causally among themselves.
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let projected = qkv.forward(x)
+        let q = heads<1, S, Heads, H / Heads, T>(projected[:, :, 0:H])
+        let k = heads<1, S, Heads, H / Heads, T>(projected[:, :, H:2 * H])
+        let v = heads<1, S, Heads, H / Heads, T>(projected[:, :, 2 * H:3 * H])
+        cache_k = write_slot(cache_k, k, slot, 0)
+        cache_v = write_slot(cache_v, v, slot, 0)
+        let mixed = attention(q, k, v, rsqrt(cast<f32>(H / Heads)), some(causal_mask<S, S>()))
+        return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [1, S, H]))
+    }
 }
 
 fn heads<B: Dim, S: Dim, N: Dim, D: Dim, T: Float>(
@@ -142,6 +180,20 @@ where
     pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
     where S > 0 {
         let attended = x + attn.prefill(ln_1.forward(x), pos)
+        return attended + mlp.forward(ln_2.forward(attended))
+    }
+
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        let attended = x + attn.decode_rows(ln_1.forward(x), positions)
+        return attended + mlp.forward(ln_2.forward(attended))
+    }
+
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let attended = x + attn.prefill_slot(ln_1.forward(x), slot)
         return attended + mlp.forward(ln_2.forward(attended))
     }
 }
@@ -210,6 +262,48 @@ where
         }
         let h = ln_f.forward(x[:, S - 1, :])
         // The head shares the embedding: a contraction against `wte`.
+        let logits[b, v] = sum[i] h[b, i] * wte[v, i]
+        return logits
+    }
+
+    // Logits for one new token per sequence, each at its own position
+    // `positions[b]`: the step a server takes for every request it is
+    // decoding together (continuous batching). A row with no request in it
+    // computes along and is ignored.
+    pub entry decode_rows(
+        tokens: Tensor[Batch, 1; i32],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, Vocab; T] {
+        let pos_at[b, d] = wpe[cast<i64>(positions[b]), d]
+        var x = embedding(tokens, wte) + reshape(pos_at, [Batch, 1, H])
+        static for layer in blocks {
+            x = layer.decode_rows(x, positions)
+        }
+        let h = ln_f.forward(x[:, 0, :])
+        let logits[b, v] = sum[i] h[b, i] * wte[v, i]
+        return logits
+    }
+
+    // One request's prompt into row `slot` of the caches, as it joins a
+    // batch being decoded. `tokens` holds `S` tokens of which the first
+    // `length` are the prompt: the rest pad it to one of a few compiled
+    // lengths and are never read. Returns the logits after the prompt's last
+    // token; `decode_rows` continues the row at position `length`.
+    pub entry prefill_slot<S: Dim>(
+        tokens: Tensor[1, S; i32],
+        slot: i32,
+        length: i32,
+    ) -> Tensor[1, Vocab; T]
+    where
+        S > 0,
+        S <= MaxPositions
+    {
+        var x = embedding(tokens, wte) + embedding(iota<i32>(S), wpe)
+        static for layer in blocks {
+            x = layer.prefill_slot(x, slot)
+        }
+        let last[b, i] = x[b, cast<i64>(length) - 1, i]
+        let h = ln_f.forward(last)
         let logits[b, v] = sum[i] h[b, i] * wte[v, i]
         return logits
     }

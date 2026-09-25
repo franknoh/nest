@@ -84,7 +84,7 @@ function level(v: number): number {
   return Math.round(Math.max(0, Math.min(1, v / top.value)) * 88);
 }
 function shade(v: number): Record<string, string> {
-  return { background: `color-mix(in srgb, var(--nest-bench-linnet) ${level(v)}%, var(--vp-c-bg))` };
+  return { background: `color-mix(in srgb, var(--nest-bench-best) ${level(v)}%, var(--vp-c-bg))` };
 }
 // Past half-way the cell is dark enough to need light ink.
 function deep(v: number): boolean {

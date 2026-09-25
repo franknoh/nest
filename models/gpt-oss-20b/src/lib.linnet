@@ -36,6 +36,8 @@ pub block DecoderLayer<
     TopK: Dim,
     Blocks: Dim,
     InnerBlocks: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
     T: Float,
 >
 where
@@ -46,15 +48,47 @@ where
     Experts > 0,
     TopK > 0,
     H == Blocks * 32,
-    Inner == InnerBlocks * 32
+    Inner == InnerBlocks * 32,
+    MaxSeq > 0
 {
     sub input_layernorm: RmsNorm<H, T>
-    sub self_attn: SinkAttention<H, Heads, KvHeads, HeadDim, T>
+    sub self_attn: SinkAttention<H, Heads, KvHeads, HeadDim, Batch, MaxSeq, T>
     sub post_attention_layernorm: RmsNorm<H, T>
     sub mlp: MixtureOfExperts<H, Inner, Experts, TopK, Blocks, InnerBlocks, T>
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T], window: i32) -> Tensor[B, S, H; T] {
         let attended = x + self_attn.forward(input_layernorm.forward(x), window)
+        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+    }
+
+    // One token per row: its experts gathered rather than all of them run.
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32, window: i32) -> Tensor[Batch, 1, H; T] {
+        let attended = x + self_attn.decode(input_layernorm.forward(x), pos, window)
+        return attended + mlp.forward_topk(post_attention_layernorm.forward(attended))
+    }
+
+    pub fn prefill<S: Dim>(
+        x: Tensor[Batch, S, H; T],
+        pos: i32,
+        window: i32,
+    ) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let attended = x + self_attn.prefill(input_layernorm.forward(x), pos, window)
+        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+    }
+
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+        window: i32,
+    ) -> Tensor[Batch, 1, H; T] {
+        let attended = x + self_attn.decode_rows(input_layernorm.forward(x), positions, window)
+        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+    }
+
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32, window: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let attended = x + self_attn.prefill_slot(input_layernorm.forward(x), slot, window)
         return attended + mlp.forward(post_attention_layernorm.forward(attended))
     }
 }
@@ -76,6 +110,8 @@ pub block LayerPair<
     Window: Dim,
     Blocks: Dim,
     InnerBlocks: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
     T: Float,
 >
 where
@@ -86,14 +122,41 @@ where
     Experts > 0,
     TopK > 0,
     H == Blocks * 32,
-    Inner == InnerBlocks * 32
+    Inner == InnerBlocks * 32,
+    MaxSeq > 0
 {
-    sub sliding: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, T>
-    sub full: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, T>
+    sub sliding: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, Batch, MaxSeq, T>
+    sub full: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, Batch, MaxSeq, T>
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
         let windowed = sliding.forward(x, cast<i32>(Window))
         return full.forward(windowed, cast<i32>(S))
+    }
+
+    // The cached entries: the full layer's window is the whole cache.
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
+        let windowed = sliding.decode(x, pos, cast<i32>(Window))
+        return full.decode(windowed, pos, cast<i32>(MaxSeq))
+    }
+
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let windowed = sliding.prefill(x, pos, cast<i32>(Window))
+        return full.prefill(windowed, pos, cast<i32>(MaxSeq))
+    }
+
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        let windowed = sliding.decode_rows(x, positions, cast<i32>(Window))
+        return full.decode_rows(windowed, positions, cast<i32>(MaxSeq))
+    }
+
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let windowed = sliding.prefill_slot(x, slot, cast<i32>(Window))
+        return full.prefill_slot(windowed, slot, cast<i32>(S))
     }
 }
 
@@ -108,6 +171,8 @@ pub block Model<
     TopK: Dim,
     Layers: Dim,
     Window: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
     T: Float = bf16,
 >
 where
@@ -119,11 +184,12 @@ where
     TopK > 0,
     Layers % 2 == 0,
     H % 32 == 0,
-    Inner % 32 == 0
+    Inner % 32 == 0,
+    MaxSeq > 0
 {
     sub embed_tokens: Embedding<Vocab, H, T>
     sub pairs: [LayerPair<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Window, H / 32, Inner /
-        32, T>; Layers / 2]
+        32, Batch, MaxSeq, T>; Layers / 2]
     sub norm: RmsNorm<H, T>
     // gpt-oss does not tie the output head to the embedding
     // (`tie_word_embeddings` is false); the checkpoint carries its own
@@ -141,6 +207,62 @@ where
     pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]
     where S > 0 {
         return lm_head.forward(norm.forward(hidden(tokens)[:, S - 1, :]))
+    }
+
+    // Logits for one new token per sequence at position `pos`, attending
+    // over the positions decoded before it through the layers' KV caches.
+    pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T] {
+        var x = embed_tokens.forward(token)
+        static for pair in pairs {
+            x = pair.decode(x, pos)
+        }
+        return lm_head.forward(norm.forward(x[:, 0, :]))
+    }
+
+    // A prompt of `S` tokens at `pos`, written into the KV caches in one
+    // pass. Returns the logits after its last token, so `decode` continues
+    // at `pos + S`.
+    pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]
+    where S > 0 {
+        var x = embed_tokens.forward(tokens)
+        static for pair in pairs {
+            x = pair.prefill(x, pos)
+        }
+        return lm_head.forward(norm.forward(x[:, S - 1, :]))
+    }
+
+    // Logits for one new token per sequence, each at its own position
+    // `positions[b]`: the step a server takes for every request it is
+    // decoding together (continuous batching). A row with no request in it
+    // computes along and is ignored.
+    pub entry decode_rows(
+        tokens: Tensor[Batch, 1; i32],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, Vocab; T] {
+        var x = embed_tokens.forward(tokens)
+        static for pair in pairs {
+            x = pair.decode_rows(x, positions)
+        }
+        return lm_head.forward(norm.forward(x[:, 0, :]))
+    }
+
+    // One request's prompt into row `slot` of the caches, as it joins a
+    // batch being decoded. `tokens` holds `S` tokens of which the first
+    // `length` are the prompt: the rest pad it to one of a few compiled
+    // lengths and are never read. Returns the logits after the prompt's last
+    // token; `decode_rows` continues the row at position `length`.
+    pub entry prefill_slot<S: Dim>(
+        tokens: Tensor[1, S; i32],
+        slot: i32,
+        length: i32,
+    ) -> Tensor[1, Vocab; T]
+    where S > 0 {
+        var x = embed_tokens.forward(tokens)
+        static for pair in pairs {
+            x = pair.prefill_slot(x, slot)
+        }
+        let last[b, h] = x[b, cast<i64>(length) - 1, h]
+        return lm_head.forward(norm.forward(last))
     }
 
     // The final layer's hidden states, before the norm and the head.

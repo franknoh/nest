@@ -127,12 +127,23 @@ before anything runs.
 | `forward<B, S>(tokens)` | logits for a whole sequence |
 | `next_token<B, S>(tokens)` | logits for the last position |
 | `states<B, S>(tokens)` | the last layer's hidden states, before the norm and the head |
+| `prefill<S>(tokens, pos)` | a prompt into the KV caches, logits after its last token |
+| `decode(token, pos)` | one token per row through the KV caches |
+| `prefill_slot<S>(tokens, slot, length)` | one request's prompt into row `slot` of the caches |
+| `decode_rows(tokens, positions)` | one token per row, each row at its own position |
 
-There is no `decode` entry. A KV cache would be the easy part; the reason is
-that one decoded token costs the same full dequantization of every expert's
-weights as a whole sequence does, so a token-at-a-time entry here would be
-slower than re-running `forward`, not faster. It is worth adding once a backend
-selects a fused MXFP4 kernel for `dequantize_mxfp4`.
+The caches are `state` members of the attention blocks, `Batch` rows of
+`MaxSeq` positions (the card binds 1 and 4096). A sliding-window layer still
+caches every position and masks all but the last 128 of them; the full layers'
+window is the whole cache. `prefill_slot` and `decode_rows` are what
+`linnet.serve` batches continuously.
+
+A decoded token reads the experts differently from a prompt. `decode` routes
+through `MixtureOfExperts.forward_topk`: the four chosen experts' weights are
+gathered while still MXFP4 and only they are dequantized, an eighth of the
+dense form's work. `decode_rows` keeps the dense form, since in a batch of
+rows every expert is chosen by someone and the dense form reads each once;
+both still dequantize on every call, which a fused MXFP4 kernel would avoid.
 
 ## Validation
 

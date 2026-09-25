@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms
+from bench.methods import stacks
+from bench.methods.stacks import Adapter
 
 LATENCY_BATCH = 1
 THROUGHPUT_BATCH = 32
@@ -253,27 +255,31 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     )
 
 
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    import onnxruntime
+def linnet_onnx_export(data: dict[str, Any], batch: int) -> Any:
+    """The card's image entry as ONNX at one batch size."""
     from linnet import nest
     from linnet.onnx import export_model
 
-    device = workload.get("device", "cuda")
-    entry = linnet_entry(data)
     card = nest.Card.read(data["directory"])
-    weights = nest.download_weights(card)
     bindings = str(card.bindings_path) if card.bindings_path is not None else None
+    return export_model(
+        card.source_path,
+        generics={**card.generics, "B": batch},
+        weights=nest.download_weights(card),
+        entry=linnet_entry(data),
+        root=card.root,
+        bindings=bindings,
+    )
+
+
+def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+    import onnxruntime
+
+    device = workload.get("device", "cuda")
     providers = ["CUDAExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
 
     def build(batch: int) -> tuple[Any, str]:
-        exported = export_model(
-            card.source_path,
-            generics={**card.generics, "B": batch},
-            weights=weights,
-            entry=entry,
-            root=card.root,
-            bindings=bindings,
-        )
+        exported = linnet_onnx_export(data, batch)
         session = onnxruntime.InferenceSession(
             exported.model.SerializeToString(), providers=providers
         )
@@ -482,6 +488,54 @@ def sample(data: dict[str, Any], workload: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"vision has no sample for family `{family}`")
 
 
+# ------------------------------------------------- ONNX, Triton, KerasHub
+
+
+def adapter(data: dict[str, Any], workload: dict[str, Any]) -> Adapter:
+    """This family for the shared rows in `bench.methods.stacks`: the
+    reference's output (logits, hidden states, or image features) for the
+    canonical images."""
+
+    def reference(device: str) -> Any:
+        import torch
+
+        model = _reference_model(data, device, torch.float32)
+
+        class Output(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.model = model
+
+            def forward(self, images: Any) -> Any:
+                return _reference_output(data, self.model, images)
+
+        return Output().eval()
+
+    return Adapter(
+        reference=reference,
+        inputs=lambda batch: [canonical_images(data, workload, batch).numpy()],
+        linnet=lambda batch: linnet_onnx_export(data, batch),
+        save=lambda method, out: save_output(workload, method, out),
+        batches=(LATENCY_BATCH, THROUGHPUT_BATCH),
+    )
+
+
+def _keras_load(keras_hub: Any, data: dict[str, Any]) -> Any:
+    return keras_hub.models.ImageClassifier.from_preset(
+        f"hf://{data['weights']['repo']}", dtype="bfloat16"
+    )
+
+
+def _keras_call(model: Any, arrays: list[Any]) -> Any:
+    # Keras takes channels last; the images are already normalized, so the
+    # classifier's own preprocessing is left out.
+    return model.predict_on_batch(arrays[0].transpose(0, 2, 3, 1))
+
+
+# Card families KerasHub converts from a Transformers checkpoint: ViT only.
+KERAS_FAMILIES = {"vit"}
+
+
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "transformers-eager": _transformers(compiled=False),
     "transformers-compile": _transformers(compiled=True),
@@ -489,6 +543,17 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
     "linnet-jax": linnet_jax,
     "linnet-onnx": linnet_onnx,
+    "keras-hub": stacks.keras_hub(adapter, _keras_load, _keras_call),
+    "onnx-reference": stacks.onnx_reference(adapter),
+    "triton-onnx": stacks.triton(adapter, linnet=False),
+    "triton-linnet-onnx": stacks.triton(adapter, linnet=True),
 }
+
+
+def methods_for(data: dict[str, Any]) -> list[str]:
+    """Every method but KerasHub where it has no converter for the card."""
+    family = data["model"].get("family")
+    return [m for m in METHODS if m != "keras-hub" or family in KERAS_FAMILIES]
+
 
 REFERENCE = "transformers-eager"

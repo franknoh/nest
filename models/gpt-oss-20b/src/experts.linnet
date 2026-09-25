@@ -89,6 +89,54 @@ where
         return mixed + linear(scores, permute(down_bias, [1, 0]))
     }
 
+    // One token per row through its `TopK` experts only: the chosen experts'
+    // weights are gathered while still in MXFP4 and only they are
+    // dequantized, `TopK / Experts` of the dense form's reading (an eighth
+    // here). For a few tokens this is the cheaper form; in a large batch
+    // every expert is chosen by someone, and the dense form reads each once.
+    pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
+        let logits = router.forward(x)
+        let scores = route<B, 1>(logits)
+        let ranked = ranks<B, 1>(logits)
+        let slots = iota<i32>(Experts)
+        let places = iota<i32>(TopK)
+        // `chosen[b, k]` is the expert ranked `k`-th, `weight[b, k]` its
+        // probability.
+        let chosen[b, k] = sum<i32>[e] select(ranked[b, 0, e] == places[k], slots[e], 0)
+        let weight[b, k] =
+            sum[e] select(ranked[b, 0, e] == places[k], scores[b, 0, e], cast<T>(0.0))
+        let expert[b, k] = cast<i64>(chosen[b, k])
+        let up_blocks[b, k, o, g, j] = gate_up_blocks[expert[b, k], o, g, j]
+        let up_scales[b, k, o, g] = gate_up_scales[expert[b, k], o, g]
+        let up_bias[b, k, o] = gate_up_bias[expert[b, k], o]
+        let up_weight = reshape(
+            dequantize_mxfp4<B * TopK, 2 * Inner, Blocks, T>(
+                reshape(up_blocks, [B * TopK, 2 * Inner, Blocks, 16]),
+                reshape(up_scales, [B * TopK, 2 * Inner, Blocks]),
+            ),
+            [B, TopK, 2 * Inner, H],
+        )
+        let gate_up[b, k, o] = sum<f32>[h] cast<f32>(x[b, 0, h]) * cast<f32>(up_weight[b, k, o, h])
+        let biased = cast<T>(gate_up) + up_bias
+        let gate = min(biased[..., 0::2], cast<T>(LIMIT))
+        let up = min(max(biased[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
+        let activated = (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))
+        let weighted[b, k, i] = activated[b, k, i] * weight[b, k]
+        let down_blocks_chosen[b, k, o, g, j] = down_blocks[expert[b, k], o, g, j]
+        let down_scales_chosen[b, k, o, g] = down_scales[expert[b, k], o, g]
+        let down_weight = reshape(
+            dequantize_mxfp4<B * TopK, H, InnerBlocks, T>(
+                reshape(down_blocks_chosen, [B * TopK, H, InnerBlocks, 16]),
+                reshape(down_scales_chosen, [B * TopK, H, InnerBlocks]),
+            ),
+            [B, TopK, H, Inner],
+        )
+        let mixed[b, h] =
+            sum<f32>[k, i] cast<f32>(weighted[b, k, i]) * cast<f32>(down_weight[b, k, h, i])
+        let bias[b, h] = sum[k] weight[b, k] * down_bias[expert[b, k], h]
+        return reshape(cast<T>(mixed) + bias, [B, 1, H])
+    }
+
     // The router's probabilities, with zeros outside the top `TopK`.
     //
     // The reference takes the `TopK` largest logits, softmaxes those alone,
@@ -99,12 +147,18 @@ where
     // floored entries come out as exactly zero, so the surviving `TopK`
     // probabilities are the reference's.
     fn route<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; T] {
+        let beaten = ranks<B, S>(logits)
+        let kept[b, s, e] = select(beaten[b, s, e] < cast<i32>(TopK), logits[b, s, e], -1e30)
+        return softmax(kept)
+    }
+
+    // Each expert's rank among a token's router logits: 0 for the largest.
+    fn ranks<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; i32] {
         let slots = iota<i32>(Experts)
         let outranks[b, s, e, j] =
             logits[b, s, j] > logits[b, s, e] ||
             (logits[b, s, j] == logits[b, s, e] && slots[j] < slots[e])
         let beaten[b, s, e] = sum<i32>[j] cast<i32>(outranks[b, s, e, j])
-        let kept[b, s, e] = select(beaten[b, s, e] < cast<i32>(TopK), logits[b, s, e], -1e30)
-        return softmax(kept)
+        return beaten
     }
 }

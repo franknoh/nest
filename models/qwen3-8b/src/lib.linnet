@@ -55,6 +55,20 @@ where
         let attended = x + attention.prefill(attention_norm.forward(x), pos)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
+
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        let attended = x + attention.decode_rows(attention_norm.forward(x), positions)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+
+    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
+    where S > 0 {
+        let attended = x + attention.prefill_slot(attention_norm.forward(x), slot)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
 }
 
 pub block Model<
@@ -114,6 +128,40 @@ where
             x = layer.prefill(x, pos)
         }
         return lm_head.forward(norm.forward(x[:, S - 1, :]))
+    }
+
+    // Logits for one new token per sequence, each at its own position
+    // `positions[b]`: the step a server takes for every request it is
+    // decoding together (continuous batching). A row with no request in it
+    // computes along and is ignored.
+    pub entry decode_rows(
+        tokens: Tensor[Batch, 1; i32],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, Vocab; T] {
+        var x = embedding.forward(tokens)
+        static for layer in layers {
+            x = layer.decode_rows(x, positions)
+        }
+        return lm_head.forward(norm.forward(x[:, 0, :]))
+    }
+
+    // One request's prompt into row `slot` of the caches, as it joins a
+    // batch being decoded. `tokens` holds `S` tokens of which the first
+    // `length` are the prompt: the rest pad it to one of a few compiled
+    // lengths and are never read. Returns the logits after the prompt's last
+    // token; `decode_rows` continues the row at position `length`.
+    pub entry prefill_slot<S: Dim>(
+        tokens: Tensor[1, S; i32],
+        slot: i32,
+        length: i32,
+    ) -> Tensor[1, Vocab; T]
+    where S > 0 {
+        var x = embedding.forward(tokens)
+        static for layer in layers {
+            x = layer.prefill_slot(x, slot)
+        }
+        let last[b, h] = x[b, cast<i64>(length) - 1, h]
+        return lm_head.forward(norm.forward(last))
     }
 
     // Greedy generation inside the graph: `Steps` tokens after `token` at

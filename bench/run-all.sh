@@ -11,12 +11,15 @@ set -uo pipefail
 source /workspace/venv/bin/activate
 export LINNET_BIN=/workspace/Linnet/build/release/linnet
 export NEST_VLLM_PYTHON=/workspace/vllm/bin/python
+NEST_VLLM_SITE=$(/workspace/vllm/bin/python -c "import site; print(site.getsitepackages()[0])")
+export NEST_VLLM_SITE
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 mkdir -p logs
 
+# Samples were recorded with the last full run; this one measures.
 run() {
     echo "=== $* ($(date -u +%H:%M:%S))"
-    python -m bench.run "$@" 2>&1 | tee -a "logs/$1.log" | grep -E "^\[" || true
+    python -m bench.run "$@" --samples skip 2>&1 | tee -a "logs/$1.log" | grep -E "^\[" || true
 }
 
 # Encoders, vision, audio, segmentation, diffusion: minutes each.
@@ -28,15 +31,18 @@ done
 
 # Decoders, smallest first.
 for model in gpt2 qwen2.5-0.5b-instruct tinyllama-1.1b-chat smollm2-1.7b-instruct \
-    phi-3-mini-4k-instruct qwen3-4b mistral-7b-instruct-v0.3 gpt-oss-20b; do
+    phi-3-mini-4k-instruct qwen3-4b mistral-7b-instruct-v0.3; do
     run "$model"
 done
 
-# Two 8B decoders also get the placement rows: every GPU, and one GPU capped
-# so that half the model streams in from the host.
-PLACED=transformers-eager,transformers-compile,vllm,linnet-torch,linnet-cudagraphs,linnet-jax,linnet-gpus,linnet-offload
+# The two 8B decoders: every method, then the offloading row (one GPU capped
+# so that half the model streams in from the host) merged beside them.
 for model in llama-3.1-8b-instruct qwen3-8b; do
-    CUDA_VISIBLE_DEVICES=0,1 run "$model" --methods "$PLACED" --offload-gib 8
+    run "$model"
+    run "$model" --methods linnet-offload --offload-gib 8 --merge
 done
+
+# The largest last: gpt-oss now has KV-cache entries, so it gets every row.
+run gpt-oss-20b
 
 echo "all done ($(date -u +%H:%M:%S))"
