@@ -1,0 +1,18 @@
+// RMS normalization with Qwen3's epsilon, shared by the per-layer norms
+// (width `H`) and the query/key norms (width `HeadDim`): `rms_norm`
+// normalizes only its last axis, so the same block, instantiated at two
+// different widths, serves both.
+module qwen3.norm
+
+use std.nn.norm::{rms_norm}
+
+// Qwen3's `rms_norm_eps` (1e-6) is tighter than the stdlib `RmsNorm` block's
+// default (1e-5), so this calls the op directly with the checkpoint's
+// epsilon instead of reusing that block.
+pub block RmsNorm<H: Dim, T: Float> {
+    param weight: Tensor[H; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T] {
+        return rms_norm(x, weight, 1e-6)
+    }
+}

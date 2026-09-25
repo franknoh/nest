@@ -1,0 +1,727 @@
+// The Segment Anything Model: an image is run through a ViT-Det encoder once
+// to a 64x64 grid of 256-channel embeddings, and any number of point or box
+// prompts are then embedded cheaply and decoded against that same encoding
+// by a small two-way transformer that produces mask logits and an IoU
+// estimate. Encoding is the expensive part; decoding is not, which is the
+// whole point of splitting the model this way.
+//
+// The image encoder keeps most of its twelve layers windowed at 14x14 and
+// makes four of them (2, 5, 8, 11) full-image attention, exactly as
+// `vision_config.global_attn_indexes` says; every layer adds a decomposed
+// relative position bias to its attention scores from `rel_pos_h`/
+// `rel_pos_w`, read directly rather than reconstructed.
+module sam
+
+use std.linalg::{batched_matmul}
+use std.nn.activations::{gelu_erf, relu}
+use std.nn.attention::{attention}
+use std.nn.conv::{Conv2d}
+use std.nn.linear::{Linear, linear}
+use std.nn.norm::{layer_norm}
+use std.nn.softmax::{softmax}
+
+// Every LayerNorm in this checkpoint -- vision, prompt and mask decoder
+// alike -- uses this epsilon.
+pub const EPS: f32 = 1e-6
+
+pub block LayerNorm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+    param bias: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return layer_norm(x, weight, some(bias), EPS)
+    }
+}
+
+// LayerNorm over the channel axis of a `[B, C, H, W]` feature map: permute
+// it to the back, normalize, permute it home.
+pub block LayerNormCHW<C: Dim, T: Float> {
+    param weight: Tensor[C; T]
+    param bias: Tensor[C; T]
+
+    pub fn forward<B: Dim, H: Dim, W: Dim>(x: Tensor[B, C, H, W; T]) -> Tensor[B, C, H, W; T] {
+        let channels_last = permute(x, [0, 2, 3, 1])
+        let normed = layer_norm(channels_last, weight, some(bias), EPS)
+        return permute(normed, [0, 3, 1, 2])
+    }
+}
+
+// The two-layer MLP every transformer block here uses, differing only in
+// which activation the checkpoint's config names.
+pub block GeluMlp<D: Dim, Inner: Dim, T: Float> {
+    sub lin1: Linear<D, Inner, T>
+    sub lin2: Linear<Inner, D, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return lin2.forward(gelu_erf(lin1.forward(x)))
+    }
+}
+
+pub block ReluMlp<D: Dim, Inner: Dim, T: Float> {
+    sub lin1: Linear<D, Inner, T>
+    sub lin2: Linear<Inner, D, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        return lin2.forward(relu(lin1.forward(x)))
+    }
+}
+
+// ---------------------------------------------------------------------
+// Vision encoder: patches of a 1024-pixel image on a 64x64 grid (1024/16),
+// windows of 14x14 for every layer but the four the config names global.
+// ---------------------------------------------------------------------
+
+// Zero-pads a `[B, H, W, D]` feature map on its high side only, which is
+// where `F.pad`'s window partition puts a grid that does not divide evenly.
+fn pad_bottom_right<B: Dim, H: Dim, W: Dim, D: Dim, PadH: Dim, PadW: Dim, T: Float>(
+    x: Tensor[B, H, W, D; T],
+) -> Tensor[B, H + PadH, W + PadW, D; T] {
+    let bottom = fill<T>([B, PadH, W, D], 0.0)
+    let tall = concat(x, bottom, axis = 1)
+    let right = fill<T>([B, H + PadH, PadW, D], 0.0)
+    return concat(tall, right, axis = 2)
+}
+
+// The 64x64 grid does not divide evenly by the 14-pixel window, so it is
+// padded to 70x70 (five windows) before being cut apart; both the padding
+// and the window count are fixed for this checkpoint's fixed image size, so
+// they are written as literals rather than derived from generics the shape
+// solver would have to divide symbolically.
+fn window_partition<B: Dim, D: Dim, T: Float>(
+    x: Tensor[B, 64, 64, D; T],
+) -> Tensor[B * 25, 14, 14, D; T] {
+    let padded = pad_bottom_right<B, 64, 64, D, 6, 6, T>(x)
+    let grid = reshape(padded, [B, 5, 14, 5, 14, D])
+    let windows = permute(grid, [0, 1, 3, 2, 4, 5])
+    return reshape(windows, [B * 25, 14, 14, D])
+}
+
+fn window_unpartition<B: Dim, D: Dim, T: Float>(
+    x: Tensor[B * 25, 14, 14, D; T],
+) -> Tensor[B, 64, 64, D; T] {
+    let grid = reshape(x, [B, 5, 5, 14, 14, D])
+    let merged = permute(grid, [0, 1, 3, 2, 4, 5])
+    let padded = reshape(merged, [B, 70, 70, D])
+    return padded[:, 0:64, 0:64, :]
+}
+
+// `[Bw, Wh, Wh, Heads * Dh]` to `[Bw, Heads, Wh, Wh, Dh]`.
+fn vision_heads<Bw: Dim, Wh: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[Bw, Wh, Wh, Heads * Dh; T],
+) -> Tensor[Bw, Heads, Wh, Wh, Dh; T] {
+    return permute(reshape(x, [Bw, Wh, Wh, Heads, Dh]), [0, 3, 1, 2, 4])
+}
+
+// Attention within a `Wh` by `Wh` window (or the whole 64x64 grid, when
+// `Wh` is 64 and there is exactly one "window"), with a decomposed relative
+// position bias added to the scores before the softmax.
+//
+// The bias is query-dependent -- each head's query vector dotted with a
+// gathered slice of the shared `rel_pos_h`/`rel_pos_w` table -- so it cannot
+// be expressed as `std.nn.attention::attention`'s fixed `Tensor[Q, K; bool]`
+// mask. What it *can* be expressed with is an index tensor exactly like
+// `std.nn.conv::conv2d`'s: since every query and key range here have the
+// same size (`Wh`), `get_rel_pos` in the reference never has to resize the
+// table, so the relative offset `qi - ki + (Wh - 1)` is a plain `iota`
+// difference, and `rel_pos_h[idx[qh, kh], c]` is the same gather-by-index-
+// tensor `conv2d` uses for its input window.
+//
+// That gather is small (`Wh` by `Wh` by `Dh`) and stays plain index
+// notation. The dot products that follow it are not small -- for a global
+// layer `Wh` is 64, a 4096-token attention -- and a hand-written `sum[...]`
+// reduction over the channel axis is the wrong tool for them: the
+// interpreter's canonical semantics evaluate index notation by broadcasting
+// every free and reduced index into one shared grid before reducing, so
+// `sum[c] q[..., c] * k[..., c]` over six other axes materializes a
+// `Bw * Heads * Wh^4 * Dh` intermediate first -- 12.9 billion elements, ~52
+// GiB in f32, for one global layer alone. `std.linalg::batched_matmul` is a
+// registered op a backend can replace with `torch.matmul`, so writing the
+// dot products (and the relative-position contraction, and the weighted
+// sum over values) as batched matmuls keeps every one of them off that
+// path; only `reshape`/`permute`/`broadcast_to`, none of which touch the
+// grid evaluator, connect them together.
+fn windowed_attention<Bw: Dim, Wh: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    q: Tensor[Bw, Heads, Wh, Wh, Dh; T],
+    k: Tensor[Bw, Heads, Wh, Wh, Dh; T],
+    v: Tensor[Bw, Heads, Wh, Wh, Dh; T],
+    rel_pos_h: Tensor[2 * Wh - 1, Dh; T],
+    rel_pos_w: Tensor[2 * Wh - 1, Dh; T],
+    scale: f32,
+) -> Tensor[Bw, Heads, Wh, Wh, Dh; T] {
+    let idx[qi, ki] = iota<i32>(Wh)[qi] - iota<i32>(Wh)[ki] + cast<i32>(Wh) - 1
+    let gathered_h[qh, kh, c] = rel_pos_h[idx[qh, kh], c]
+    let gathered_w[qw, kw, c] = rel_pos_w[idx[qw, kw], c]
+
+    // `rel_h[bw, hd, qh, qw, kh] = sum[c] q[bw, hd, qh, qw, c] * gathered_h[qh, kh, c]`,
+    // as a matmul batched over `(Bw, Heads, qh)`: `q` already has that
+    // prefix, so the gathered table only needs broadcasting up to it.
+    let table_h = permute(
+        broadcast_to(reshape(gathered_h, [1, 1, Wh, Wh, Dh]), [Bw, Heads, Wh, Wh, Dh]),
+        [0, 1, 2, 4, 3],
+    )
+    let rel_h = batched_matmul(q, table_h) // [Bw, Heads, qh, qw, kh]
+
+    // Same shape of contraction for the width table, but batched over
+    // `(Bw, Heads, qw)` instead, so `q` is permuted to put `qw` first.
+    let table_w = permute(
+        broadcast_to(reshape(gathered_w, [1, 1, Wh, Wh, Dh]), [Bw, Heads, Wh, Wh, Dh]),
+        [0, 1, 2, 4, 3],
+    )
+    let q_qw_first = permute(q, [0, 1, 3, 2, 4]) // [Bw, Heads, qw, qh, c]
+    let rel_w_qw_first = batched_matmul(q_qw_first, table_w) // [Bw, Heads, qw, qh, kw]
+    let rel_w = permute(rel_w_qw_first, [0, 1, 3, 2, 4]) // [Bw, Heads, qh, qw, kw]
+
+    // The scores: `q @ k^T` over the flattened window, batched over
+    // `(Bw, Heads)`.
+    let qflat = reshape(q, [Bw, Heads, Wh * Wh, Dh])
+    let kflat = reshape(k, [Bw, Heads, Wh * Wh, Dh])
+    let dot = batched_matmul(qflat, permute(kflat, [0, 1, 3, 2])) // [Bw, Heads, Q, K]
+
+    // `rel_h` only varies with the key row, `rel_w` only with the key
+    // column; added to the unflattened scores they broadcast across the
+    // axis they lack, which is the ordinary elementwise `+` (native
+    // broadcasting), not index notation.
+    let scaled_dot = cast<T>(cast<f32>(reshape(dot, [Bw, Heads, Wh, Wh, Wh, Wh])) * scale)
+    let score6 =
+        scaled_dot +
+        reshape(rel_h, [Bw, Heads, Wh, Wh, Wh, 1]) +
+        reshape(rel_w, [Bw, Heads, Wh, Wh, 1, Wh])
+    let weights = softmax(reshape(score6, [Bw, Heads, Wh, Wh, Wh * Wh]))
+
+    let vflat = reshape(v, [Bw, Heads, Wh * Wh, Dh])
+    let mixed = batched_matmul(reshape(weights, [Bw, Heads, Wh * Wh, Wh * Wh]), vflat)
+    return reshape(mixed, [Bw, Heads, Wh, Wh, Dh])
+}
+
+pub block VisionAttention<D: Dim, Heads: Dim, Wh: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub qkv: Linear<D, D * 3, T>
+    sub proj: Linear<D, D, T>
+    param rel_pos_h: Tensor[2 * Wh - 1, D / Heads; T]
+    param rel_pos_w: Tensor[2 * Wh - 1, D / Heads; T]
+
+    pub fn forward<Bw: Dim>(x: Tensor[Bw, Wh, Wh, D; T]) -> Tensor[Bw, Wh, Wh, D; T] {
+        let fused = qkv.forward(x)
+        let q = vision_heads<Bw, Wh, Heads, D / Heads, T>(fused[..., 0:D])
+        let k = vision_heads<Bw, Wh, Heads, D / Heads, T>(fused[..., D:2 * D])
+        let v = vision_heads<Bw, Wh, Heads, D / Heads, T>(fused[..., 2 * D:3 * D])
+        let mixed = windowed_attention<Bw, Wh, Heads, D / Heads, T>(
+            q,
+            k,
+            v,
+            rel_pos_h,
+            rel_pos_w,
+            rsqrt(cast<f32>(D / Heads)),
+        )
+        let combined = reshape(permute(mixed, [0, 2, 3, 1, 4]), [Bw, Wh, Wh, D])
+        return proj.forward(combined)
+    }
+}
+
+pub block VisionLayerWindowed<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub layer_norm1: LayerNorm<D, T>
+    sub attn: VisionAttention<D, Heads, 14, T>
+    sub layer_norm2: LayerNorm<D, T>
+    sub mlp: GeluMlp<D, Inner, T>
+
+    pub fn forward<B: Dim>(x: Tensor[B, 64, 64, D; T]) -> Tensor[B, 64, 64, D; T] {
+        let windows = window_partition<B, D, T>(layer_norm1.forward(x))
+        let attended = window_unpartition<B, D, T>(attn.forward(windows))
+        let residual = x + attended
+        return residual + mlp.forward(layer_norm2.forward(residual))
+    }
+}
+
+pub block VisionLayerGlobal<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub layer_norm1: LayerNorm<D, T>
+    sub attn: VisionAttention<D, Heads, 64, T>
+    sub layer_norm2: LayerNorm<D, T>
+    sub mlp: GeluMlp<D, Inner, T>
+
+    pub fn forward<B: Dim>(x: Tensor[B, 64, 64, D; T]) -> Tensor[B, 64, 64, D; T] {
+        let residual = x + attn.forward(layer_norm1.forward(x))
+        return residual + mlp.forward(layer_norm2.forward(residual))
+    }
+}
+
+// Two convolutions with a LayerNorm each, taking the encoder's 768-channel
+// tokens down to the 256-channel image embedding every prompt is decoded
+// against.
+pub block VisionNeck<D: Dim, Hd: Dim, T: Float> {
+    sub conv1: Conv2d<D, Hd, 1, 1, 0, T>
+    sub ln1: LayerNormCHW<Hd, T>
+    sub conv2: Conv2d<Hd, Hd, 3, 1, 1, T>
+    sub ln2: LayerNormCHW<Hd, T>
+
+    pub fn forward<B: Dim>(x: Tensor[B, 64, 64, D; T]) -> Tensor[B, Hd, 64, 64; T] {
+        let chw = permute(x, [0, 3, 1, 2])
+        let after1 = ln1.forward(conv1.forward(chw))
+        return ln2.forward(conv2.forward(after1))
+    }
+}
+
+pub block VisionEncoder<D: Dim, Heads: Dim, Inner: Dim, Hd: Dim, T: Float>
+where
+    Heads > 0,
+    D % Heads == 0
+{
+    sub patch_embed: Conv2d<3, D, 16, 16, 0, T>
+    param pos_embed: Tensor[1, 64, 64, D; T]
+    sub layer_0: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_1: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_2: VisionLayerGlobal<D, Heads, Inner, T>
+    sub layer_3: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_4: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_5: VisionLayerGlobal<D, Heads, Inner, T>
+    sub layer_6: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_7: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_8: VisionLayerGlobal<D, Heads, Inner, T>
+    sub layer_9: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_10: VisionLayerWindowed<D, Heads, Inner, T>
+    sub layer_11: VisionLayerGlobal<D, Heads, Inner, T>
+    sub neck: VisionNeck<D, Hd, T>
+
+    pub fn forward<B: Dim>(pixel_values: Tensor[B, 3, 1024, 1024; T]) -> Tensor[B, Hd, 64, 64; T] {
+        let patches = permute(patch_embed.forward(pixel_values), [0, 2, 3, 1])
+        var x = patches + pos_embed
+        x = layer_0.forward(x)
+        x = layer_1.forward(x)
+        x = layer_2.forward(x)
+        x = layer_3.forward(x)
+        x = layer_4.forward(x)
+        x = layer_5.forward(x)
+        x = layer_6.forward(x)
+        x = layer_7.forward(x)
+        x = layer_8.forward(x)
+        x = layer_9.forward(x)
+        x = layer_10.forward(x)
+        x = layer_11.forward(x)
+        return neck.forward(x)
+    }
+}
+
+// ---------------------------------------------------------------------
+// Prompt encoder: points and boxes through a random-Fourier positional
+// encoding whose frequency matrix the checkpoint stores, plus learned
+// embeddings selected by point label.
+// ---------------------------------------------------------------------
+
+// `2 * pi * ((2 * coords - 1) @ pe)`, sine and cosine concatenated -- the
+// same computation for a point prompt normalized to [0, 1] and for the
+// image-wide positional grid, which is why both call this. `Hd` is the
+// prompt/mask hidden size; the frequency table has half as many rows, since
+// sine and cosine double it back up.
+fn fourier_features<Hd: Dim, *S: Shape, T: Float>(
+    coords: Tensor[*S, 2; T],
+    pe: Tensor[2, Hd / 2; T],
+) -> Tensor[*S, Hd; T]
+where Hd % 2 == 0 {
+    let shifted = 2.0 * coords - 1.0
+    let proj[*s, o] = sum<f32>[i] cast<f32>(shifted[*s, i]) * cast<f32>(pe[i, o])
+    let angle = 6.283185307179586 * proj
+    return cast<T>(concat(sin(angle), cos(angle), axis = -1))
+}
+
+// Point labels this embeds: `1` foreground, `0` background, `-1` a padding
+// point embedded as `not_a_point`. The reference's `-10` "ignore entirely"
+// marker (used only by the processor's own padding) is not implemented.
+fn embed_points<B: Dim, Pts: Dim, N: Dim, Hd: Dim, T: Float>(
+    points: Tensor[B, Pts, N, 2; T],
+    labels: Tensor[B, Pts, N; i32],
+    pe: Tensor[2, Hd / 2; T],
+    not_a_point: Tensor[1, Hd; T],
+    point_embed_0: Tensor[1, Hd; T],
+    point_embed_1: Tensor[1, Hd; T],
+) -> Tensor[B, Pts, N, Hd; T]
+where Hd % 2 == 0 {
+    let normalized = (points + 0.5) / 1024.0
+    let base = fourier_features<Hd>(normalized, pe)
+    let is_pad = reshape(labels == -1, [B, Pts, N, 1])
+    let with_pad = select(is_pad, not_a_point, base)
+    let is_bg = reshape(labels == 0, [B, Pts, N, 1])
+    let with_bg = select(is_bg, with_pad + point_embed_0, with_pad)
+    let is_fg = reshape(labels == 1, [B, Pts, N, 1])
+    return select(is_fg, with_bg + point_embed_1, with_bg)
+}
+
+// Each box becomes two corner points, embedded the same way and tagged with
+// their own pair of learned embeddings instead of a label.
+fn embed_boxes<B: Dim, Nb: Dim, Hd: Dim, T: Float>(
+    boxes: Tensor[B, Nb, 4; T],
+    pe: Tensor[2, Hd / 2; T],
+    point_embed_2: Tensor[1, Hd; T],
+    point_embed_3: Tensor[1, Hd; T],
+) -> Tensor[B, Nb, 2, Hd; T]
+where Hd % 2 == 0 {
+    let normalized = (boxes + 0.5) / 1024.0
+    let coords = reshape(normalized, [B, Nb, 2, 2])
+    let embedded = fourier_features<Hd>(coords, pe)
+    let corner0 = embedded[:, :, 0:1, :] + point_embed_2
+    let corner1 = embedded[:, :, 1:2, :] + point_embed_3
+    return concat(corner0, corner1, axis = 2)
+}
+
+// The fixed 64x64 grid of positions every mask decode adds to the image
+// keys, from the same frequency table as the point prompts: row and column
+// each normalized to the center of their cell in `[0, 1]`.
+fn image_wide_positional_embedding<Hd: Dim, T: Float>(
+    pe: Tensor[2, Hd / 2; T],
+) -> Tensor[1, Hd, 64, 64; T]
+where Hd % 2 == 0 {
+    let row[h] = (cast<f32>(iota<i32>(64)[h]) + 0.5) / 64.0
+    let col[w] = (cast<f32>(iota<i32>(64)[w]) + 0.5) / 64.0
+    let x_embed = broadcast_to(reshape(cast<T>(col), [1, 64, 1]), [64, 64, 1])
+    let y_embed = broadcast_to(reshape(cast<T>(row), [64, 1, 1]), [64, 64, 1])
+    let coords = concat(x_embed, y_embed, axis = 2)
+    let embedded = fourier_features<Hd>(coords, pe)
+    return reshape(permute(embedded, [2, 0, 1]), [1, Hd, 64, 64])
+}
+
+// ---------------------------------------------------------------------
+// Mask decoder: a two-way transformer where sparse tokens (the IoU token,
+// the mask tokens, and the prompt embeddings) and the dense image tokens
+// attend to each other, then an upscaling head reads mask logits from the
+// image tokens by the mask tokens' own learned filters.
+// ---------------------------------------------------------------------
+
+// `[B, Pts, N, Heads * Dh]` to `[B * Pts, Heads, N, Dh]`, merging the point
+// batch into the attention batch the way the reference's `_separate_heads`
+// does after `repeat_interleave`.
+fn split_heads<B: Dim, Pts: Dim, N: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, Pts, N, Heads * Dh; T],
+) -> Tensor[B * Pts, Heads, N, Dh; T] {
+    return permute(reshape(x, [B * Pts, N, Heads, Dh]), [0, 2, 1, 3])
+}
+
+fn merge_heads<B: Dim, Pts: Dim, N: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B * Pts, Heads, N, Dh; T],
+) -> Tensor[B, Pts, N, Heads * Dh; T] {
+    return reshape(permute(x, [0, 2, 1, 3]), [B, Pts, N, Heads * Dh])
+}
+
+// Attention that may downsample its internal width (the two-way
+// transformer's cross-attentions run at half width); no relative position
+// bias and no mask, so it is `std.nn.attention::attention` once the point
+// batch axis is folded into the batch axis it expects.
+pub block MaskAttention<Hd: Dim, Internal: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    Internal % Heads == 0
+{
+    sub q_proj: Linear<Hd, Internal, T>
+    sub k_proj: Linear<Hd, Internal, T>
+    sub v_proj: Linear<Hd, Internal, T>
+    sub out_proj: Linear<Internal, Hd, T>
+
+    pub fn forward<B: Dim, Pts: Dim, Q: Dim, K: Dim>(
+        query: Tensor[B, Pts, Q, Hd; T],
+        key: Tensor[B, Pts, K, Hd; T],
+        value: Tensor[B, Pts, K, Hd; T],
+    ) -> Tensor[B, Pts, Q, Hd; T] {
+        let qh = split_heads<B, Pts, Q, Heads, Internal / Heads, T>(q_proj.forward(query))
+        let kh = split_heads<B, Pts, K, Heads, Internal / Heads, T>(k_proj.forward(key))
+        let vh = split_heads<B, Pts, K, Heads, Internal / Heads, T>(v_proj.forward(value))
+        let mixed = attention(qh, kh, vh, rsqrt(cast<f32>(Internal / Heads)), none)
+        return out_proj.forward(merge_heads<B, Pts, Q, Heads, Internal / Heads, T>(mixed))
+    }
+}
+
+// The depth-3 feed-forward both the IoU head and the mask hypernetworks
+// use: an input and output projection around a single hidden layer, ReLU
+// throughout, which is what the checkpoint's `proj_in` / `layers.0` /
+// `proj_out` naming stores regardless of which head it is.
+pub block FeedForward3<In: Dim, Hidden: Dim, Out: Dim, T: Float> {
+    sub proj_in: Linear<In, Hidden, T>
+    sub hidden: Linear<Hidden, Hidden, T>
+    sub proj_out: Linear<Hidden, Out, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T] {
+        let a = relu(proj_in.forward(x))
+        let b = relu(hidden.forward(a))
+        return proj_out.forward(b)
+    }
+}
+
+// One block of the two-way transformer: self-attention on the sparse
+// tokens, cross-attention from sparse to dense, an MLP, then cross-
+// attention from dense back to sparse. The first block in the stack skips
+// adding the sparse positional embedding before its self-attention and
+// takes its output as-is rather than as a residual -- the reference's
+// `skip_first_layer_pe` -- so that path is a second entry point rather than
+// a runtime branch, since Linnet has no boolean generic to select it with.
+pub block TwoWayAttentionBlock<Hd: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    Hd % Heads == 0,
+    (Hd / 2) % Heads == 0
+{
+    sub self_attn: MaskAttention<Hd, Hd, Heads, T>
+    sub layer_norm1: LayerNorm<Hd, T>
+    sub cross_attn_token_to_image: MaskAttention<Hd, Hd / 2, Heads, T>
+    sub layer_norm2: LayerNorm<Hd, T>
+    sub mlp: ReluMlp<Hd, Inner, T>
+    sub layer_norm3: LayerNorm<Hd, T>
+    sub cross_attn_image_to_token: MaskAttention<Hd, Hd / 2, Heads, T>
+    sub layer_norm4: LayerNorm<Hd, T>
+
+    pub fn forward_first<B: Dim, Pts: Dim, Nq: Dim, Nk: Dim>(
+        queries: Tensor[B, Pts, Nq, Hd; T],
+        keys: Tensor[B, Pts, Nk, Hd; T],
+        qpe: Tensor[B, Pts, Nq, Hd; T],
+        kpe: Tensor[B, Pts, Nk, Hd; T],
+    ) -> (Tensor[B, Pts, Nq, Hd; T], Tensor[B, Pts, Nk, Hd; T]) {
+        let normed_q = layer_norm1.forward(self_attn.forward(queries, queries, queries))
+        return tail<B, Pts, Nq, Nk>(normed_q, keys, qpe, kpe)
+    }
+
+    pub fn forward_rest<B: Dim, Pts: Dim, Nq: Dim, Nk: Dim>(
+        queries: Tensor[B, Pts, Nq, Hd; T],
+        keys: Tensor[B, Pts, Nk, Hd; T],
+        qpe: Tensor[B, Pts, Nq, Hd; T],
+        kpe: Tensor[B, Pts, Nk, Hd; T],
+    ) -> (Tensor[B, Pts, Nq, Hd; T], Tensor[B, Pts, Nk, Hd; T]) {
+        let attended = self_attn.forward(queries + qpe, queries + qpe, queries)
+        let normed_q = layer_norm1.forward(queries + attended)
+        return tail<B, Pts, Nq, Nk>(normed_q, keys, qpe, kpe)
+    }
+
+    fn tail<B: Dim, Pts: Dim, Nq: Dim, Nk: Dim>(
+        queries: Tensor[B, Pts, Nq, Hd; T],
+        keys: Tensor[B, Pts, Nk, Hd; T],
+        qpe: Tensor[B, Pts, Nq, Hd; T],
+        kpe: Tensor[B, Pts, Nk, Hd; T],
+    ) -> (Tensor[B, Pts, Nq, Hd; T], Tensor[B, Pts, Nk, Hd; T]) {
+        let cross1 = cross_attn_token_to_image.forward(queries + qpe, keys + kpe, keys)
+        let q2 = layer_norm2.forward(queries + cross1)
+        let q3 = layer_norm3.forward(q2 + mlp.forward(q2))
+        let cross2 = cross_attn_image_to_token.forward(keys + kpe, q3 + qpe, q3)
+        let k2 = layer_norm4.forward(keys + cross2)
+        return (q3, k2)
+    }
+}
+
+pub block TwoWayTransformer<Hd: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    Hd % Heads == 0,
+    (Hd / 2) % Heads == 0
+{
+    sub layer_0: TwoWayAttentionBlock<Hd, Heads, Inner, T>
+    sub layer_1: TwoWayAttentionBlock<Hd, Heads, Inner, T>
+    sub final_attn_token_to_image: MaskAttention<Hd, Hd / 2, Heads, T>
+    sub layer_norm_final_attn: LayerNorm<Hd, T>
+
+    pub fn forward<B: Dim, Pts: Dim, Nq: Dim, Nk: Dim>(
+        point_embeddings: Tensor[B, Pts, Nq, Hd; T],
+        image_embeddings: Tensor[B, Pts, Nk, Hd; T],
+        image_pe: Tensor[B, Pts, Nk, Hd; T],
+    ) -> (Tensor[B, Pts, Nq, Hd; T], Tensor[B, Pts, Nk, Hd; T]) {
+        let (q1, k1) = layer_0.forward_first<B, Pts, Nq, Nk>(
+            point_embeddings,
+            image_embeddings,
+            point_embeddings,
+            image_pe,
+        )
+        let (q2, k2) = layer_1.forward_rest<B, Pts, Nq, Nk>(q1, k1, point_embeddings, image_pe)
+        let attn_out = final_attn_token_to_image.forward(q2 + point_embeddings, k2 + image_pe, k2)
+        let queries = layer_norm_final_attn.forward(q2 + attn_out)
+        return (queries, k2)
+    }
+}
+
+// A transposed convolution whose kernel equals its stride tiles without
+// overlap, so it needs no gather at all: each input pixel projects straight
+// to its own `2x2` output block, which is a contraction over channels
+// followed by a reshape rather than anything windowed. Written as
+// `std.nn.linear::linear` against the weight flattened to `[Cin, Cout * 4]`
+// rather than a raw `sum[ci] ...` -- the latter is index notation the
+// interpreter's canonical path would broadcast to a
+// `B * H * W * Cout * 4 * Cin`-sized product before reducing, the same
+// mistake `windowed_attention` had to avoid, just smaller here.
+fn deconv2x2<B: Dim, Cin: Dim, Cout: Dim, H: Dim, W: Dim, T: Float>(
+    x: Tensor[B, Cin, H, W; T],
+    weight: Tensor[Cin, Cout, 2, 2; T],
+    bias: Tensor[Cout; T],
+) -> Tensor[B, Cout, H * 2, W * 2; T] {
+    let channels_last = permute(x, [0, 2, 3, 1]) // [B, H, W, Cin]
+    let weight_out_in = permute(reshape(weight, [Cin, Cout * 4]), [1, 0]) // [Cout * 4, Cin]
+    let projected = linear(channels_last, weight_out_in) // [B, H, W, Cout * 4]
+    let reshaped = reshape(projected, [B, H, W, Cout, 2, 2])
+    let biased = reshaped + reshape(bias, [1, 1, 1, Cout, 1, 1])
+    let rearranged = permute(biased, [0, 3, 1, 4, 2, 5])
+    return reshape(rearranged, [B, Cout, H * 2, W * 2])
+}
+
+pub block Deconv2x2<Cin: Dim, Cout: Dim, T: Float> {
+    param weight: Tensor[Cin, Cout, 2, 2; T]
+    param bias: Tensor[Cout; T]
+
+    pub fn forward<B: Dim, H: Dim, W: Dim>(
+        x: Tensor[B, Cin, H, W; T],
+    ) -> Tensor[B, Cout, H * 2, W * 2; T] {
+        return deconv2x2(x, weight, bias)
+    }
+}
+
+pub block MaskDecoder<Hd: Dim, Heads: Dim, Inner: Dim, T: Float>
+where
+    Heads > 0,
+    Hd % Heads == 0,
+    (Hd / 2) % Heads == 0
+{
+    param iou_token: Tensor[1, Hd; T]
+    param mask_tokens: Tensor[4, Hd; T]
+    sub transformer: TwoWayTransformer<Hd, Heads, Inner, T>
+    sub upscale_conv1: Deconv2x2<Hd, Hd / 4, T>
+    sub upscale_layer_norm: LayerNormCHW<Hd / 4, T>
+    sub upscale_conv2: Deconv2x2<Hd / 4, Hd / 8, T>
+    sub hyper_mlp_0: FeedForward3<Hd, Hd, Hd / 8, T>
+    sub hyper_mlp_1: FeedForward3<Hd, Hd, Hd / 8, T>
+    sub hyper_mlp_2: FeedForward3<Hd, Hd, Hd / 8, T>
+    sub hyper_mlp_3: FeedForward3<Hd, Hd, Hd / 8, T>
+    sub iou_prediction_head: FeedForward3<Hd, Hd, 4, T>
+
+    pub fn forward<B: Dim, Pts: Dim, Ns: Dim>(
+        image_embeddings: Tensor[B, Hd, 64, 64; T],
+        image_pe: Tensor[B, Hd, 64, 64; T],
+        sparse_prompt_embeddings: Tensor[B, Pts, Ns, Hd; T],
+        dense_prompt_embeddings: Tensor[B, Hd, 64, 64; T],
+    ) -> (Tensor[B, Pts, 4, 256, 256; T], Tensor[B, Pts, 4; T]) {
+        let output_tokens = concat(iou_token, mask_tokens, axis = 0)
+        let output_tokens_b = broadcast_to(reshape(output_tokens, [1, 1, 5, Hd]), [B, Pts, 5, Hd])
+        let tokens = concat(output_tokens_b, sparse_prompt_embeddings, axis = 2)
+
+        let combined_image = image_embeddings + dense_prompt_embeddings
+        let image_tokens = reshape(permute(combined_image, [0, 2, 3, 1]), [B, 4096, Hd])
+        let pe_tokens = reshape(permute(image_pe, [0, 2, 3, 1]), [B, 4096, Hd])
+        let keys0 = broadcast_to(reshape(image_tokens, [B, 1, 4096, Hd]), [B, Pts, 4096, Hd])
+        let pe0 = broadcast_to(reshape(pe_tokens, [B, 1, 4096, Hd]), [B, Pts, 4096, Hd])
+
+        let (point_out, image_out) = transformer.forward<B, Pts, 5 + Ns, 4096>(tokens, keys0, pe0)
+        let iou_token_out = point_out[:, :, 0:1, :]
+        let mask_tokens_out = point_out[:, :, 1:5, :]
+
+        let image_out_t = permute(image_out, [0, 1, 3, 2])
+        let image_chw = reshape(image_out_t, [B * Pts, Hd, 64, 64])
+        let up1 = gelu_erf(upscale_layer_norm.forward(upscale_conv1.forward(image_chw)))
+        let up2 = gelu_erf(upscale_conv2.forward(up1))
+
+        let hyper_0 = hyper_mlp_0.forward(mask_tokens_out[:, :, 0:1, :])
+        let hyper_1 = hyper_mlp_1.forward(mask_tokens_out[:, :, 1:2, :])
+        let hyper_2 = hyper_mlp_2.forward(mask_tokens_out[:, :, 2:3, :])
+        let hyper_3 = hyper_mlp_3.forward(mask_tokens_out[:, :, 3:4, :])
+        let hyper_in = concat(
+            concat(hyper_0, hyper_1, axis = 2),
+            concat(hyper_2, hyper_3, axis = 2),
+            axis = 2,
+        )
+
+        let up2_flat = reshape(up2, [B, Pts, Hd / 8, 256 * 256])
+        let masks_flat[b, p, m, hw] = sum[c] hyper_in[b, p, m, c] * up2_flat[b, p, c, hw]
+        let masks = reshape(masks_flat, [B, Pts, 4, 256, 256])
+        let iou_pred = reshape(iou_prediction_head.forward(iou_token_out), [B, Pts, 4])
+        return (masks, iou_pred)
+    }
+}
+
+// ---------------------------------------------------------------------
+// The model: encode once, decode as many prompts as asked.
+// ---------------------------------------------------------------------
+
+pub block Model<
+    D: Dim,
+    VisionHeads: Dim,
+    VisionInner: Dim,
+    Hd: Dim,
+    MaskHeads: Dim,
+    MaskInner: Dim,
+    T: Float = f32,
+>
+where
+    VisionHeads > 0,
+    D % VisionHeads == 0,
+    MaskHeads > 0,
+    Hd % 2 == 0,
+    Hd % MaskHeads == 0,
+    (Hd / 2) % MaskHeads == 0
+{
+    sub vision_encoder: VisionEncoder<D, VisionHeads, VisionInner, Hd, T>
+    // Tied to `prompt_encoder.shared_embedding.positional_embedding` in the
+    // reference; the checkpoint stores one tensor for both.
+    param positional_embedding: Tensor[2, Hd / 2; T]
+    param not_a_point_embed: Tensor[1, Hd; T]
+    param point_embed_0: Tensor[1, Hd; T]
+    param point_embed_1: Tensor[1, Hd; T]
+    param point_embed_2: Tensor[1, Hd; T]
+    param point_embed_3: Tensor[1, Hd; T]
+    param no_mask_embed: Tensor[1, Hd; T]
+    sub mask_decoder: MaskDecoder<Hd, MaskHeads, MaskInner, T>
+
+    pub entry encode_image<B: Dim>(
+        pixel_values: Tensor[B, 3, 1024, 1024; T],
+    ) -> Tensor[B, Hd, 64, 64; T] {
+        return vision_encoder.forward(pixel_values)
+    }
+
+    // Point prompts: `input_labels` is `1` for a foreground point, `0` for
+    // background, `-1` for an unused/padding point.
+    //
+    // Points without a box get one more token: SAM always appends a padding
+    // point (label `-1`, so it embeds as `not_a_point`) when no box is given,
+    // and the decoder was trained that way. Leaving it out still yields a
+    // plausible mask -- about 0.97 IoU against the reference -- but mask
+    // logits a whole unit away, so the token is part of the model.
+    pub entry decode_points<B: Dim, Pts: Dim, N: Dim>(
+        image_embeddings: Tensor[B, Hd, 64, 64; T],
+        input_points: Tensor[B, Pts, N, 2; T],
+        input_labels: Tensor[B, Pts, N; i32],
+    ) -> (Tensor[B, Pts, 4, 256, 256; T], Tensor[B, Pts, 4; T]) {
+        let given = embed_points(
+            input_points,
+            input_labels,
+            positional_embedding,
+            not_a_point_embed,
+            point_embed_0,
+            point_embed_1,
+        )
+        let padding = broadcast_to(reshape(not_a_point_embed, [1, 1, 1, Hd]), [B, Pts, 1, Hd])
+        let sparse = concat(given, padding, axis = 2)
+        let dense = broadcast_to(reshape(no_mask_embed, [1, Hd, 1, 1]), [B, Hd, 64, 64])
+        let pe = broadcast_to(
+            image_wide_positional_embedding<Hd>(positional_embedding),
+            [B, Hd, 64, 64],
+        )
+        return mask_decoder.forward<B, Pts, N + 1>(image_embeddings, pe, sparse, dense)
+    }
+
+    // Box prompts: each box's two corners are its own point batch entry, as
+    // the reference treats an unpaired box.
+    pub entry decode_boxes<B: Dim, Nb: Dim>(
+        image_embeddings: Tensor[B, Hd, 64, 64; T],
+        input_boxes: Tensor[B, Nb, 4; T],
+    ) -> (Tensor[B, Nb, 4, 256, 256; T], Tensor[B, Nb, 4; T]) {
+        let sparse = embed_boxes(
+            input_boxes,
+            positional_embedding,
+            point_embed_2,
+            point_embed_3,
+        )
+        let dense = broadcast_to(reshape(no_mask_embed, [1, Hd, 1, 1]), [B, Hd, 64, 64])
+        let pe = broadcast_to(
+            image_wide_positional_embedding<Hd>(positional_embedding),
+            [B, Hd, 64, 64],
+        )
+        return mask_decoder.forward<B, Nb, 2>(image_embeddings, pe, sparse, dense)
+    }
+}

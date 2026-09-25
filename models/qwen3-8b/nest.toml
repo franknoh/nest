@@ -1,0 +1,44 @@
+[model]
+name = "qwen3-8b"
+title = "Qwen3 8B"
+summary = "An 8B-parameter Qwen3 decoder with grouped-query attention, per-head RMS normalization of the query and key projections, unbiased projections, and an untied output head."
+license = "Apache-2.0"
+family = "qwen3"
+tags = ["text-generation", "decoder-only", "grouped-query-attention", "qk-norm"]
+
+[links]
+huggingface = "https://huggingface.co/Qwen/Qwen3-8B"
+github = "https://github.com/QwenLM/Qwen3"
+arxiv = "https://arxiv.org/abs/2505.09388"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 151936
+H = 4096
+Heads = 32
+KvHeads = 8
+HeadDim = 128
+Inner = 12288
+Layers = 36
+Batch = 1
+MaxSeq = 40960
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "Qwen/Qwen3-8B"
+files = [
+    "model-00001-of-00005.safetensors",
+    "model-00002-of-00005.safetensors",
+    "model-00003-of-00005.safetensors",
+    "model-00004-of-00005.safetensors",
+    "model-00005-of-00005.safetensors",
+]
+bindings = "bindings.json"

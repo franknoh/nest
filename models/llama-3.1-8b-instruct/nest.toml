@@ -1,0 +1,42 @@
+[model]
+name = "llama-3.1-8b-instruct"
+title = "Llama 3.1 8B Instruct"
+summary = "An 8B-parameter Llama-architecture decoder with grouped-query attention, llama3 rope scaling for a 131072-token context, a 128256-token vocabulary, and an untied output head, instruction-tuned."
+license = "llama3.1"
+family = "llama"
+tags = ["text-generation", "decoder-only", "grouped-query-attention", "chat"]
+
+[links]
+huggingface = "https://huggingface.co/NousResearch/Meta-Llama-3.1-8B-Instruct"
+github = "https://github.com/meta-llama/llama-models"
+arxiv = "https://arxiv.org/abs/2407.21783"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 128256
+H = 4096
+Heads = 32
+KvHeads = 8
+Inner = 14336
+Layers = 32
+Batch = 1
+MaxSeq = 8192
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "NousResearch/Meta-Llama-3.1-8B-Instruct"
+files = [
+    "model-00001-of-00004.safetensors",
+    "model-00002-of-00004.safetensors",
+    "model-00003-of-00004.safetensors",
+    "model-00004-of-00004.safetensors",
+]
+bindings = "bindings.json"

@@ -1,0 +1,56 @@
+[model]
+# The experts are MXFP4, two 4-bit weights to a stored byte, so counting the
+# checkpoint's elements would give 12.0B. Counted properly from the headers:
+# every packed block byte is two parameters, the per-block scales are none.
+parameters = 20914757184
+name = "gpt-oss-20b"
+title = "GPT-OSS 20B"
+summary = "A 21B-parameter mixture-of-experts decoder, 32 experts per layer with 4 active per token, alternating 128-position sliding-window and full causal attention with learned attention sinks, YaRN rope scaling for a 131072-token context, and expert weights read straight from the checkpoint's MXFP4 blocks and scales."
+license = "Apache-2.0"
+family = "gpt_oss"
+tags = [
+    "text-generation",
+    "decoder-only",
+    "mixture-of-experts",
+    "grouped-query-attention",
+    "attention-sinks",
+    "sliding-window-attention",
+    "mxfp4",
+]
+
+[links]
+huggingface = "https://huggingface.co/openai/gpt-oss-20b"
+github = "https://github.com/openai/gpt-oss"
+arxiv = "https://arxiv.org/abs/2508.10925"
+homepage = "https://openai.com/index/introducing-gpt-oss/"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 201088
+H = 2880
+Heads = 64
+KvHeads = 8
+HeadDim = 64
+Inner = 2880
+Experts = 32
+TopK = 4
+Layers = 24
+Window = 128
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "openai/gpt-oss-20b"
+files = [
+    "model-00000-of-00002.safetensors",
+    "model-00001-of-00002.safetensors",
+    "model-00002-of-00002.safetensors",
+]
+bindings = "bindings.json"

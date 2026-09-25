@@ -1,0 +1,110 @@
+// The mixture-of-experts feed-forward block: a router that picks four of
+// thirty-two experts per token, and the experts themselves, whose weights the
+// checkpoint stores in MXFP4.
+//
+// The reference gathers the tokens each expert was chosen for and runs the
+// experts one at a time. That needs indices whose values decide which rows
+// are read, and the language has no data-dependent shapes. The equivalent
+// written here evaluates every expert on every token and weighs the results by
+// the router's probabilities, which are exactly zero outside the top four, so
+// the sum is the same. It costs eight times the arithmetic of the sparse form
+// and is the honest way to say it with fixed shapes.
+module gpt_oss.experts
+
+use crate.mxfp4::{dequantize_mxfp4}
+use std.nn.activations::{sigmoid}
+use std.nn.linear::{linear, Linear}
+use std.nn.softmax::{softmax}
+
+// `swiglu_limit` in config.json, and the gate's sigmoid slope.
+pub const LIMIT: f32 = 7.0
+pub const ALPHA: f32 = 1.702
+
+pub block MixtureOfExperts<
+    H: Dim,
+    Inner: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    Blocks: Dim,
+    InnerBlocks: Dim,
+    T: Float,
+>
+where
+    Experts > 0,
+    TopK > 0,
+    H == Blocks * 32,
+    Inner == InnerBlocks * 32
+{
+    sub router: Linear<H, Experts, T>
+
+    // The gate and the up projection share one weight, interleaved along the
+    // output axis: even columns gate, odd columns multiply. Both halves are
+    // `Inner` wide, so the stored width is `2 * Inner`.
+    param gate_up_blocks: Tensor[Experts, 2 * Inner, Blocks, 16; u8]
+    param gate_up_scales: Tensor[Experts, 2 * Inner, Blocks; u8]
+    param gate_up_bias: Tensor[Experts, 2 * Inner; T]
+
+    param down_blocks: Tensor[Experts, H, InnerBlocks, 16; u8]
+    param down_scales: Tensor[Experts, H, InnerBlocks; u8]
+    param down_bias: Tensor[Experts, H; T]
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        let scores = route<B, S>(router.forward(x))
+        let gate_up_weight = dequantize_mxfp4<Experts, 2 * Inner, Blocks, T>(
+            gate_up_blocks,
+            gate_up_scales,
+        )
+        // One linear layer over every expert at once. `[Experts, 2 * Inner, H]`
+        // flattens to `[Experts * 2 * Inner, H]` without moving anything, so
+        // this is an ordinary matrix product and a backend selects its kernel
+        // for it. Written instead as a contraction with a free `Experts` axis,
+        // `sum[h] x[b, s, h] * w[e, o, h]`, an interpreter has to materialize
+        // the whole `[B, S, Experts, 2 * Inner, H]` outer product before
+        // reducing it -- 85 GiB at 160 positions.
+        let wide = linear(
+            x,
+            reshape(gate_up_weight, [Experts * 2 * Inner, H]),
+            some(reshape(gate_up_bias, [Experts * 2 * Inner])),
+        )
+        let gate_up = reshape(wide, [B, S, Experts, 2 * Inner])
+        // gpt-oss clamps the gate from above only and the multiplier from both
+        // sides, then adds one to the multiplier, so the branch contributes
+        // `glu` even where the up projection is zero. `swiglu_limit` in
+        // config.json is the bound; 1.702 is the gate's sigmoid slope.
+        let gate = min(gate_up[..., 0::2], cast<T>(LIMIT))
+        let up = min(max(gate_up[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
+        let activated = (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))
+        // Weighing each expert's activation by its router probability here,
+        // before the down projection, rather than weighing its output after,
+        // folds the sum over experts into the projection's own contraction:
+        // one matrix product again rather than a per-expert one.
+        let weighted[b, s, e, i] = activated[b, s, e, i] * scores[b, s, e]
+        let down_weight = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
+        let mixed = linear(
+            reshape(weighted, [B, S, Experts * Inner]),
+            reshape(permute(down_weight, [1, 0, 2]), [H, Experts * Inner]),
+        )
+        // The down bias carries the same router weights, which makes summing
+        // it over the experts a matrix product too.
+        return mixed + linear(scores, permute(down_bias, [1, 0]))
+    }
+
+    // The router's probabilities, with zeros outside the top `TopK`.
+    //
+    // The reference takes the `TopK` largest logits, softmaxes those alone,
+    // and scatters them back. There is no top-k primitive here and no need
+    // for one: count how many experts beat each expert, ties going to the
+    // lower index as `torch.topk` orders them, push everything ranked `TopK`
+    // or worse below the softmax's floor, and softmax over all `Experts`. The
+    // floored entries come out as exactly zero, so the surviving `TopK`
+    // probabilities are the reference's.
+    fn route<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; T] {
+        let slots = iota<i32>(Experts)
+        let outranks[b, s, e, j] =
+            logits[b, s, j] > logits[b, s, e] ||
+            (logits[b, s, j] == logits[b, s, e] && slots[j] < slots[e])
+        let beaten[b, s, e] = sum<i32>[j] cast<i32>(outranks[b, s, e, j])
+        let kept[b, s, e] = select(beaten[b, s, e] < cast<i32>(TopK), logits[b, s, e], -1e30)
+        return softmax(kept)
+    }
+}

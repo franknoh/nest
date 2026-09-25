@@ -1,0 +1,35 @@
+// Phi-3's gated MLP, with the gate and up projections fused into one
+// checkpoint tensor.
+module phi3.mlp
+
+use std.nn.activations::{silu}
+use std.nn.linear::{Linear}
+
+// `gate_up_proj.weight` is one `[2 * Inner, H]` tensor computing the gate
+// and up projections side by side; `down_proj.weight` is separate. Which
+// half is which is not obvious from the shape, so it is worth stating how
+// it was determined: the reference `Phi3MLP.forward` in
+// `transformers/models/phi3/modeling_phi3.py` reads
+//
+//   up_states = self.gate_up_proj(hidden_states)
+//   gate, up_states = up_states.chunk(2, dim=-1)
+//   up_states = up_states * self.activation_fn(gate)
+//
+// so `chunk(2, dim=-1)` splits the output axis in the order the tensor is
+// stored: the first `Inner` rows of `gate_up_proj.weight` produce the gate
+// (the half passed through the activation), and the second `Inner` rows
+// produce the value that gate multiplies. Both `gate_up_proj.weight` and
+// `down_proj.weight` keep the ordinary `nn.Linear` `[Out, In]` layout, so
+// `Linear<H, 2 * Inner, T>` binds the checkpoint tensor with no transpose
+// and `forward` slices the projected result rather than the weight.
+pub block FusedSwiGlu<H: Dim, Inner: Dim, T: Float = bf16> {
+    sub gate_up: Linear<H, 2 * Inner, T>
+    sub down: Linear<Inner, H, T>
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T] {
+        let projected = gate_up.forward(x)
+        let gate = projected[..., 0:Inner]
+        let up = projected[..., Inner:2 * Inner]
+        return down.forward(silu(gate) * up)
+    }
+}

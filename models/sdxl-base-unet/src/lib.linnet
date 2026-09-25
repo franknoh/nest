@@ -1,0 +1,377 @@
+// The denoising UNet of Stable Diffusion XL base: 2.6 billion parameters,
+// the largest model in Nest and the counterpart to the `sd-vae-ft-mse`
+// decoder, which turns the latent this network cleans into an image.
+//
+// One call is one denoising step. A 3x3 convolution reads the 4-channel
+// latent; three down stages, a mid stage, and three up stages of residual
+// blocks and spatial transformers process it at three resolutions, with the
+// down path's hidden states concatenated back into the up path; a final
+// group norm and convolution predict the noise in the latent.
+//
+// Two conditioning vectors reach every residual block, summed: the timestep
+// embedding, and SDXL's added conditioning, which carries the pooled text
+// embedding together with the original size, crop offset, and target size
+// the image was trained under. Both arrive already projected to sinusoids
+// (see `forward`), so the parameter-free part of the embedding is the
+// caller's; the two-linear MLPs that follow it are here.
+//
+// The text embedding itself is the concatenation of the two CLIP text
+// encoders' hidden states, 2048 wide; those encoders are separate models in
+// the checkpoint and are not implemented here.
+module sdxl_unet
+
+use std.nn.activations::{gelu_erf, silu}
+use std.nn.attention::{attention}
+use std.nn.conv::{Conv2d}
+use std.nn.linear::{Linear}
+use std.nn.norm::{group_norm, layer_norm}
+use std.nn.resize::{upsample_nearest2d}
+
+// The residual blocks and the final output norm use `norm_eps` from the
+// config; the group norm in front of each spatial transformer uses 1e-6,
+// which `diffusers` hard-codes in `Transformer2DModel` rather than reading
+// from the config. `GroupNorm` therefore takes its epsilon as an argument.
+pub const RESNET_EPS: f32 = 1e-5
+pub const TRANSFORMER_EPS: f32 = 1e-6
+
+// Every LayerNorm inside a transformer block is PyTorch's default.
+pub const LAYER_EPS: f32 = 1e-5
+
+pub block GroupNorm<C: Dim, T: Float>
+where C % 32 == 0 {
+    param weight: Tensor[C; T]
+    param bias: Tensor[C; T]
+
+    pub fn forward<B: Dim, H: Dim, W: Dim>(
+        x: Tensor[B, C, H, W; T],
+        eps: f32,
+    ) -> Tensor[B, C, H, W; T] {
+        return group_norm<B, C, H, W, 32, T>(x, weight, bias, eps)
+    }
+}
+
+pub block LayerNorm<C: Dim, T: Float> {
+    param weight: Tensor[C; T]
+    param bias: Tensor[C; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, C; T]) -> Tensor[*S, C; T] {
+        return layer_norm(x, weight, some(bias), LAYER_EPS)
+    }
+}
+
+// group_norm -> SiLU -> conv3x3, then the conditioning vector added as a
+// per-channel shift, then group_norm -> SiLU -> conv3x3, added to the input.
+// The conditioning goes through SiLU before its own projection, and is
+// broadcast over the grid. This variant keeps the width, so the shortcut is
+// the input itself.
+pub block ResBlock<C: Dim, Temb: Dim, T: Float>
+where C % 32 == 0 {
+    sub norm1: GroupNorm<C, T>
+    sub conv1: Conv2d<C, C, 3, 1, 1, T>
+    sub time_emb_proj: Linear<Temb, C, T>
+    sub norm2: GroupNorm<C, T>
+    sub conv2: Conv2d<C, C, 3, 1, 1, T>
+
+    pub fn forward<B: Dim, H: Dim, W: Dim>(
+        x: Tensor[B, C, H, W; T],
+        conditioning: Tensor[B, Temb; T],
+    ) -> Tensor[B, C, H, W; T] {
+        let hidden = conv1.forward(silu(norm1.forward(x, RESNET_EPS)))
+        let shift = reshape(time_emb_proj.forward(silu(conditioning)), [B, C, 1, 1])
+        let out = conv2.forward(silu(norm2.forward(hidden + shift, RESNET_EPS)))
+        return out + x
+    }
+}
+
+// The same residual block where the width changes, so the shortcut is a 1x1
+// convolution that projects the input to match. Every up-path block is of
+// this kind: concatenating a skip connection always changes the width.
+pub block ResBlockWiden<Cin: Dim, Cout: Dim, Temb: Dim, T: Float>
+where
+    Cin % 32 == 0,
+    Cout % 32 == 0
+{
+    sub norm1: GroupNorm<Cin, T>
+    sub conv1: Conv2d<Cin, Cout, 3, 1, 1, T>
+    sub time_emb_proj: Linear<Temb, Cout, T>
+    sub norm2: GroupNorm<Cout, T>
+    sub conv2: Conv2d<Cout, Cout, 3, 1, 1, T>
+    sub shortcut: Conv2d<Cin, Cout, 1, 1, 0, T>
+
+    pub fn forward<B: Dim, H: Dim, W: Dim>(
+        x: Tensor[B, Cin, H, W; T],
+        conditioning: Tensor[B, Temb; T],
+    ) -> Tensor[B, Cout, H, W; T] {
+        let hidden = conv1.forward(silu(norm1.forward(x, RESNET_EPS)))
+        let shift = reshape(time_emb_proj.forward(silu(conditioning)), [B, Cout, 1, 1])
+        let out = conv2.forward(silu(norm2.forward(hidden + shift, RESNET_EPS)))
+        return out + shortcut.forward(x)
+    }
+}
+
+// Multi-head attention over a sequence, used twice per transformer block:
+// once with the sequence attending to itself, once with it attending to the
+// text embedding, which is where `Ctxdim` differs from `C`. The query, key,
+// and value projections carry no bias in this checkpoint; the output
+// projection does.
+pub block Attention<C: Dim, Ctxdim: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    C % Heads == 0
+{
+    sub to_q: Linear<C, C, T>
+    sub to_k: Linear<Ctxdim, C, T>
+    sub to_v: Linear<Ctxdim, C, T>
+    sub to_out: Linear<C, C, T>
+
+    pub fn forward<B: Dim, N: Dim, S: Dim>(
+        x: Tensor[B, N, C; T],
+        context: Tensor[B, S, Ctxdim; T],
+    ) -> Tensor[B, N, C; T] {
+        // The scale is over the head width, 64 here, not the full width.
+        let mixed = attention(
+            heads<B, N, Heads, C / Heads, T>(to_q.forward(x)),
+            heads<B, S, Heads, C / Heads, T>(to_k.forward(context)),
+            heads<B, S, Heads, C / Heads, T>(to_v.forward(context)),
+            rsqrt(cast<f32>(C / Heads)),
+            none,
+        )
+        return to_out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, N, C]))
+    }
+}
+
+fn heads<B: Dim, N: Dim, Heads: Dim, Dh: Dim, T: Float>(
+    x: Tensor[B, N, Heads * Dh; T],
+) -> Tensor[B, Heads, N, Dh; T] {
+    return permute(reshape(x, [B, N, Heads, Dh]), [0, 2, 1, 3])
+}
+
+// The gated feed-forward of a transformer block: one projection produces
+// twice the inner width, whose first half is the value and whose second half
+// is the gate. The gate goes through GELU in its exact, error-function form,
+// which is what this checkpoint was trained with; the tanh approximation
+// `std.nn.activations::gelu` would be off by about 5e-4 per activation, and
+// a gate multiplies that error by an unbounded value rather than averaging
+// it away.
+pub block FeedForward<C: Dim, Inner: Dim, T: Float> {
+    sub proj: Linear<C, Inner * 2, T>
+    sub out: Linear<Inner, C, T>
+
+    pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, C; T]) -> Tensor[B, N, C; T] {
+        let projected = proj.forward(x)
+        let value = projected[..., 0:Inner]
+        let gate = projected[..., Inner:Inner * 2]
+        return out.forward(value * gelu_erf(gate))
+    }
+}
+
+// Self-attention, cross-attention over the text embedding, and the gated
+// feed-forward, each pre-normed by its own LayerNorm and added back.
+pub block TransformerBlock<C: Dim, Ctxdim: Dim, Heads: Dim, T: Float>
+where
+    Heads > 0,
+    C % Heads == 0
+{
+    sub norm1: LayerNorm<C, T>
+    sub attn1: Attention<C, C, Heads, T>
+    sub norm2: LayerNorm<C, T>
+    sub attn2: Attention<C, Ctxdim, Heads, T>
+    sub norm3: LayerNorm<C, T>
+    sub ff: FeedForward<C, C * 4, T>
+
+    pub fn forward<B: Dim, N: Dim, S: Dim>(
+        x: Tensor[B, N, C; T],
+        context: Tensor[B, S, Ctxdim; T],
+    ) -> Tensor[B, N, C; T] {
+        let normed = norm1.forward(x)
+        let attended = x + attn1.forward(normed, normed)
+        let crossed = attended + attn2.forward(norm2.forward(attended), context)
+        return crossed + ff.forward(norm3.forward(crossed))
+    }
+}
+
+// A spatial transformer: group norm, the grid flattened to a sequence of
+// `H * W` positions and projected in, `Depth` transformer blocks, projected
+// out and folded back to a grid, added to the input. This checkpoint sets
+// `use_linear_projection`, so the two projections are ordinary linear layers
+// applied to the flattened sequence rather than 1x1 convolutions applied to
+// the grid; the arithmetic is the same either way.
+pub block Transformer<C: Dim, Ctxdim: Dim, Heads: Dim, Depth: Dim, T: Float>
+where
+    C % 32 == 0,
+    Heads > 0,
+    C % Heads == 0
+{
+    sub norm: GroupNorm<C, T>
+    sub proj_in: Linear<C, C, T>
+    sub blocks: [TransformerBlock<C, Ctxdim, Heads, T>; Depth]
+    sub proj_out: Linear<C, C, T>
+
+    pub fn forward<B: Dim, H: Dim, W: Dim, S: Dim>(
+        x: Tensor[B, C, H, W; T],
+        context: Tensor[B, S, Ctxdim; T],
+    ) -> Tensor[B, C, H, W; T] {
+        let normed = norm.forward(x, TRANSFORMER_EPS)
+        let sequence = reshape(permute(normed, [0, 2, 3, 1]), [B, H * W, C])
+        var hidden = proj_in.forward(sequence)
+        static for layer in blocks {
+            hidden = layer.forward(hidden, context)
+        }
+        let projected = proj_out.forward(hidden)
+        return permute(reshape(projected, [B, H, W, C]), [0, 3, 1, 2]) + x
+    }
+}
+
+pub block Model<
+    MidH: Dim,
+    MidW: Dim,
+    Depth1: Dim,
+    Depth2: Dim,
+    T: Float = f32,
+> {
+    sub conv_in: Conv2d<4, 320, 3, 1, 1, T>
+
+    // The timestep MLP, and SDXL's added-conditioning MLP beside it. Their
+    // outputs are summed into the vector every residual block shifts by.
+    sub time_linear_1: Linear<320, 1280, T>
+    sub time_linear_2: Linear<1280, 1280, T>
+    sub add_linear_1: Linear<2816, 1280, T>
+    sub add_linear_2: Linear<1280, 1280, T>
+
+    // Down stage 0, at the latent resolution and 320 channels. The top of
+    // the network carries no transformer: SDXL moved that capacity down to
+    // the coarser grids, where attention over `H * W` positions is cheap.
+    sub down0_res0: ResBlock<320, 1280, T>
+    sub down0_res1: ResBlock<320, 1280, T>
+    sub down0_downsample: Conv2d<320, 320, 3, 2, 1, T>
+
+    // Down stage 1, half resolution and 640 channels, with `Depth1`
+    // transformer blocks after each residual block.
+    sub down1_res0: ResBlockWiden<320, 640, 1280, T>
+    sub down1_attn0: Transformer<640, 2048, 10, Depth1, T>
+    sub down1_res1: ResBlock<640, 1280, T>
+    sub down1_attn1: Transformer<640, 2048, 10, Depth1, T>
+    sub down1_downsample: Conv2d<640, 640, 3, 2, 1, T>
+
+    // Down stage 2, quarter resolution and 1280 channels, `Depth2` deep.
+    // It has no downsampler: this is already the coarsest grid.
+    sub down2_res0: ResBlockWiden<640, 1280, 1280, T>
+    sub down2_attn0: Transformer<1280, 2048, 20, Depth2, T>
+    sub down2_res1: ResBlock<1280, 1280, T>
+    sub down2_attn1: Transformer<1280, 2048, 20, Depth2, T>
+
+    // The mid stage: residual block, transformer, residual block.
+    sub mid_res0: ResBlock<1280, 1280, T>
+    sub mid_attn: Transformer<1280, 2048, 20, Depth2, T>
+    sub mid_res1: ResBlock<1280, 1280, T>
+
+    // Up stage 0, the coarsest grid. Three residual blocks, each fed the
+    // previous hidden state concatenated with one skip connection from the
+    // down path -- which is why their input widths differ -- then an
+    // upsample to half resolution.
+    sub up0_res0: ResBlockWiden<2560, 1280, 1280, T>
+    sub up0_attn0: Transformer<1280, 2048, 20, Depth2, T>
+    sub up0_res1: ResBlockWiden<2560, 1280, 1280, T>
+    sub up0_attn1: Transformer<1280, 2048, 20, Depth2, T>
+    sub up0_res2: ResBlockWiden<1920, 1280, 1280, T>
+    sub up0_attn2: Transformer<1280, 2048, 20, Depth2, T>
+    sub up0_upsample: Conv2d<1280, 1280, 3, 1, 1, T>
+
+    // Up stage 1, half resolution and 640 channels.
+    sub up1_res0: ResBlockWiden<1920, 640, 1280, T>
+    sub up1_attn0: Transformer<640, 2048, 10, Depth1, T>
+    sub up1_res1: ResBlockWiden<1280, 640, 1280, T>
+    sub up1_attn1: Transformer<640, 2048, 10, Depth1, T>
+    sub up1_res2: ResBlockWiden<960, 640, 1280, T>
+    sub up1_attn2: Transformer<640, 2048, 10, Depth1, T>
+    sub up1_upsample: Conv2d<640, 640, 3, 1, 1, T>
+
+    // Up stage 2, back at the latent resolution and 320 channels. It
+    // mirrors down stage 0: no transformers, and no upsampler.
+    sub up2_res0: ResBlockWiden<960, 320, 1280, T>
+    sub up2_res1: ResBlockWiden<640, 320, 1280, T>
+    sub up2_res2: ResBlockWiden<640, 320, 1280, T>
+
+    sub norm_out: GroupNorm<320, T>
+    sub conv_out: Conv2d<320, 4, 3, 1, 1, T>
+
+    // One denoising step: the noise this network predicts in `latent` at the
+    // given timestep, under the given text and added conditioning.
+    //
+    // `timestep_embedding` and `added_embedding` arrive already projected to
+    // sinusoids, because that projection has no parameters and depends on
+    // conventions (frequency order, whether sine or cosine comes first) that
+    // belong with the pipeline rather than with the network. The caller
+    // computes the 320-wide sinusoidal embedding of the timestep, and the
+    // 2816-wide added vector: the 1280-wide pooled output of the second text
+    // encoder, concatenated with the 256-wide sinusoidal embedding of each
+    // of the six micro-conditioning numbers (original height and width, crop
+    // top and left, target height and width). The README gives the exact
+    // call. Everything with weights in it -- the two-linear MLP on each --
+    // is this block's.
+    pub entry forward<B: Dim, S: Dim>(
+        latent: Tensor[B, 4, MidH * 4, MidW * 4; T],
+        timestep_embedding: Tensor[B, 320; T],
+        text_embedding: Tensor[B, S, 2048; T],
+        added_embedding: Tensor[B, 2816; T],
+    ) -> Tensor[B, 4, MidH * 4, MidW * 4; T] {
+        let time = time_linear_2.forward(silu(time_linear_1.forward(timestep_embedding)))
+        let added = add_linear_2.forward(silu(add_linear_1.forward(added_embedding)))
+        let conditioning = time + added
+
+        // The down path. Every hidden state named here is also a skip
+        // connection: the up path consumes them in reverse order, one per
+        // residual block, so the nine of them match its nine blocks.
+        let s0 = conv_in.forward(latent)
+        let s1 = down0_res0.forward(s0, conditioning)
+        let s2 = down0_res1.forward(s1, conditioning)
+        let s3 = down0_downsample.forward(s2)
+        let s4 = down1_attn0.forward(down1_res0.forward(s3, conditioning), text_embedding)
+        let s5 = down1_attn1.forward(down1_res1.forward(s4, conditioning), text_embedding)
+        let s6 = down1_downsample.forward(s5)
+        let s7 = down2_attn0.forward(down2_res0.forward(s6, conditioning), text_embedding)
+        let s8 = down2_attn1.forward(down2_res1.forward(s7, conditioning), text_embedding)
+
+        let mid = mid_res1.forward(
+            mid_attn.forward(mid_res0.forward(s8, conditioning), text_embedding),
+            conditioning,
+        )
+
+        // The up path, taking the skips back off the stack: s8, s7, s6 at
+        // the coarsest grid, s5, s4, s3 at half resolution, s2, s1, s0 at
+        // the latent's own.
+        let u00 = up0_attn0.forward(
+            up0_res0.forward(concat(mid, s8, axis = 1), conditioning),
+            text_embedding,
+        )
+        let u01 = up0_attn1.forward(
+            up0_res1.forward(concat(u00, s7, axis = 1), conditioning),
+            text_embedding,
+        )
+        let u02 = up0_attn2.forward(
+            up0_res2.forward(concat(u01, s6, axis = 1), conditioning),
+            text_embedding,
+        )
+        let up0 = up0_upsample.forward(upsample_nearest2d<B, 1280, MidH, MidW, 2, T>(u02))
+
+        let u10 = up1_attn0.forward(
+            up1_res0.forward(concat(up0, s5, axis = 1), conditioning),
+            text_embedding,
+        )
+        let u11 = up1_attn1.forward(
+            up1_res1.forward(concat(u10, s4, axis = 1), conditioning),
+            text_embedding,
+        )
+        let u12 = up1_attn2.forward(
+            up1_res2.forward(concat(u11, s3, axis = 1), conditioning),
+            text_embedding,
+        )
+        let up1 = up1_upsample.forward(upsample_nearest2d<B, 640, MidH * 2, MidW * 2, 2, T>(u12))
+
+        let u20 = up2_res0.forward(concat(up1, s2, axis = 1), conditioning)
+        let u21 = up2_res1.forward(concat(u20, s1, axis = 1), conditioning)
+        let u22 = up2_res2.forward(concat(u21, s0, axis = 1), conditioning)
+
+        return conv_out.forward(silu(norm_out.forward(u22, RESNET_EPS)))
+    }
+}

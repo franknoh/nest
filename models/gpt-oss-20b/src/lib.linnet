@@ -1,0 +1,158 @@
+// gpt-oss-20b: a mixture-of-experts decoder.
+//
+// Each of the 24 layers is RMSNorm, attention, RMSNorm, and a
+// mixture-of-experts feed-forward block, with residual connections around the
+// two halves. What separates it from a Llama-shaped decoder is in the three
+// modules beside this one:
+//
+//   - `gpt_oss.experts`  32 experts per layer, 4 active per token, their
+//                        weights stored in MXFP4 and dequantized here rather
+//                        than bound as floats (`gpt_oss.mxfp4`).
+//   - `gpt_oss.attention` attention sinks -- a learned logit per head that
+//                        joins the softmax and is then dropped -- and layers
+//                        alternating between a 128-position sliding window
+//                        and full causal attention.
+//   - `gpt_oss.rope`     YaRN-scaled rotary positions, which stretch a 4096
+//                        training context to 131072.
+//
+// Only 3.6B of the 20.9B parameters are read per token, but every expert's
+// weight is part of the graph: see `gpt_oss.experts` for why the routing is
+// written densely.
+module gpt_oss
+
+use crate.attention::{SinkAttention}
+use crate.experts::{MixtureOfExperts}
+use std.nn.embedding::{Embedding}
+use std.nn.linear::{Linear}
+use std.nn.norm::{RmsNorm}
+
+pub block DecoderLayer<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Inner: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    Blocks: Dim,
+    InnerBlocks: Dim,
+    T: Float,
+>
+where
+    Heads > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    HeadDim % 2 == 0,
+    Experts > 0,
+    TopK > 0,
+    H == Blocks * 32,
+    Inner == InnerBlocks * 32
+{
+    sub input_layernorm: RmsNorm<H, T>
+    sub self_attn: SinkAttention<H, Heads, KvHeads, HeadDim, T>
+    sub post_attention_layernorm: RmsNorm<H, T>
+    sub mlp: MixtureOfExperts<H, Inner, Experts, TopK, Blocks, InnerBlocks, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T], window: i32) -> Tensor[B, S, H; T] {
+        let attended = x + self_attn.forward(input_layernorm.forward(x), window)
+        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+    }
+}
+
+// `layer_types` in config.json alternates `sliding_attention` and
+// `full_attention`, starting with sliding. A `sub` array holds one block type,
+// and the window is what differs, so the pair is the repeating unit: the first
+// layer of each pair sees `Window` positions, the second sees the whole
+// prefix. A window at least as wide as the sequence is the same mask as no
+// window at all, so the second layer is given `S`.
+pub block LayerPair<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Inner: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    Window: Dim,
+    Blocks: Dim,
+    InnerBlocks: Dim,
+    T: Float,
+>
+where
+    Heads > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    HeadDim % 2 == 0,
+    Experts > 0,
+    TopK > 0,
+    H == Blocks * 32,
+    Inner == InnerBlocks * 32
+{
+    sub sliding: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, T>
+    sub full: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        let windowed = sliding.forward(x, cast<i32>(Window))
+        return full.forward(windowed, cast<i32>(S))
+    }
+}
+
+pub block Model<
+    Vocab: Dim,
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Inner: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    Layers: Dim,
+    Window: Dim,
+    T: Float = bf16,
+>
+where
+    Heads > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    HeadDim % 2 == 0,
+    Experts > 0,
+    TopK > 0,
+    Layers % 2 == 0,
+    H % 32 == 0,
+    Inner % 32 == 0
+{
+    sub embed_tokens: Embedding<Vocab, H, T>
+    sub pairs: [LayerPair<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Window, H / 32, Inner /
+        32, T>; Layers / 2]
+    sub norm: RmsNorm<H, T>
+    // gpt-oss does not tie the output head to the embedding
+    // (`tie_word_embeddings` is false); the checkpoint carries its own
+    // `lm_head.weight`.
+    sub lm_head: Linear<H, Vocab, T>
+
+    // Logits for every position.
+    pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T] {
+        return lm_head.forward(norm.forward(hidden(tokens)))
+    }
+
+    // Logits for the last position only, as sampling one token needs: the
+    // final norm and the projection over the vocabulary run on one row per
+    // sequence instead of `S` of them.
+    pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]
+    where S > 0 {
+        return lm_head.forward(norm.forward(hidden(tokens)[:, S - 1, :]))
+    }
+
+    // The final layer's hidden states, before the norm and the head.
+    pub entry states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T] {
+        return hidden(tokens)
+    }
+
+    fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T] {
+        var x = embed_tokens.forward(tokens)
+        static for pair in pairs {
+            x = pair.forward(x)
+        }
+        return x
+    }
+}

@@ -1,0 +1,137 @@
+// Grouped-query attention: `KvHeads` key/value heads shared by `Heads`
+// query heads, through `std.nn.attention::grouped_attention`. The `where`
+// clause states the divisibility the reshapes depend on; the checker proves
+// every shape from it.
+//
+// `forward` attends over a whole sequence. `decode` takes one position and
+// keeps the keys and values seen so far in two `state` members, sized by
+// the block's `Batch` and `MaxSeq`: the block assigns them, the runtime
+// keeps them between calls, and graph exports thread them in and out.
+// `prefill` is `decode` for a whole prompt: every position in one pass.
+module llama.attention
+
+use crate.rope::{THETA, tables}
+use std.nn.attention::{causal_mask, grouped_attention}
+use std.nn.cache::{write_at, write_span}
+use std.nn.linear::{Linear}
+use std.nn.rope::{rope}
+
+pub block GroupedQueryAttention<H: Dim, Heads: Dim, KvHeads: Dim, Batch: Dim, MaxSeq: Dim, T: Float>
+where
+    Heads > 0,
+    KvHeads > 0,
+    H % Heads == 0,
+    Heads % KvHeads == 0,
+    (H / Heads) % 2 == 0,
+    MaxSeq > 0
+{
+    sub q_proj: Linear<H, H, T>
+    sub k_proj: Linear<H, KvHeads * (H / Heads), T>
+    sub v_proj: Linear<H, KvHeads * (H / Heads), T>
+    sub o_proj: Linear<H, H, T>
+
+    state cache_k: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]
+    state cache_v: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        let (cos_table, sin_table) = tables<S, H / Heads, T>(THETA)
+        let q = rope(
+            split_heads<B, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            cos_table,
+            sin_table,
+        )
+        let k = rope(
+            split_heads<B, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            cos_table,
+            sin_table,
+        )
+        let v = split_heads<B, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let mixed = grouped_attention(
+            q,
+            k,
+            v,
+            rsqrt(cast<f32>(H / Heads)),
+            some(causal_mask<S, S>()),
+        )
+        return o_proj.forward(merge_heads<B, S, Heads, H / Heads, T>(mixed))
+    }
+
+    // One new position `pos`: its key and value are written into the caches
+    // at that position (a masked write, no scatter), and the query attends
+    // over every cached position up to and including it.
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
+        let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
+        let cos_at[d] = cos_table[cast<i64>(pos), d]
+        let sin_at[d] = sin_table[cast<i64>(pos), d]
+        let cos_row = reshape(cos_at, [1, H / Heads])
+        let sin_row = reshape(sin_at, [1, H / Heads])
+        let q = rope(
+            split_heads<Batch, 1, Heads, H / Heads, T>(q_proj.forward(x)),
+            cos_row,
+            sin_row,
+        )
+        let k = rope(
+            split_heads<Batch, 1, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            cos_row,
+            sin_row,
+        )
+        let v = split_heads<Batch, 1, KvHeads, H / Heads, T>(v_proj.forward(x))
+        cache_k = write_at(cache_k, k, pos)
+        cache_v = write_at(cache_v, v, pos)
+        let positions = iota<i32>(MaxSeq)
+        let seen[s] = positions[s] <= pos
+        let mixed = grouped_attention(
+            q,
+            cache_k,
+            cache_v,
+            rsqrt(cast<f32>(H / Heads)),
+            some(reshape(seen, [1, MaxSeq])),
+        )
+        return o_proj.forward(merge_heads<Batch, 1, Heads, H / Heads, T>(mixed))
+    }
+
+    // `S` new positions starting at `pos`, as a prompt arrives: their keys
+    // and values go into the caches as one span, and each query attends over
+    // every cached position up to and including its own. A prompt costs one
+    // pass instead of one per token, which is most of the time to the first
+    // generated token. The rope rows come from the same scaled `tables` as
+    // `decode`, gathered at `pos + iota(S)` rather than recomputed.
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
+        let rows[i] = cast<i64>(pos) + iota<i64>(S)[i]
+        let cos_rows[i, d] = cos_table[rows[i], d]
+        let sin_rows[i, d] = sin_table[rows[i], d]
+        let q = rope(
+            split_heads<Batch, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let k = rope(
+            split_heads<Batch, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            cos_rows,
+            sin_rows,
+        )
+        let v = split_heads<Batch, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        cache_k = write_span(cache_k, k, pos)
+        cache_v = write_span(cache_v, v, pos)
+        let positions = iota<i32>(MaxSeq)
+        let queries = iota<i32>(S)
+        let seen[i, s] = positions[s] <= pos + queries[i]
+        let mixed = grouped_attention(q, cache_k, cache_v, rsqrt(cast<f32>(H / Heads)), some(seen))
+        return o_proj.forward(merge_heads<Batch, S, Heads, H / Heads, T>(mixed))
+    }
+}
+
+// `[B, S, N * D]` -> `[B, N, S, D]`.
+fn split_heads<B: Dim, S: Dim, N: Dim, D: Dim, T: Float>(
+    x: Tensor[B, S, N * D; T],
+) -> Tensor[B, N, S, D; T] {
+    return permute(reshape(x, [B, S, N, D]), [0, 2, 1, 3])
+}
+
+fn merge_heads<B: Dim, S: Dim, N: Dim, D: Dim, T: Float>(
+    x: Tensor[B, N, S, D; T],
+) -> Tensor[B, S, N * D; T] {
+    return reshape(permute(x, [0, 2, 1, 3]), [B, S, N * D])
+}

@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="901" height="768" viewBox="0 0 901 768" font-family="Inter, system-ui, sans-serif">
+<style>
+.label{font-size:12px;fill:#111111}
+.sub{font-size:10.5px;fill:#666666;font-family:'JetBrains Mono',ui-monospace,monospace}
+.edge{font-size:10px;fill:#666666;font-family:'JetBrains Mono',ui-monospace,monospace}
+.group{font-size:11px;fill:#666666}
+.title{font-size:13px;font-weight:600;fill:#111111}
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#444444"/></marker></defs>
+<text class="title" x="24.0" y="19">forward</text>
+<rect x="726.5" y="132.5" width="150.2" height="85.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="734.5" y="145.5">embed_tokens.forward</text>
+<rect x="33.0" y="105.0" width="689.0" height="342.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="41.0" y="118.0">for pair in pairs</text>
+<rect x="317.9" y="456.5" width="119.2" height="85.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="325.9" y="469.5">norm.forward</text>
+<rect x="311.7" y="564.5" width="131.6" height="85.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="319.7" y="577.5">lm_head.forward</text>
+<rect x="46.5" y="132.5" width="662.0" height="301.0" rx="4" fill="#f6f6f6" stroke="#bbbbbb" stroke-dasharray="4 3"/>
+<text class="group" x="54.5" y="145.5">pairs[pair].forward</text>
+<path d="M 377.5 96.0 C 377.5 128.0, 801.6 128.0, 801.6 159.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="345.6" y="120.0" width="63.8" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="377.5" y="131.5" text-anchor="middle">i32[B, S]</text>
+<path d="M 801.6 204.0 C 801.6 236.0, 335.5 236.0, 335.5 267.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="766.6" y="228.0" width="70.0" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="801.6" y="239.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 462.1 204.0 C 462.1 236.0, 335.5 236.0, 335.5 267.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="448.8" y="228.0" width="26.6" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="462.1" y="239.5" text-anchor="middle">i32</text>
+<path d="M 335.5 312.0 C 335.5 344.0, 377.5 344.0, 377.5 375.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="300.5" y="336.0" width="70.0" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="335.5" y="347.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 667.0 312.0 C 667.0 344.0, 377.5 344.0, 377.5 375.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="653.7" y="336.0" width="26.6" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="667.0" y="347.5" text-anchor="middle">i32</text>
+<path d="M 377.5 420.0 C 377.5 452.0, 377.5 452.0, 377.5 483.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="342.5" y="444.0" width="70.0" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="377.5" y="455.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 377.5 528.0 C 377.5 560.0, 377.5 560.0, 377.5 591.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="342.5" y="552.0" width="70.0" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="377.5" y="563.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 377.5 636.0 C 377.5 668.0, 377.5 668.0, 377.5 699.0" fill="none" stroke="#444444" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="330.1" y="660.0" width="94.8" height="15" rx="2" fill="#ffffff" opacity="0.9"/>
+<text class="edge" x="377.5" y="671.5" text-anchor="middle">T[B, S, Vocab]</text>
+<rect x="312.8" y="52.0" width="129.4" height="44.0" rx="14" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="377.5" y="70.0" text-anchor="middle">tokens</text>
+<text class="sub" x="377.5" y="86.0" text-anchor="middle">Tensor[B, S; i32]</text>
+<rect x="740.0" y="160.0" width="123.2" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="801.6" y="178.0" text-anchor="middle">embedding</text>
+<text class="sub" x="801.6" y="194.0" text-anchor="middle">std.nn.embedding</text>
+<rect x="434.1" y="160.0" width="56.0" height="44.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="462.1" y="178.0" text-anchor="middle">cast</text>
+<text class="sub" x="462.1" y="194.0" text-anchor="middle">i32</text>
+<rect x="60.0" y="268.0" width="551.0" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="335.5" y="286.0" text-anchor="middle">sliding.forward</text>
+<text class="sub" x="335.5" y="302.0" text-anchor="middle">DecoderLayer&lt;H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, H / 32, Inner / 32, T&gt;</text>
+<rect x="639.0" y="268.0" width="56.0" height="44.0" rx="4" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="667.0" y="286.0" text-anchor="middle">cast</text>
+<text class="sub" x="667.0" y="302.0" text-anchor="middle">i32</text>
+<rect x="102.0" y="376.0" width="551.0" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="377.5" y="394.0" text-anchor="middle">full.forward</text>
+<text class="sub" x="377.5" y="410.0" text-anchor="middle">DecoderLayer&lt;H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, H / 32, Inner / 32, T&gt;</text>
+<rect x="331.4" y="484.0" width="92.2" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="377.5" y="502.0" text-anchor="middle">rms_norm</text>
+<text class="sub" x="377.5" y="518.0" text-anchor="middle">std.nn.norm</text>
+<rect x="325.2" y="592.0" width="104.6" height="44.0" rx="4" fill="#ffffff" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="377.5" y="610.0" text-anchor="middle">linear</text>
+<text class="sub" x="377.5" y="626.0" text-anchor="middle">std.nn.linear</text>
+<rect x="297.3" y="700.0" width="160.4" height="44.0" rx="14" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
+<text class="label" x="377.5" y="718.0" text-anchor="middle">result</text>
+<text class="sub" x="377.5" y="734.0" text-anchor="middle">Tensor[B, S, Vocab; T]</text>
+</svg>

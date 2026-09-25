@@ -1,0 +1,37 @@
+[model]
+name = "whisper-large-v3"
+title = "Whisper large-v3"
+summary = "OpenAI's largest multilingual speech recognition model: a convolutional stem over a 128-bin log-mel spectrogram, 32 encoder layers, and a 32-layer decoder that cross-attends to them, at width 1280."
+license = "Apache-2.0"
+family = "whisper"
+tags = ["automatic-speech-recognition", "audio", "encoder-decoder", "cross-attention", "multilingual"]
+
+[links]
+huggingface = "https://huggingface.co/openai/whisper-large-v3"
+github = "https://github.com/openai/whisper"
+arxiv = "https://arxiv.org/abs/2212.04356"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "encode"
+
+[generics]
+Mels = 128
+Frames = 3000
+D = 1280
+Heads = 20
+Inner = 5120
+EncoderLayers = 32
+DecoderLayers = 32
+Vocab = 51866
+MaxTokens = 448
+T = "f16"
+
+[check]
+B = 1
+
+[weights]
+repo = "openai/whisper-large-v3"
+files = ["model.safetensors"]
+bindings = "bindings.json"

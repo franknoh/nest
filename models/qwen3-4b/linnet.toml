@@ -1,0 +1,4 @@
+[package]
+name = "qwen3"
+version = "0.1.0"
+language = "0.1"

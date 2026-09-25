@@ -1,0 +1,34 @@
+[model]
+name = "sam-vit-base"
+title = "SAM ViT-Base"
+summary = "Meta's Segment Anything Model: a ViT-Det image encoder with windowed and relative-position attention, whose 64x64 embedding any number of point or box prompts are decoded against by a two-way transformer."
+license = "Apache-2.0"
+family = "sam"
+tags = ["image-segmentation", "vision", "prompted", "encoder-decoder"]
+
+[links]
+huggingface = "https://huggingface.co/facebook/sam-vit-base"
+github = "https://github.com/facebookresearch/segment-anything"
+arxiv = "https://arxiv.org/abs/2304.02643"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "encode_image"
+
+[generics]
+D = 768
+VisionHeads = 12
+VisionInner = 3072
+Hd = 256
+MaskHeads = 8
+MaskInner = 2048
+T = "f32"
+
+[check]
+B = 1
+
+[weights]
+repo = "facebook/sam-vit-base"
+files = ["model.safetensors"]
+bindings = "bindings.json"

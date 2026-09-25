@@ -1,0 +1,38 @@
+[model]
+name = "phi-3-mini-4k-instruct"
+title = "Phi-3 Mini 4K Instruct"
+summary = "A 3.8B-parameter decoder with fused QKV and gate/up projections, full (non-grouped) multi-head attention, RMS normalization, SwiGLU, and an untied output head, instruction-tuned for a 4K context."
+license = "MIT"
+family = "phi3"
+tags = ["text-generation", "decoder-only", "chat"]
+
+[links]
+huggingface = "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct"
+arxiv = "https://arxiv.org/abs/2404.14219"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 32064
+H = 3072
+Heads = 32
+Inner = 8192
+Layers = 32
+Batch = 1
+MaxSeq = 4096
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "microsoft/Phi-3-mini-4k-instruct"
+files = [
+    "model-00001-of-00002.safetensors",
+    "model-00002-of-00002.safetensors",
+]
+bindings = "bindings.json"

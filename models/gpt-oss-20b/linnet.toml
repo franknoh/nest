@@ -1,0 +1,4 @@
+[package]
+name = "gpt_oss"
+version = "0.1.0"
+language = "0.1"

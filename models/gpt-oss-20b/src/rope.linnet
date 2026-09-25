@@ -1,0 +1,55 @@
+// Rotary positions as gpt-oss scales them: YaRN, from `rope_scaling` in
+// config.json.
+//
+// Plain rotary embedding gives dimension `i` of a head the frequency
+// `theta ** (-2i / D)`. A model trained on 4096 positions and served at
+// 131072 cannot use those frequencies unchanged: the slow ones have never
+// seen a full rotation at the longer range. YaRN divides the slow
+// frequencies by the context ratio (interpolation) and leaves the fast ones
+// alone (extrapolation), ramping linearly between the two dimensions where a
+// wavelength first covers `beta_fast` and `beta_slow` rotations of the
+// original context. It then scales cos and sin by a factor above one, which
+// compensates for the entropy the interpolation takes out of the attention
+// logits.
+module gpt_oss.rope
+
+// config.json: `rope_theta`, and `rope_scaling`'s `factor`,
+// `original_max_position_embeddings`, `beta_fast`, and `beta_slow`.
+pub const THETA: f32 = 150000.0
+pub const FACTOR: f32 = 32.0
+pub const ORIGINAL_CONTEXT: f32 = 4096.0
+pub const BETA_FAST: f32 = 32.0
+pub const BETA_SLOW: f32 = 1.0
+
+const TWO_PI: f32 = 6.2831853071795865
+
+// The (fractional) head dimension whose wavelength spans `rotations` turns of
+// the original context. `truncate` is false in this config, so the bounds are
+// not rounded to whole dimensions.
+fn correction_dim(rotations: f32, dim: f32) -> f32 {
+    return dim * log(ORIGINAL_CONTEXT / (rotations * TWO_PI)) / (2.0 * log(THETA))
+}
+
+// `(cos, sin)` tables of shape `[S, D]`, each frequency repeated over both
+// halves of the head dimension so `std.nn.rope::rope` can pair them. The
+// reference keeps the tables at `D / 2` and splits the head in half itself;
+// the two forms compute the same rotation.
+pub fn tables<S: Dim, D: Dim, T: Float>() -> (Tensor[S, D; T], Tensor[S, D; T])
+where D % 2 == 0 {
+    let index = cast<f32>(iota<i64>(D / 2))
+    // `theta ** (2i / D)`, the wavelength of dimension `i`.
+    let wavelength = exp(index * (2.0 / cast<f32>(D)) * log(THETA))
+    let extrapolated = 1.0 / wavelength
+    let interpolated = 1.0 / (FACTOR * wavelength)
+    let low = max(correction_dim(BETA_FAST, cast<f32>(D)), 0.0)
+    let high = min(correction_dim(BETA_SLOW, cast<f32>(D)), cast<f32>(D) - 1.0)
+    // 0 below `low` (pure extrapolation), 1 above `high` (pure
+    // interpolation), linear in between.
+    let ramp = min(max((index - low) / (high - low), 0.0), 1.0)
+    let inv_freq = interpolated * ramp + extrapolated * (1.0 - ramp)
+    let angles[s, i] = cast<f32>(iota<i64>(S)[s]) * inv_freq[i]
+    let full = concat(angles, angles, axis = -1)
+    // The YaRN attention factor, `0.1 * log(factor) + 1`.
+    let attention_factor = 0.1 * log(FACTOR) + 1.0
+    return (cast<T>(cos(full) * attention_factor), cast<T>(sin(full) * attention_factor))
+}

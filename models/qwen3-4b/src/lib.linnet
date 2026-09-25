@@ -1,0 +1,212 @@
+// A Qwen3-style decoder: RMSNorm, grouped-query attention with rotary
+// positions and per-head RMS normalization of the query and key
+// projections (QK-norm), SwiGLU, and an output head tied to the token
+// embedding for this checkpoint (`bindings.json` binds `lm_head` to the
+// same tensor as `embedding`; the 8B checkpoint of the same family leaves
+// it untied instead). Widths, head counts, and depth are generic
+// parameters; the dtype defaults to bf16 and every intermediate
+// accumulation is spelled out in the standard library. The `decode` entry
+// generates one token at a time from the KV caches the attention blocks
+// own, sized by `Batch` and `MaxSeq`.
+module qwen3
+
+use crate.attention::{GroupedQueryAttention}
+use crate.norm::{RmsNorm}
+use std.nn.decoding::{argmax}
+use std.random::{categorical, split}
+use std.nn.embedding::{Embedding}
+use std.nn.linear::{Linear}
+use std.nn.mlp::{SwiGlu}
+
+pub block DecoderLayer<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Inner: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float,
+>
+where
+    Heads > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    HeadDim % 2 == 0,
+    MaxSeq > 0
+{
+    sub attention_norm: RmsNorm<H, T>
+    sub attention: GroupedQueryAttention<H, Heads, KvHeads, HeadDim, Batch, MaxSeq, T>
+    sub mlp_norm: RmsNorm<H, T>
+    sub mlp: SwiGlu<H, Inner, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        let attended = x + attention.forward(attention_norm.forward(x))
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
+        let attended = x + attention.decode(attention_norm.forward(x), pos)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let attended = x + attention.prefill(attention_norm.forward(x), pos)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+}
+
+pub block Model<
+    Vocab: Dim,
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Inner: Dim,
+    Layers: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float = bf16,
+>
+where
+    Heads > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    HeadDim % 2 == 0,
+    MaxSeq > 0
+{
+    sub embedding: Embedding<Vocab, H, T>
+    sub layers: [DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Batch, MaxSeq, T>; Layers]
+    sub norm: RmsNorm<H, T>
+    // This checkpoint ties the output head to the token embedding
+    // (`tie_word_embeddings` is true in config.json); the checkpoint has no
+    // separate `lm_head` tensor, so `bindings.json` points this at the same
+    // `model.embed_tokens.weight` the embedding uses.
+    sub lm_head: Linear<H, Vocab, T>
+
+    // Logits for every position.
+    pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T] {
+        return lm_head.forward(hidden(tokens))
+    }
+
+    // Logits for the last position only, as decoding needs: the final norm
+    // and projection run on one row per sequence.
+    pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]
+    where S > 0 {
+        let last = hidden_states(tokens)[:, S - 1, :]
+        return lm_head.forward(norm.forward(last))
+    }
+
+    // Logits for one new token per sequence at position `pos`, attending
+    // over the positions decoded before it through the layers' KV caches.
+    // Feed a prompt token by token, then the tokens the model produces.
+    pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T] {
+        return step(token, pos)
+    }
+
+    // A prompt of `S` tokens at `pos`, written into the KV caches in one
+    // pass. Returns the logits after its last token, so `decode` continues
+    // at `pos + S`: the time to the first token is this one call.
+    pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]
+    where S > 0 {
+        var x = embedding.forward(tokens)
+        static for layer in layers {
+            x = layer.prefill(x, pos)
+        }
+        return lm_head.forward(norm.forward(x[:, S - 1, :]))
+    }
+
+    // Greedy generation inside the graph: `Steps` tokens after `token` at
+    // `pos`, each decode step feeding the caches and its `argmax` the next
+    // step. The range loop is expanded at compile time, so the whole
+    // generation exports as one program.
+    pub entry generate<Steps: Dim>(
+        token: Tensor[Batch, 1; i32],
+        pos: i32,
+    ) -> Tensor[Batch, Steps; i32]
+    where Steps > 0 {
+        var current = token
+        var produced = fill<i32>([Batch, Steps], 0)
+        let slots = iota<i32>(Steps)
+        static for i in 0..Steps {
+            let next = argmax(step(current, pos + cast<i32>(i)))
+            let written[b, s] = select(slots[s] == cast<i32>(i), next[b], produced[b, s])
+            produced = written
+            current = reshape(next, [Batch, 1])
+        }
+        return produced
+    }
+
+    // Sampling with an explicit key: `Steps` tokens drawn from the softmax
+    // of the logits divided by `temperature`, one derived key per step, so
+    // the same key gives the same text on every backend.
+    pub entry sample<Steps: Dim>(
+        token: Tensor[Batch, 1; i32],
+        pos: i32,
+        key: Tensor[2; i64],
+        temperature: f32,
+    ) -> Tensor[Batch, Steps; i32]
+    where Steps > 0 {
+        var current = token
+        var produced = fill<i32>([Batch, Steps], 0)
+        let slots = iota<i32>(Steps)
+        let keys = split<Steps>(key)
+        static for i in 0..Steps {
+            let logits = cast<f32>(step(current, pos + cast<i32>(i))) / temperature
+            let key_i[j] = keys[i, j]
+            let next = categorical(key_i, logits)
+            let written[b, s] = select(slots[s] == cast<i32>(i), next[b], produced[b, s])
+            produced = written
+            current = reshape(next, [Batch, 1])
+        }
+        return produced
+    }
+
+    // Greedy generation that stops early: at most `MaxNew` tokens, or fewer
+    // once every sequence has produced `eos`. A runtime `while` loop over
+    // scalar state; the count of tokens produced is returned with them, and
+    // positions past it hold zeros.
+    pub entry generate_until<MaxNew: Dim>(
+        token: Tensor[Batch, 1; i32],
+        pos: i32,
+        eos: i32,
+    ) -> (Tensor[Batch, MaxNew; i32], i32)
+    where MaxNew > 0 {
+        var current = token
+        var produced = fill<i32>([Batch, MaxNew], 0)
+        var count: i32 = 0
+        var running = true
+        let slots = iota<i32>(MaxNew)
+        while running && count < MaxNew {
+            let next = argmax(step(current, pos + count))
+            let written[b, s] = select(slots[s] == count, next[b], produced[b, s])
+            produced = written
+            current = reshape(next, [Batch, 1])
+            count = count + 1
+            let finished = all[b] (next[b] == eos)
+            running = !finished
+        }
+        return (produced, count)
+    }
+
+    fn step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T] {
+        var x = embedding.forward(token)
+        static for layer in layers {
+            x = layer.decode(x, pos)
+        }
+        return lm_head.forward(norm.forward(x[:, 0, :]))
+    }
+
+    fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T] {
+        return norm.forward(hidden_states(tokens))
+    }
+
+    fn hidden_states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T] {
+        var x = embedding.forward(tokens)
+        static for layer in layers {
+            x = layer.forward(x)
+        }
+        return x
+    }
+}
