@@ -118,9 +118,10 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         model.generation_config.forced_decoder_ids = None
         if compiled:
             model.generation_config.cache_implementation = "static"
-            model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
+            # Default inductor mode, for the reason the LLM family gives.
+            model.forward = torch.compile(model.forward, fullgraph=True)
             encoder = model.get_encoder()
-            encoder.forward = torch.compile(encoder.forward, mode="reduce-overhead", fullgraph=True)
+            encoder.forward = torch.compile(encoder.forward, fullgraph=True)
         load_s = time.perf_counter() - start
 
         features = torch.tensor(mel, dtype=dtype, device=device)
@@ -258,19 +259,22 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         int(workload["warmup"]),
         int(workload["iters"]),
     )
-    transcribe_ms = median_ms(
-        lambda: jax.block_until_ready(transcribe()),
-        lambda: None,
-        int(workload["warmup"]),
-        int(workload["iters"]),
-    )
+    # Transcription is timed only where every prefix length's program fits:
+    # without a KV cache each new length is a new XLA program and its own
+    # buffers, which exhausted a 94 GB GPU on large-v3's 32-layer decoder.
+    metrics: dict[str, float | None] = {"encode_ms": encode_ms, "load_s": load_s}
+    notes = NO_CACHE
+    if int(data["generics"].get("DecoderLayers", 0)) <= 4:
+        metrics["transcribe_ms"] = median_ms(
+            lambda: jax.block_until_ready(transcribe()),
+            lambda: None,
+            int(workload["warmup"]),
+            int(workload["iters"]),
+        )
+    else:
+        notes += "; transcription not timed: one XLA program per prefix length without a cache"
     save_output(workload, "linnet-jax", jax.device_get(encode_call())[0])
-    return Result(
-        f"Linnet JAX (XLA, {jax.default_backend()})",
-        "linnet",
-        {"encode_ms": encode_ms, "transcribe_ms": transcribe_ms, "load_s": load_s},
-        notes=NO_CACHE,
-    )
+    return Result(f"Linnet JAX (XLA, {jax.default_backend()})", "linnet", metrics, notes=notes)
 
 
 def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:

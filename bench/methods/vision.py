@@ -114,7 +114,9 @@ def _reference_output(data: dict[str, Any], model: Any, images: Any) -> Any:
     if family == "dinov2":
         return model(pixel_values=images).last_hidden_state
     if family == "siglip":
-        return model.get_image_features(pixel_values=images)
+        features = model.get_image_features(pixel_values=images)
+        # A tensor in older transformers, an output object in newer ones.
+        return getattr(features, "pooler_output", features)
     raise ValueError(f"vision has no reference stack for family `{family}`")
 
 
@@ -217,13 +219,21 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     from linnet import nest
 
     entry = linnet_entry(data)
+    _dtype, dtype_name = precision(workload)
+    jax_dtype = {"bf16": jnp.bfloat16, "f32": jnp.float32}[dtype_name]
 
     start = time.perf_counter()
-    model = nest.load(data["directory"], backend="jax", entry=entry)
+    model = nest.load(
+        data["directory"],
+        backend="jax",
+        entry=entry,
+        generics={"T": dtype_name},
+        cast_dtype=True,
+    )
     load_s = time.perf_counter() - start
 
     def call(images: Any) -> Any:
-        output = model(jnp.asarray(images.numpy()))
+        output = model(jnp.asarray(images.float().numpy()).astype(jax_dtype))
         jax.block_until_ready(output)
         return output
 
@@ -239,7 +249,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
         {"latency_ms": latency_ms, "throughput_per_s": throughput, "load_s": load_s},
-        notes="the JAX loader has no cast_dtype, so this stays the checkpoint's own f32",
+        notes=f"{dtype_name}, like the torch rows",
     )
 
 

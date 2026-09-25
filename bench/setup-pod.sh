@@ -38,7 +38,11 @@ python -m pip install --quiet torch torchvision
 python -m pip install --quiet -e "/workspace/Linnet/python/linnet[torch,jax,onnx,nest]"
 python -m pip install --quiet "jax[cuda13]" onnxruntime-gpu nvidia-ml-py \
     transformers accelerate diffusers sentence-transformers datasets soundfile \
-    pillow safetensors huggingface_hub
+    pillow safetensors huggingface_hub sentencepiece protobuf
+# onnxruntime-gpu is built for CUDA 12; its libraries sit beside PyTorch's
+# CUDA 13 ones under different names, and the worker preloads them.
+python -m pip install --quiet nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \
+    "nvidia-cudnn-cu12>=9,<10" nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12
 python - <<'EOF'
 import jax, torch, onnxruntime
 print("torch", torch.__version__, "cuda", torch.cuda.is_available(), torch.cuda.device_count(), "GPUs")

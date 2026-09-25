@@ -103,16 +103,22 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         name = "transformers (torch.compile, static cache)" if compiled else "transformers (eager)"
         method = "transformers-compile" if compiled else "transformers-eager"
         start = time.perf_counter()
-        model = (
-            AutoModelForCausalLM.from_pretrained(
-                data["weights"]["repo"], dtype=torch.bfloat16, attn_implementation="sdpa"
+        attention = "sdpa"
+        try:
+            loaded = AutoModelForCausalLM.from_pretrained(
+                data["weights"]["repo"], dtype=torch.bfloat16, attn_implementation=attention
             )
-            .to(workload.get("device", "cuda"))
-            .eval()
-        )
+        except ValueError:  # an architecture without SDPA support (gpt-oss)
+            attention = "eager"
+            loaded = AutoModelForCausalLM.from_pretrained(
+                data["weights"]["repo"], dtype=torch.bfloat16, attn_implementation=attention
+            )
+        model = loaded.to(workload.get("device", "cuda")).eval()
         if compiled:
+            # Default inductor mode: with `reduce-overhead` its CUDA graphs
+            # overwrite outputs `generate` still holds, in this transformers.
             model.generation_config.cache_implementation = "static"
-            model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
+            model.forward = torch.compile(model.forward, fullgraph=True)
         load_s = time.perf_counter() - start
         ids = torch.tensor([prompt_ids(data, workload)], device=workload.get("device", "cuda"))
         new = int(workload["new_tokens"])
@@ -143,7 +149,8 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         return Result(
             name,
             "reference",
-            {
+            notes="" if attention == "sdpa" else "eager attention: no SDPA for this architecture",
+            metrics={
                 "ttft_ms": statistics.median(ttfts),
                 "decode_tok_s": statistics.median(rates),
                 "load_s": load_s,

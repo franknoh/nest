@@ -278,8 +278,15 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     warmup = int(workload["warmup"])
     iters = int(workload["iters"])
 
+    dtype = dtype_generic(device)
     start = time.perf_counter()
-    model = nest.load(data["directory"], backend="jax", numerics="fast")
+    model = nest.load(
+        data["directory"],
+        backend="jax",
+        numerics="fast",
+        generics={**data["generics"], "T": dtype},
+        cast_dtype=dtype != "f32",
+    )
     load_s = time.perf_counter() - start
 
     ids_lat = jnp.asarray(random_ids(data, workload, LATENCY_BATCH, seq), dtype=jnp.int32)
@@ -302,10 +309,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
         {"latency_ms": latency_ms, "throughput_per_s": throughput_per_s, "load_s": load_s},
-        notes=(
-            f"unpadded batches of exactly {seq} tokens; runs in f32, the published checkpoint's "
-            f"own dtype on {device} -- JAX loading has no read-time cast like Torch's cast_dtype"
-        ),
+        notes=f"unpadded batches of exactly {seq} tokens; {dtype} on {device}",
     )
 
 

@@ -14,12 +14,13 @@ beside its speed.
 from __future__ import annotations
 
 import argparse
+import json
 import tempfile
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from bench.harness import Result, card, python_for, run_isolated, write
+from bench.harness import MODELS, Result, card, python_for, run_isolated, write
 from bench.worker import family_of
 
 
@@ -52,6 +53,11 @@ def main() -> None:
     parser.add_argument("--iters", type=int, default=10)
     parser.add_argument("--timeout", type=float, default=3600.0, help="seconds per method")
     parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="replace only the rows of the methods run, keeping the rest of bench.json",
+    )
+    parser.add_argument(
         "--offload-gib",
         type=float,
         default=8.0,
@@ -75,6 +81,10 @@ def main() -> None:
         else:
             applicable = list(family.METHODS)
         methods: list[str] = args.methods.split(",") if args.methods else applicable
+        if args.merge and family.REFERENCE not in methods:
+            # A rerun row is measured against the reference's output from the
+            # same run, so the reference runs again too.
+            methods = [family.REFERENCE, *methods]
         workdir = Path(tempfile.mkdtemp(prefix=f"nest-bench-{model}-"))
         workload: dict[str, Any] = {
             "device": args.device,
@@ -109,6 +119,14 @@ def main() -> None:
             results.append(result)
         compare(results, workdir, family.REFERENCE, keys)
         public = {key: value for key, value in workload.items() if key != "workdir"}
+        existing = MODELS / model / "bench.json"
+        if args.merge and existing.exists():
+            fresh = {result.key: result for result in results}
+            kept: list[Result] = []
+            for row in json.loads(existing.read_text(encoding="utf-8"))["methods"]:
+                key = row.get("key", "")
+                kept.append(fresh.pop(key) if key in fresh else Result(**row))
+            results = kept + list(fresh.values())
         path = write(model, public, results, {"reference": family.REFERENCE})
         print(f"[{model}] wrote {path}", flush=True)
 

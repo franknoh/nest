@@ -49,6 +49,16 @@ def main() -> None:
         emit(Result("sample", "sample", notes=str(path.relative_to(MODELS.parent))))
         return
     methods: dict[str, Any] = module.METHODS
+    if "onnx" in method:
+        # onnxruntime-gpu is built for CUDA 12 and this environment's PyTorch
+        # for CUDA 13; the CUDA 12 libraries come from pip packages, which the
+        # runtime only finds when asked. Without them it quietly uses the CPU.
+        try:
+            import onnxruntime  # type: ignore[import-untyped]
+
+            onnxruntime.preload_dlls()
+        except Exception:  # noqa: BLE001, S110 - a CPU dry run has nothing to load
+            pass
     if method not in methods:
         raise SystemExit(f"{module.__name__} has no method {method!r}")
     try:
