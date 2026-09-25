@@ -40,6 +40,14 @@ def max_seq(workload: dict[str, Any]) -> int:
     return ((needed + 255) // 256) * 256
 
 
+def cache_generics(data: dict[str, Any], length: int) -> dict[str, int]:
+    """The cache size a workload needs, for the generics this card has: a
+    card without a KV cache (gpt-oss here) takes neither."""
+    declared = data.get("generics", {})
+    wanted = {"MaxSeq": length, "Batch": 1}
+    return {name: value for name, value in wanted.items() if name in declared}
+
+
 def save_logits(workload: dict[str, Any], method: str, logits: Any) -> None:
     import numpy as np
 
@@ -204,7 +212,15 @@ def _linnet_torch(
         label, method = "offloaded", "linnet-offload"
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+        import os
         import statistics
+
+        if placement == "offload":
+            # One GPU and the host: with a second GPU visible the planner would
+            # put the overflow there, which is a two-GPU split, not offloading.
+            os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(
+                ","
+            )[0]
 
         import torch
         from linnet import nest
@@ -228,7 +244,7 @@ def _linnet_torch(
             device=device,
             numerics="fast",
             compile=compile,
-            generics={"MaxSeq": max_seq(workload), "Batch": 1},
+            generics=cache_generics(data, max_seq(workload)),
             **placed,
         )
         load_s = time.perf_counter() - start
@@ -302,7 +318,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     from linnet import nest
     from linnet.jax import load as load_jax
 
-    generics = {"MaxSeq": max_seq(workload), "Batch": 1}
+    generics = cache_generics(data, max_seq(workload))
     start = time.perf_counter()
     prefill = nest.load(data["directory"], backend="jax", entry="prefill", generics=generics)
     # The second entry reuses the first one's arrays, already bound by path
@@ -425,7 +441,7 @@ def sample(data: dict[str, Any], workload: dict[str, Any]) -> dict[str, Any]:
         device=device,
         numerics="fast",
         compile=True,
-        generics={"MaxSeq": ((len(ids) + SAMPLE_TOKENS + 255) // 256) * 256, "Batch": 1},
+        generics=cache_generics(data, ((len(ids) + SAMPLE_TOKENS + 255) // 256) * 256),
     )
     with torch.no_grad():
         ours = _greedy_linnet(model, ids, eos, device)

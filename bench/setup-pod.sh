@@ -25,15 +25,20 @@ fi
     build/release/linnet --version
 )
 
-# Linnet and the reference stacks, beside the image's CUDA PyTorch.
-python -m venv --system-site-packages /workspace/venv
+# Linnet and the reference stacks in an environment of their own. Not beside
+# the image's PyTorch: the stacks pull a newer PyTorch, and the image's
+# torchaudio and NCCL, still visible through system site packages, then fail
+# to load against it. JAX uses the same CUDA major as that PyTorch for the
+# same reason.
+python -m venv /workspace/venv
 # shellcheck disable=SC1091
 source /workspace/venv/bin/activate
 python -m pip install --quiet --upgrade pip
+python -m pip install --quiet torch torchvision
 python -m pip install --quiet -e "/workspace/Linnet/python/linnet[torch,jax,onnx,nest]"
-python -m pip install --quiet "jax[cuda12]" onnxruntime-gpu nvidia-ml-py \
+python -m pip install --quiet "jax[cuda13]" onnxruntime-gpu nvidia-ml-py \
     transformers accelerate diffusers sentence-transformers datasets soundfile \
-    pillow torchvision safetensors huggingface_hub
+    pillow safetensors huggingface_hub
 python - <<'EOF'
 import jax, torch, onnxruntime
 print("torch", torch.__version__, "cuda", torch.cuda.is_available(), torch.cuda.device_count(), "GPUs")
