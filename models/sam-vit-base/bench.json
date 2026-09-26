@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25T13:19:52+00:00",
+  "date": "2026-09-26T00:22:36+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -21,16 +21,21 @@
     "warmup": 3,
     "iters": 10,
     "seed": 0,
-    "offload_gib": 8.0
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128
   },
   "methods": [
     {
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "encode_ms": 39.91825133562088,
-        "load_s": 0.6804901286959648,
-        "peak_vram_mib": 3060.0
+        "encode_ms": 39.53670896589756,
+        "load_s": 0.5361609719693661,
+        "peak_vram_mib": 3064.0
       },
       "max_abs_diff": 0.0,
       "notes": "",
@@ -41,9 +46,9 @@
       "method": "transformers (torch.compile)",
       "kind": "reference",
       "metrics": {
-        "encode_ms": 29.684368520975113,
-        "load_s": 0.9005921185016632,
-        "peak_vram_mib": 2392.0
+        "encode_ms": 29.03701737523079,
+        "load_s": 0.8415837623178959,
+        "peak_vram_mib": 2394.0
       },
       "max_abs_diff": 0.00010275840759277344,
       "notes": "",
@@ -54,9 +59,9 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 42.55805164575577,
-        "load_s": 1.1083608232438564,
-        "peak_vram_mib": 2956.0
+        "encode_ms": 42.58926585316658,
+        "load_s": 0.8668995648622513,
+        "peak_vram_mib": 2960.0
       },
       "max_abs_diff": 8.186697959899902e-05,
       "notes": "",
@@ -67,11 +72,11 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 29.092546552419662,
-        "load_s": 0.580644529312849,
-        "peak_vram_mib": 2396.0
+        "encode_ms": 29.06149998307228,
+        "load_s": 0.5542410612106323,
+        "peak_vram_mib": 2398.0
       },
-      "max_abs_diff": 0.00010025501251220703,
+      "max_abs_diff": 9.372830390930176e-05,
       "notes": "",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -80,12 +85,13 @@
       "method": "Linnet JAX (XLA, gpu)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 14.420542865991592,
-        "load_s": 0.7049702033400536,
-        "peak_vram_mib": 4728.0
+        "encode_ms": 13.952149078249931,
+        "load_s": 0.6053200252354145,
+        "peak_vram_mib": 2847.5,
+        "driver_vram_mib": 4728.0
       },
       "max_abs_diff": 0.0012342222034931183,
-      "notes": "",
+      "notes": "peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },
@@ -93,9 +99,9 @@
       "method": "Linnet ONNX -> ONNX Runtime",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 25.61023272573948,
-        "load_s": 7.470432113856077,
-        "peak_vram_mib": 10920.0
+        "encode_ms": 24.69748817384243,
+        "load_s": 7.722001314163208,
+        "peak_vram_mib": 10926.0
       },
       "max_abs_diff": 0.0023171473294496536,
       "notes": "",

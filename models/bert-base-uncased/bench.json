@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25T12:41:21+00:00",
+  "date": "2026-09-26T00:16:29+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -21,17 +21,22 @@
     "warmup": 3,
     "iters": 10,
     "seed": 0,
-    "offload_gib": 8.0
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128
   },
   "methods": [
     {
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "latency_ms": 4.621250554919243,
-        "throughput_per_s": 10597.13861755018,
-        "load_s": 1.0692338459193707,
-        "peak_vram_mib": 1158.0
+        "latency_ms": 3.6490950733423233,
+        "throughput_per_s": 10872.990844593525,
+        "load_s": 1.0831933692097664,
+        "peak_vram_mib": 1162.0
       },
       "max_abs_diff": 0.0,
       "notes": "unpadded batches of exactly 128 tokens (this card takes no padding mask)",
@@ -42,10 +47,10 @@
       "method": "transformers (torch.compile)",
       "kind": "reference",
       "metrics": {
-        "latency_ms": 1.834554597735405,
-        "throughput_per_s": 12938.923511023964,
-        "load_s": 1.9598692804574966,
-        "peak_vram_mib": 1138.0
+        "latency_ms": 1.7237663269042969,
+        "throughput_per_s": 12419.701775965814,
+        "load_s": 1.9661445915699005,
+        "peak_vram_mib": 1142.0
       },
       "max_abs_diff": 0.09375,
       "notes": "unpadded batches of exactly 128 tokens (this card takes no padding mask)",
@@ -53,22 +58,13 @@
       "key": "transformers-compile"
     },
     {
-      "method": "sentence-transformers (SentenceTransformer.encode)",
-      "kind": "reference",
-      "metrics": {},
-      "max_abs_diff": null,
-      "notes": "offered only for all-MiniLM-L6-v2, the sentence-transformers checkpoint",
-      "error": null,
-      "key": "sentence-transformers"
-    },
-    {
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 4.18640673160553,
-        "throughput_per_s": 12016.373436478154,
-        "load_s": 1.8614525981247425,
-        "peak_vram_mib": 1104.0
+        "latency_ms": 2.7171093970537186,
+        "throughput_per_s": 12216.122620086715,
+        "load_s": 1.2918088287115097,
+        "peak_vram_mib": 1108.0
       },
       "max_abs_diff": 0.1171875,
       "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
@@ -79,10 +75,10 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 1.6645677387714386,
-        "throughput_per_s": 15105.6650051481,
-        "load_s": 1.9999130927026272,
-        "peak_vram_mib": 1248.0
+        "latency_ms": 1.241493970155716,
+        "throughput_per_s": 15437.16736065559,
+        "load_s": 1.5019740015268326,
+        "peak_vram_mib": 1252.0
       },
       "max_abs_diff": 0.140625,
       "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
@@ -93,13 +89,14 @@
       "method": "Linnet JAX (XLA, gpu)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 0.8921213448047638,
-        "throughput_per_s": 11989.015231678319,
-        "load_s": 0.5830446034669876,
-        "peak_vram_mib": 1646.0
+        "latency_ms": 0.8457023650407791,
+        "throughput_per_s": 11979.518342992678,
+        "load_s": 0.5526445209980011,
+        "peak_vram_mib": 729.8,
+        "driver_vram_mib": 1646.0
       },
       "max_abs_diff": 0.109375,
-      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda",
+      "notes": "unpadded batches of exactly 128 tokens; bf16 on cuda; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },
@@ -107,15 +104,72 @@
       "method": "Linnet ONNX -> ONNX Runtime (CUDAExecutionProvider)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 2.9781293123960495,
-        "throughput_per_s": 4461.520310719468,
-        "load_s": 14.515223108232021,
-        "peak_vram_mib": 2426.0
+        "latency_ms": 1.5710089355707169,
+        "throughput_per_s": 4617.679607467367,
+        "load_s": 13.374659065157175,
+        "peak_vram_mib": 2864.0
       },
       "max_abs_diff": 0.1145319938659668,
       "notes": "unpadded batches of exactly 128 tokens; runs in f32, the published checkpoint's own dtype -- export embeds its tensors as initializers as they are, with no cast; optional Linear biases compiled as present (checkpoint-detected)",
       "error": null,
       "key": "linnet-onnx"
+    },
+    {
+      "method": "KerasHub (JAX)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 6.951287388801575,
+        "throughput_per_s": 3748.4952576701003,
+        "load_s": 6.397407382726669,
+        "peak_vram_mib": 487.3,
+        "driver_vram_mib": 1138.0
+      },
+      "max_abs_diff": 0.265625,
+      "notes": "bf16, under jax.jit; unpadded batches of exactly 128 tokens; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "keras-hub"
+    },
+    {
+      "method": "transformers -> torch.onnx -> ONNX Runtime",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 2.1849311888217926,
+        "throughput_per_s": 4418.658812127896,
+        "load_s": 21.083876349031925,
+        "peak_vram_mib": 2422.0
+      },
+      "max_abs_diff": 0.11434412002563477,
+      "notes": "the reference model's own ONNX export, f32 like Linnet's; unpadded batches of exactly 128 tokens",
+      "error": null,
+      "key": "onnx-reference"
+    },
+    {
+      "method": "Triton Inference Server (ONNX Runtime backend, torch.onnx export)",
+      "kind": "reference",
+      "metrics": {
+        "latency_ms": 5.2707865834236145,
+        "throughput_per_s": 688.56947635102,
+        "load_s": 8.116910085082054,
+        "peak_vram_mib": 2430.8
+      },
+      "max_abs_diff": 0.11434412002563477,
+      "notes": "over HTTP; f32; throughput with 4 requests of batch 64 in flight",
+      "error": null,
+      "key": "triton-onnx"
+    },
+    {
+      "method": "Triton Inference Server (ONNX Runtime backend, Linnet ONNX)",
+      "kind": "linnet",
+      "metrics": {
+        "latency_ms": 6.4254030585289,
+        "throughput_per_s": 638.0890758036132,
+        "load_s": 15.08194249495864,
+        "peak_vram_mib": 2496.8
+      },
+      "max_abs_diff": 0.1145319938659668,
+      "notes": "over HTTP; f32; throughput with 4 requests of batch 64 in flight",
+      "error": null,
+      "key": "triton-linnet-onnx"
     }
   ],
   "reference": "transformers-eager"

@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25T13:23:52+00:00",
+  "date": "2026-09-26T00:23:06+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -21,17 +21,22 @@
     "warmup": 3,
     "iters": 10,
     "seed": 0,
-    "offload_gib": 8.0
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128
   },
   "methods": [
     {
       "method": "diffusers (eager)",
       "kind": "reference",
       "metrics": {
-        "latency_ms": 22.4246084690094,
-        "throughput_per_s": 65.60269179898705,
-        "load_s": 7.425287559628487,
-        "peak_vram_mib": 9156.0
+        "latency_ms": 22.345472127199173,
+        "throughput_per_s": 66.10885599439035,
+        "load_s": 5.680781453847885,
+        "peak_vram_mib": 9160.0
       },
       "max_abs_diff": 0.0,
       "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
@@ -42,12 +47,12 @@
       "method": "diffusers (torch.compile)",
       "kind": "reference",
       "metrics": {
-        "latency_ms": 10.770866647362709,
-        "throughput_per_s": 108.31523053868159,
-        "load_s": 7.308876544237137,
-        "peak_vram_mib": 7572.0
+        "latency_ms": 10.698279365897179,
+        "throughput_per_s": 109.15006764433173,
+        "load_s": 7.947969596832991,
+        "peak_vram_mib": 7574.0
       },
-      "max_abs_diff": 0.033203125,
+      "max_abs_diff": 0.0302734375,
       "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
       "error": null,
       "key": "diffusers-compile"
@@ -56,10 +61,10 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 28.423136100172997,
-        "load_s": 1.2419853061437607,
-        "throughput_per_s": 39.34728032046868,
-        "peak_vram_mib": 12512.0
+        "latency_ms": 28.335338458418846,
+        "load_s": 1.6082682944834232,
+        "throughput_per_s": 39.19194210454703,
+        "peak_vram_mib": 12516.0
       },
       "max_abs_diff": 0.03125,
       "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
@@ -70,12 +75,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 14.756785705685616,
-        "load_s": 1.353365246206522,
-        "throughput_per_s": 89.5376230680026,
-        "peak_vram_mib": 6570.0
+        "latency_ms": 14.469912275671959,
+        "load_s": 1.434407401829958,
+        "throughput_per_s": 90.04058620285119,
+        "peak_vram_mib": 6572.0
       },
-      "max_abs_diff": 0.03125,
+      "max_abs_diff": 0.02734375,
       "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -84,13 +89,14 @@
       "method": "Linnet JAX (XLA, gpu)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 7.530886679887772,
-        "throughput_per_s": 171.6838833934971,
-        "load_s": 0.5248654745519161,
-        "peak_vram_mib": 8822.0
+        "latency_ms": 7.182968780398369,
+        "throughput_per_s": 173.1559016496017,
+        "load_s": 0.4861970394849777,
+        "peak_vram_mib": 3377.3,
+        "driver_vram_mib": 8822.0
       },
-      "max_abs_diff": 0.0439453125,
-      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
+      "max_abs_diff": 0.044921875,
+      "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },
@@ -98,7 +104,7 @@
       "method": "linnet-onnx",
       "kind": "linnet",
       "metrics": {
-        "peak_vram_mib": 76618.0
+        "peak_vram_mib": 75640.0
       },
       "max_abs_diff": null,
       "notes": "",

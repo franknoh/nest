@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25T13:17:24+00:00",
+  "date": "2026-09-26T00:22:10+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -21,17 +21,22 @@
     "warmup": 3,
     "iters": 10,
     "seed": 0,
-    "offload_gib": 8.0
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128
   },
   "methods": [
     {
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "encode_ms": 10.323351249098778,
-        "transcribe_ms": 375.2566147595644,
-        "load_s": 1.5147334188222885,
-        "peak_vram_mib": 4192.0
+        "encode_ms": 9.316202253103256,
+        "transcribe_ms": 327.5326266884804,
+        "load_s": 1.2846949473023415,
+        "peak_vram_mib": 4196.0
       },
       "max_abs_diff": 0.0,
       "notes": "",
@@ -42,12 +47,12 @@
       "method": "transformers (torch.compile, static cache)",
       "kind": "reference",
       "metrics": {
-        "encode_ms": 8.512482047080994,
-        "transcribe_ms": 275.19781328737736,
-        "load_s": 2.134999193251133,
-        "peak_vram_mib": 4468.0
+        "encode_ms": 8.745124563574791,
+        "transcribe_ms": 312.31225468218327,
+        "load_s": 2.3680949434638023,
+        "peak_vram_mib": 4472.0
       },
-      "max_abs_diff": 4.90625,
+      "max_abs_diff": 5.017578125,
       "notes": "",
       "error": null,
       "key": "transformers-compile"
@@ -56,10 +61,10 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 10.798262432217598,
-        "transcribe_ms": 375.2775099128485,
-        "load_s": 2.5524993613362312,
-        "peak_vram_mib": 4118.0
+        "encode_ms": 11.107824742794037,
+        "transcribe_ms": 374.5780400931835,
+        "load_s": 2.497602678835392,
+        "peak_vram_mib": 4122.0
       },
       "max_abs_diff": 2.1484375,
       "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
@@ -70,12 +75,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 10.876206681132317,
-        "transcribe_ms": 247.12778814136982,
-        "load_s": 2.3046838007867336,
-        "peak_vram_mib": 4816.0
+        "encode_ms": 11.378686875104904,
+        "transcribe_ms": 223.83874095976353,
+        "load_s": 2.675805762410164,
+        "peak_vram_mib": 4818.0
       },
-      "max_abs_diff": 4.1982421875,
+      "max_abs_diff": 3.33203125,
       "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -84,12 +89,13 @@
       "method": "Linnet JAX (XLA, gpu)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 12.957606464624405,
-        "load_s": 3.003667004406452,
-        "peak_vram_mib": 4722.0
+        "encode_ms": 13.286493718624115,
+        "load_s": 2.068241111934185,
+        "peak_vram_mib": 3263.9,
+        "driver_vram_mib": 4720.0
       },
       "max_abs_diff": 3.78125,
-      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate(); transcription not timed: one XLA program per prefix length without a cache",
+      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate(); transcription not timed: one XLA program per prefix length without a cache; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },

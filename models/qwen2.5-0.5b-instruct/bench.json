@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25T13:41:50+00:00",
+  "date": "2026-09-26T00:29:45+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -21,17 +21,22 @@
     "warmup": 3,
     "iters": 10,
     "seed": 0,
-    "offload_gib": 8.0
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128
   },
   "methods": [
     {
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 17.95969344675541,
-        "decode_tok_s": 62.390752924473574,
-        "load_s": 1.9224481992423534,
-        "peak_vram_mib": 1904.0
+        "ttft_ms": 13.196447864174843,
+        "decode_tok_s": 89.238949385684,
+        "load_s": 1.3863747715950012,
+        "peak_vram_mib": 1910.0
       },
       "max_abs_diff": 0.0,
       "notes": "",
@@ -42,10 +47,10 @@
       "method": "transformers (torch.compile, static cache)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 10.79915277659893,
-        "decode_tok_s": 116.25336292250594,
-        "load_s": 1.9726141653954983,
-        "peak_vram_mib": 1982.0
+        "ttft_ms": 9.7353495657444,
+        "decode_tok_s": 116.36021863736444,
+        "load_s": 2.0269967541098595,
+        "peak_vram_mib": 1986.0
       },
       "max_abs_diff": 0.19140625,
       "notes": "",
@@ -56,11 +61,11 @@
       "method": "vLLM",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 11.697033420205116,
-        "decode_tok_s": 607.0095620650367,
-        "load_s": 59.26781274005771,
+        "ttft_ms": 15.491098165512085,
+        "decode_tok_s": 560.6933877648386,
+        "load_s": 59.39776812493801,
         "first_token": 13.0,
-        "peak_vram_mib": 70742.8
+        "peak_vram_mib": 70740.8
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
@@ -71,10 +76,10 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 20.51166258752346,
-        "decode_tok_s": 77.00222420860341,
-        "load_s": 1.2275137901306152,
-        "peak_vram_mib": 2016.0
+        "ttft_ms": 11.771809309720993,
+        "decode_tok_s": 93.56807578170066,
+        "load_s": 1.0055408030748367,
+        "peak_vram_mib": 2010.0
       },
       "max_abs_diff": 0.1875,
       "notes": "KV cache compiled for 768 positions",
@@ -85,10 +90,10 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 4.639046266674995,
-        "decode_tok_s": 255.94259561369145,
-        "load_s": 1.0550979226827621,
-        "peak_vram_mib": 2180.0
+        "ttft_ms": 4.018105566501617,
+        "decode_tok_s": 275.77152578610327,
+        "load_s": 1.1001010239124298,
+        "peak_vram_mib": 2116.0
       },
       "max_abs_diff": 0.1796875,
       "notes": "KV cache compiled for 768 positions",
@@ -99,15 +104,120 @@
       "method": "Linnet JAX (XLA, gpu)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 12.205425649881363,
-        "decode_tok_s": 316.41617727212196,
-        "load_s": 1.1394651308655739,
-        "peak_vram_mib": 4720.0
+        "ttft_ms": 4.944523796439171,
+        "decode_tok_s": 549.29919114153,
+        "load_s": 0.8401657529175282,
+        "peak_vram_mib": 1574.0,
+        "driver_vram_mib": 2674.0
       },
-      "max_abs_diff": 0.53125,
-      "notes": "KV cache compiled for 768 positions",
+      "max_abs_diff": 0.171875,
+      "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
+    },
+    {
+      "method": "KerasHub (JAX)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 9.012419730424881,
+        "decode_tok_s": 721.884726678186,
+        "load_s": 7.644272860139608,
+        "peak_vram_mib": 2085.9,
+        "driver_vram_mib": 4730.0
+      },
+      "max_abs_diff": 0.2109375,
+      "notes": "peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "keras-hub"
+    },
+    {
+      "method": "vLLM (offline, continuous batching)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 16391.65228455334,
+        "serve_s": 1.9990663193166256,
+        "load_s": 40.093482092022896,
+        "peak_vram_mib": 69350.8
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.85",
+      "error": null,
+      "key": "serve-vllm"
+    },
+    {
+      "method": "transformers (generate_batch, continuous batching)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 1549.7659898995612,
+        "serve_s": 21.143837336450815,
+        "load_s": 1.6843935139477253,
+        "peak_vram_mib": 78632.0
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; paged|sdpa attention; reserves a paged KV-cache pool up front, so its memory is a setting, not a need; no per-request timestamps",
+      "error": null,
+      "key": "serve-transformers"
+    },
+    {
+      "method": "KerasHub (JAX, static batches)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 2486.380794568378,
+        "serve_s": 13.178994975984097,
+        "load_s": 7.409151781350374,
+        "peak_vram_mib": 2750.9,
+        "driver_vram_mib": 4722.0
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; every batch runs to the longest possible prompt plus the new tokens; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "serve-keras-hub"
+    },
+    {
+      "method": "Triton Inference Server (vLLM backend)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 4632.5895467721975,
+        "serve_s": 7.0733656994998455,
+        "load_s": 71.07657152786851,
+        "serve_ttft_ms": 2914.61200453341,
+        "peak_vram_mib": 70030.4
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",
+      "error": null,
+      "key": "serve-triton-vllm"
+    },
+    {
+      "method": "Linnet torch (linnet.serve, CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 5954.042211783696,
+        "serve_s": 5.503488022834063,
+        "load_s": 3.1624258756637573,
+        "serve_ttft_ms": 2591.8660573661327,
+        "peak_vram_mib": 2676.0
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
+      "error": null,
+      "key": "serve-linnet-torch"
+    },
+    {
+      "method": "Linnet jax (linnet.serve, XLA)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 6499.774462360189,
+        "serve_s": 5.041405696421862,
+        "load_s": 1.1864203847944736,
+        "serve_ttft_ms": 2191.9706761837006,
+        "peak_vram_mib": 2147.0,
+        "driver_vram_mib": 4732.0
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "serve-linnet-jax"
     }
   ],
   "reference": "transformers-eager"
