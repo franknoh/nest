@@ -186,6 +186,8 @@ def transformers(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         torch.cuda.synchronize()
     seconds = time.perf_counter() - begin
     tokens = sum(len(o.generated_tokens) for o in outputs.values())
+    if tokens == 0:
+        raise RuntimeError("generate_batch returned no tokens for any request")
     return _result(
         "transformers (generate_batch, continuous batching)",
         "reference",
