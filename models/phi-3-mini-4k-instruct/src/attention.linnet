@@ -11,7 +11,7 @@ module phi3.attention
 
 use crate.rope::{THETA, tables}
 use std.nn.attention::{attention, attention_rows, causal_mask}
-use std.nn.cache::{write_at, write_rows, write_slot, write_span}
+use std.nn.cache::{write_at, write_rows, write_slots, write_span}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
 
@@ -175,28 +175,34 @@ where
         return o_proj.forward(merge_heads<Batch, 1, Heads, H / Heads, T>(mixed))
     }
 
-    // One request's prompt of `S` tokens, from its first position, into row
-    // `slot` of the caches: its keys and values fill that row, and its
-    // queries attend causally among themselves. The rest of the row keeps
-    // what an earlier request left there; decoding never reads past its own
-    // position, so nothing needs clearing.
-    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
-    where S > 0 {
+    // `M` requests' prompts of `S` tokens, from their first positions, into
+    // rows `slots` of the caches: each prompt's keys and values fill its row,
+    // and its queries attend causally among themselves. The rest of a row
+    // keeps what an earlier request left there; decoding never reads past its
+    // own position, so nothing needs clearing.
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
         let (cos_table, sin_table) = tables<S, H / Heads, T>(THETA)
         let projected = qkv.forward(x)
         let q = rope(
-            split_heads<1, S, Heads, H / Heads, T>(projected[:, :, 0:H]),
+            split_heads<M, S, Heads, H / Heads, T>(projected[:, :, 0:H]),
             cos_table,
             sin_table,
         )
         let k = rope(
-            split_heads<1, S, Heads, H / Heads, T>(projected[:, :, H:2 * H]),
+            split_heads<M, S, Heads, H / Heads, T>(projected[:, :, H:2 * H]),
             cos_table,
             sin_table,
         )
-        let v = split_heads<1, S, Heads, H / Heads, T>(projected[:, :, 2 * H:3 * H])
-        cache_k = write_slot(cache_k, k, slot, 0)
-        cache_v = write_slot(cache_v, v, slot, 0)
+        let v = split_heads<M, S, Heads, H / Heads, T>(projected[:, :, 2 * H:3 * H])
+        cache_k = write_slots(cache_k, k, slots, 0)
+        cache_v = write_slots(cache_v, v, slots, 0)
         let mixed = attention(
             q,
             k,
@@ -204,7 +210,7 @@ where
             rsqrt(cast<f32>(H / Heads)),
             some(causal_mask<S, S>()),
         )
-        return o_proj.forward(merge_heads<1, S, Heads, H / Heads, T>(mixed))
+        return o_proj.forward(merge_heads<M, S, Heads, H / Heads, T>(mixed))
     }
 }
 

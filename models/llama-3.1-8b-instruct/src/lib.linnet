@@ -61,9 +61,15 @@ where
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
 
-    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32) -> Tensor[1, S, H; T]
-    where S > 0 {
-        let attended = x + attention.prefill_slot(attention_norm.forward(x), slot)
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
+        let attended = x + attention.prefill_slots(attention_norm.forward(x), slots)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
 }
@@ -139,22 +145,26 @@ where
         return lm_head.forward(norm.forward(x[:, 0, :]))
     }
 
-    // One request's prompt into row `slot` of the caches, as it joins a
-    // batch being decoded. `tokens` holds `S` tokens of which the first
-    // `length` are the prompt: the rest pad it to one of a few compiled
-    // lengths and are never read. Returns the logits after the prompt's last
-    // token; `decode_rows` continues the row at position `length`.
-    pub entry prefill_slot<S: Dim>(
-        tokens: Tensor[1, S; i32],
-        slot: i32,
-        length: i32,
-    ) -> Tensor[1, Vocab; T]
-    where S > 0 {
+    // `M` requests' prompts into rows `slots` of the caches, as they join a
+    // batch being decoded: one pass for all of them. Row `m` of `tokens` holds
+    // `S` tokens of which the first `lengths[m]` are its prompt; the rest pad
+    // it to one of a few compiled lengths and are never read. Returns the
+    // logits after each prompt's last token; `decode_rows` continues row
+    // `slots[m]` at position `lengths[m]`.
+    pub entry prefill_slots<M: Dim, S: Dim>(
+        tokens: Tensor[M, S; i32],
+        slots: Tensor[M; i32],
+        lengths: Tensor[M; i32],
+    ) -> Tensor[M, Vocab; T]
+    where
+        M > 0,
+        S > 0
+    {
         var x = embedding.forward(tokens)
         static for layer in layers {
-            x = layer.prefill_slot(x, slot)
+            x = layer.prefill_slots(x, slots)
         }
-        let last[b, h] = x[b, cast<i64>(length) - 1, h]
+        let last[b, h] = x[b, cast<i64>(lengths[b]) - 1, h]
         return lm_head.forward(norm.forward(last))
     }
 

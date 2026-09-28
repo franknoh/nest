@@ -90,10 +90,12 @@ where
     }
 
     // One token per row through its `TopK` experts only: the chosen experts'
-    // weights are gathered while still in MXFP4 and only they are
-    // dequantized, `TopK / Experts` of the dense form's reading (an eighth
-    // here). For a few tokens this is the cheaper form; in a large batch
-    // every expert is chosen by someone, and the dense form reads each once.
+    // weights are gathered from the dequantized whole and only they are
+    // multiplied, `TopK / Experts` of the dense form's work (an eighth here).
+    // The dequantization reads nothing but weights, so a runtime that
+    // prepares weight-only work (`linnet torch --prepare`) does it once at
+    // load; each step then reads four experts. In a large batch every expert
+    // is chosen by someone, and the dense form reads each once.
     pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
         let logits = router.forward(x)
         let scores = route<B, 1>(logits)
@@ -106,31 +108,20 @@ where
         let weight[b, k] =
             sum[e] select(ranked[b, 0, e] == places[k], scores[b, 0, e], cast<T>(0.0))
         let expert[b, k] = cast<i64>(chosen[b, k])
-        let up_blocks[b, k, o, g, j] = gate_up_blocks[expert[b, k], o, g, j]
-        let up_scales[b, k, o, g] = gate_up_scales[expert[b, k], o, g]
-        let up_bias[b, k, o] = gate_up_bias[expert[b, k], o]
-        let up_weight = reshape(
-            dequantize_mxfp4<B * TopK, 2 * Inner, Blocks, T>(
-                reshape(up_blocks, [B * TopK, 2 * Inner, Blocks, 16]),
-                reshape(up_scales, [B * TopK, 2 * Inner, Blocks]),
-            ),
-            [B, TopK, 2 * Inner, H],
+        let gate_up_all = dequantize_mxfp4<Experts, 2 * Inner, Blocks, T>(
+            gate_up_blocks,
+            gate_up_scales,
         )
+        let up_weight[b, k, o, h] = gate_up_all[expert[b, k], o, h]
+        let up_bias[b, k, o] = gate_up_bias[expert[b, k], o]
         let gate_up[b, k, o] = sum<f32>[h] cast<f32>(x[b, 0, h]) * cast<f32>(up_weight[b, k, o, h])
         let biased = cast<T>(gate_up) + up_bias
         let gate = min(biased[..., 0::2], cast<T>(LIMIT))
         let up = min(max(biased[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
         let activated = (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))
         let weighted[b, k, i] = activated[b, k, i] * weight[b, k]
-        let down_blocks_chosen[b, k, o, g, j] = down_blocks[expert[b, k], o, g, j]
-        let down_scales_chosen[b, k, o, g] = down_scales[expert[b, k], o, g]
-        let down_weight = reshape(
-            dequantize_mxfp4<B * TopK, H, InnerBlocks, T>(
-                reshape(down_blocks_chosen, [B * TopK, H, InnerBlocks, 16]),
-                reshape(down_scales_chosen, [B * TopK, H, InnerBlocks]),
-            ),
-            [B, TopK, H, Inner],
-        )
+        let down_all = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
+        let down_weight[b, k, h, i] = down_all[expert[b, k], h, i]
         let mixed[b, h] =
             sum<f32>[k, i] cast<f32>(weighted[b, k, i]) * cast<f32>(down_weight[b, k, h, i])
         let bias[b, h] = sum[k] weight[b, k] * down_bias[expert[b, k], h]

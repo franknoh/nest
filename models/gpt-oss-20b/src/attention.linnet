@@ -15,14 +15,14 @@
 // window is a runtime bound, and a bound at least as large as the key length
 // leaves plain causal attention.
 //
-// `decode`, `prefill`, `decode_rows`, and `prefill_slot` keep the keys and
+// `decode`, `prefill`, `decode_rows`, and `prefill_slots` keep the keys and
 // values in two `state` caches of `MaxSeq` positions per row, as the other
 // decoders in the zoo do; a sliding-window layer still caches every position
 // and masks all but the last `window` of them.
 module gpt_oss.attention
 
 use crate.rope::{tables}
-use std.nn.cache::{write_at, write_rows, write_slot, write_span}
+use std.nn.cache::{write_at, write_rows, write_slots, write_span}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
 
@@ -250,30 +250,37 @@ where
         return o_proj.forward(merge_heads<Batch, 1, Heads, HeadDim, T>(mixed))
     }
 
-    // One request's prompt of `S` tokens, from its first position, into row
-    // `slot` of the caches; its queries attend among themselves, within the
-    // window.
-    pub fn prefill_slot<S: Dim>(x: Tensor[1, S, H; T], slot: i32, window: i32) -> Tensor[1, S, H; T]
-    where S > 0 {
+    // `M` requests' prompts of `S` tokens, from their first positions, into
+    // rows `slots` of the caches; each prompt's queries attend among
+    // themselves, within the window.
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+        window: i32,
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
         let (cos_table, sin_table) = tables<S, HeadDim, T>()
-        let q = rope(split_heads<1, S, Heads, HeadDim, T>(q_proj.forward(x)), cos_table, sin_table)
+        let q = rope(split_heads<M, S, Heads, HeadDim, T>(q_proj.forward(x)), cos_table, sin_table)
         let k = rope(
-            split_heads<1, S, KvHeads, HeadDim, T>(k_proj.forward(x)),
+            split_heads<M, S, KvHeads, HeadDim, T>(k_proj.forward(x)),
             cos_table,
             sin_table,
         )
-        let v = split_heads<1, S, KvHeads, HeadDim, T>(v_proj.forward(x))
-        cache_k = write_slot(cache_k, k, slot, 0)
-        cache_v = write_slot(cache_v, v, slot, 0)
+        let v = split_heads<M, S, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_slots(cache_k, k, slots, 0)
+        cache_v = write_slots(cache_v, v, slots, 0)
         let mixed = sink_attention(
             q,
             k,
             v,
             sinks,
             rsqrt(cast<f32>(HeadDim)),
-            reshape(window_mask<S, S>(window), [1, S, S]),
+            broadcast_to(reshape(window_mask<S, S>(window), [1, S, S]), [M, S, S]),
         )
-        return o_proj.forward(merge_heads<1, S, Heads, HeadDim, T>(mixed))
+        return o_proj.forward(merge_heads<M, S, Heads, HeadDim, T>(mixed))
     }
 }
 

@@ -129,13 +129,13 @@ before anything runs.
 | `states<B, S>(tokens)` | the last layer's hidden states, before the norm and the head |
 | `prefill<S>(tokens, pos)` | a prompt into the KV caches, logits after its last token |
 | `decode(token, pos)` | one token per row through the KV caches |
-| `prefill_slot<S>(tokens, slot, length)` | one request's prompt into row `slot` of the caches |
+| `prefill_slots<M, S>(tokens, slots, lengths)` | `M` requests' prompts into rows `slots` of the caches, in one pass |
 | `decode_rows(tokens, positions)` | one token per row, each row at its own position |
 
 The caches are `state` members of the attention blocks, `Batch` rows of
 `MaxSeq` positions (the card binds 1 and 4096). A sliding-window layer still
 caches every position and masks all but the last 128 of them; the full layers'
-window is the whole cache. `prefill_slot` and `decode_rows` are what
+window is the whole cache. `prefill_slots` and `decode_rows` are what
 `linnet.serve` batches continuously.
 
 A decoded token reads the experts differently from a prompt. `decode` routes

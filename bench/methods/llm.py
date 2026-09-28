@@ -571,7 +571,7 @@ REFERENCE = "transformers-eager"
 
 def methods_for(data: dict[str, Any]) -> list[str]:
     """Every method, less the ones a card cannot take part in: the JAX path
-    needs `prefill` and `decode`, the serving rows `prefill_slot` and
+    needs `prefill` and `decode`, the serving rows `prefill_slots` and
     `decode_rows`, and KerasHub a converter for the checkpoint's
     architecture."""
     source = Path(data["directory"]) / data["source"]["path"]
