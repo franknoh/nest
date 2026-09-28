@@ -72,6 +72,7 @@ Make = Callable[[dict[str, Any], dict[str, Any]], Adapter]
 
 def onnx_reference(make: Make) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+        import numpy as np
         import onnxruntime
 
         adapter = make(data, workload)
@@ -90,9 +91,28 @@ def onnx_reference(make: Make) -> Callable[[dict[str, Any], dict[str, Any]], Res
             dict(zip(names, adapter.inputs(batch), strict=True))
             for (_, names), batch in zip(sessions, (low, high), strict=True)
         ]
+        # Inputs placed on the device once and results left there, as the
+        # Linnet ONNX rows run.
+        where = "cuda" if device != "cpu" else "cpu"
+        bound = []
+        for (session, _names), feed in zip(sessions, feeds, strict=True):
+            binding = session.io_binding()
+            for name, value in feed.items():
+                placed = onnxruntime.OrtValue.ortvalue_from_numpy(
+                    np.ascontiguousarray(value), where, 0
+                )
+                binding.bind_ortvalue_input(name, placed)
+            for output in session.get_outputs():
+                binding.bind_output(output.name, where, 0)
+            bound.append((session, binding))
+
+        def call(index: int) -> None:
+            session, binding = bound[index]
+            session.run_with_iobinding(binding)
+
         warmup, iters = int(workload["warmup"]), int(workload["iters"])
-        latency = median_ms(lambda: sessions[0][0].run(None, feeds[0]), lambda: None, warmup, iters)
-        wide = median_ms(lambda: sessions[1][0].run(None, feeds[1]), lambda: None, warmup, iters)
+        latency = median_ms(lambda: call(0), lambda: None, warmup, iters)
+        wide = median_ms(lambda: call(1), lambda: None, warmup, iters)
         adapter.save("onnx-reference", sessions[0][0].run(None, feeds[0])[0])
         return Result(
             "transformers -> torch.onnx -> ONNX Runtime",
@@ -295,6 +315,16 @@ def onnx_providers(provider: str, dtype: str, workload: dict[str, Any]) -> list[
             "CPUExecutionProvider",
         ]
     return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+
+def onnx_placed(model: Any, arrays: list[Any]) -> list[Any]:
+    """Inputs placed on the device once, as the torch rows keep theirs:
+    floats in the model's `T`, integers as i32. Timed calls bind them and
+    keep their results there (`keep_on_device=True`)."""
+    import numpy as np
+
+    dtype = str(model.generics.get("T", "f32"))
+    return [model.place(a, dtype if np.asarray(a).dtype.kind == "f" else "i32") for a in arrays]
 
 
 def onnx_key(dtype: str, provider: str) -> str:

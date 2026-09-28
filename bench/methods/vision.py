@@ -514,8 +514,13 @@ def _onnx_run(
     one = [canonical_images(data, workload, LATENCY_BATCH).numpy()]
     many = [canonical_images(data, workload, THROUGHPUT_BATCH).numpy()]
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
-    latency = median_ms(lambda: model.run_entry(entry, one), lambda: None, warmup, iters)
-    wide = median_ms(lambda: model.run_entry(entry, many), lambda: None, warmup, iters)
+    one_d, many_d = stacks.onnx_placed(model, one), stacks.onnx_placed(model, many)
+    latency = median_ms(
+        lambda: model.run_entry(entry, one_d, keep_on_device=True), lambda: None, warmup, iters
+    )
+    wide = median_ms(
+        lambda: model.run_entry(entry, many_d, keep_on_device=True), lambda: None, warmup, iters
+    )
     return (
         {"latency_ms": latency, "throughput_per_s": THROUGHPUT_BATCH / (wide / 1e3)},
         model.run_entry(entry, one),

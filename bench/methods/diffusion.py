@@ -495,15 +495,32 @@ def _onnx_run(
         side, batch = vae_side(workload), vae_batch(workload)
         one = [vae_latent(1, side, workload.get("seed", 0)).numpy()]
         many = [vae_latent(batch, side, workload.get("seed", 0)).numpy()]
-        latency = median_ms(lambda: model.run_entry("decode", one), lambda: None, warmup, iters)
-        wide = median_ms(lambda: model.run_entry("decode", many), lambda: None, warmup, iters)
+        one_d, many_d = stacks.onnx_placed(model, one), stacks.onnx_placed(model, many)
+        latency = median_ms(
+            lambda: model.run_entry("decode", one_d, keep_on_device=True),
+            lambda: None,
+            warmup,
+            iters,
+        )
+        wide = median_ms(
+            lambda: model.run_entry("decode", many_d, keep_on_device=True),
+            lambda: None,
+            warmup,
+            iters,
+        )
         return (
             {"latency_ms": latency, "throughput_per_s": batch / (wide / 1e3)},
             model.run_entry("decode", one)[0],
         )
     inputs = sdxl_inputs(sdxl_batch(workload), sdxl_mid(workload), workload.get("seed", 0))
     arguments = [a.numpy() for a in linnet_sdxl_inputs(inputs, torch.float32, "cpu")]
-    step_ms = median_ms(lambda: model.run_entry("forward", arguments), lambda: None, warmup, iters)
+    placed = stacks.onnx_placed(model, arguments)
+    step_ms = median_ms(
+        lambda: model.run_entry("forward", placed, keep_on_device=True),
+        lambda: None,
+        warmup,
+        iters,
+    )
     return {"step_ms": step_ms}, model.run_entry("forward", arguments)[0]
 
 

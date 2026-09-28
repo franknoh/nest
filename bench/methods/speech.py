@@ -300,7 +300,10 @@ def _onnx_run(
     """`encode` alone: `decode` has no KV cache, so its shape grows every step."""
     mel, _prompt, _eot, _processor = _fixture(data)
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
-    encode_ms = median_ms(lambda: model.run_entry("encode", [mel]), lambda: None, warmup, iters)
+    placed = stacks.onnx_placed(model, [mel])
+    encode_ms = median_ms(
+        lambda: model.run_entry("encode", placed, keep_on_device=True), lambda: None, warmup, iters
+    )
     return {"encode_ms": encode_ms}, model.run_entry("encode", [mel])[0]
 
 

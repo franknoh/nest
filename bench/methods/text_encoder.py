@@ -368,8 +368,13 @@ def _onnx_run(
     entry = data["source"]["entry"]
     small, large = feed(LATENCY_BATCH), feed(THROUGHPUT_BATCH)
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
-    latency = median_ms(lambda: model.run_entry(entry, small), lambda: None, warmup, iters)
-    wide = median_ms(lambda: model.run_entry(entry, large), lambda: None, warmup, iters)
+    small_d, large_d = stacks.onnx_placed(model, small), stacks.onnx_placed(model, large)
+    latency = median_ms(
+        lambda: model.run_entry(entry, small_d, keep_on_device=True), lambda: None, warmup, iters
+    )
+    wide = median_ms(
+        lambda: model.run_entry(entry, large_d, keep_on_device=True), lambda: None, warmup, iters
+    )
     output = np.asarray(model.run_entry(entry, small))[0]
     return {"latency_ms": latency, "throughput_per_s": THROUGHPUT_BATCH * 1000.0 / wide}, output
 

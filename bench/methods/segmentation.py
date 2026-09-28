@@ -180,8 +180,12 @@ def _onnx_run(
     """The image encoder, the part of SAM that costs."""
     pixel_values, *_rest = _fixture(data)
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
+    placed = stacks.onnx_placed(model, [pixel_values])
     encode_ms = median_ms(
-        lambda: model.run_entry("encode_image", [pixel_values]), lambda: None, warmup, iters
+        lambda: model.run_entry("encode_image", placed, keep_on_device=True),
+        lambda: None,
+        warmup,
+        iters,
     )
     return {"encode_ms": encode_ms}, model.run_entry("encode_image", [pixel_values])[0]
 
