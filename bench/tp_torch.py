@@ -37,7 +37,10 @@ def main() -> None:
         backend="torch",
         device=f"cuda:{rank}",
         numerics="fast",
-        compile=True,
+        # Inductor traces DTensor: eager generated code runs every op
+        # through DTensor's Python dispatch, 8x slower. CUDA graphs hang
+        # with NCCL here.
+        compile="inductor",
         generics=cache_generics(data, max_seq(workload)),
         cast_dtype=True,
         tensor_parallel=mesh,
@@ -76,7 +79,7 @@ def main() -> None:
             f"Linnet torch (tensor parallel on {world} GPUs, DTensor)",
             "linnet",
             {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
-            notes=f"one process per GPU under torchrun, NCCL; KV cache compiled for "
+            notes=f"one process per GPU under torchrun, NCCL, inductor; KV cache compiled for "
             f"{max_seq(workload)} positions",
             key="linnet-tp-torch",
         )
