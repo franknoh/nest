@@ -645,15 +645,18 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "linnet-gpus": _linnet_torch(True, placement="gpus"),
     "linnet-offload": _linnet_torch(True, placement="offload"),
     "linnet-inductor": _linnet_torch("inductor"),
-    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, generated source", "linnet-jax"),
+    # The same keys as the other families: StableHLO is `linnet-jax`.
+    "linnet-jax": stacks.jax_variant(
+        linnet_jax, "XLA, StableHLO", "linnet-jax", jax_generated=False
+    ),
+    "linnet-jax-source": stacks.jax_variant(
+        linnet_jax, "XLA, generated source", "linnet-jax-source"
+    ),
     "linnet-tp-jax": stacks.jax_variant(
         linnet_jax, "XLA, tensor parallel on 2 GPUs", "linnet-tp-jax", jax_mesh=2
     ),
     "linnet-tp-torch": linnet_tp_torch,
     "vllm-tp": vllm_tp,
-    "linnet-jax-stablehlo": stacks.jax_variant(
-        linnet_jax, "XLA, StableHLO", "linnet-jax-stablehlo", jax_generated=False
-    ),
     "keras-hub": keras_hub,
     **stacks.onnx_methods(
         _onnx_run,
@@ -687,7 +690,7 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     for name in METHODS:
         if name in optional:
             continue
-        if name in ("linnet-jax", "linnet-jax-stablehlo") and not cached:
+        if name in ("linnet-jax", "linnet-jax-source") and not cached:
             continue
         if name.startswith("serve-linnet") and not serving:
             continue
