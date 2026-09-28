@@ -57,6 +57,9 @@ python -m pip install --quiet "jax[cuda13]" onnxruntime-gpu onnxscript nvidia-ml
 # CUDA 13 ones under different names, and the worker preloads them.
 python -m pip install --quiet nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \
     "nvidia-cudnn-cu12>=9,<10" nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12
+# Its TensorRT provider links TensorRT 10; the image's own is 11, under
+# another soname. `run-all.sh` puts these on the library path.
+python -m pip install --quiet "tensorrt-cu13-libs>=10,<11"
 python - <<'EOF'
 import jax, torch, onnxruntime
 print("torch", torch.__version__, "cuda", torch.cuda.is_available(), torch.cuda.device_count(), "GPUs")

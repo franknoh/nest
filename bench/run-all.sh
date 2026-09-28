@@ -18,6 +18,9 @@ export NEST_MAIN_SITE LINNET_STD=/workspace/Linnet/stdlib
 export NEST_LLAMA_CONVERTER=/workspace/llama.cpp/convert_hf_to_gguf.py
 export NEST_LLAMA_BENCH=/workspace/llama.cpp/build/bin/llama-bench
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+# TensorRT 10 for ONNX Runtime's TensorRT provider (see setup-pod.sh).
+TRT_LIBS=$(python -c "import tensorrt_libs, os; print(os.path.dirname(tensorrt_libs.__file__))")
+export LD_LIBRARY_PATH="$TRT_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 mkdir -p logs
 
 # Samples were recorded with the last full run; this one measures.
