@@ -277,16 +277,15 @@ ONNX_PROVIDERS = ("cuda", "trt")
 
 def onnx_providers(provider: str, dtype: str, workload: dict[str, Any]) -> list[Any]:
     """ONNX Runtime's execution providers for a row. TensorRT builds an
-    engine per graph, cached in the run's work directory; it runs the graph's
-    own dtype (f16 graphs with its f16 kernels on)."""
+    engine per session and runs the graph's own dtype (f16 graphs with its
+    f16 kernels on)."""
     if workload.get("device", "cuda") == "cpu":
         return ["CPUExecutionProvider"]
     if provider == "trt":
-        cache = Path(workload["workdir"]) / "trt-cache"
-        cache.mkdir(parents=True, exist_ok=True)
+        # No engine cache: ONNX Runtime keys it by the graph's name and
+        # inputs, which an entry's sessions at two batch sizes share, so the
+        # second would load the first's engine. Each session builds its own.
         options = {
-            "trt_engine_cache_enable": "True",
-            "trt_engine_cache_path": str(cache),
             "trt_fp16_enable": "True" if dtype == "f16" else "False",
             "trt_bf16_enable": "True" if dtype == "bf16" else "False",
         }
