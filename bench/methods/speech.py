@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms, torch_sync
+from bench.methods import stacks
 
 CLIP = "hf-internal-testing/librispeech_asr_dummy"
 NO_CACHE = (
@@ -158,8 +159,16 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
 
 
 def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
-    label = {True: "generated source", "reduce-overhead": "CUDA graphs"}[compile]
-    method = {True: "linnet-torch", "reduce-overhead": "linnet-cudagraphs"}[compile]
+    label = {
+        True: "generated source",
+        "reduce-overhead": "CUDA graphs",
+        "inductor": "torch.compile, inductor",
+    }[compile]
+    method = {
+        True: "linnet-torch",
+        "reduce-overhead": "linnet-cudagraphs",
+        "inductor": "linnet-inductor",
+    }[compile]
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         import torch
@@ -224,8 +233,16 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     generics = dict(data["generics"])
 
     start = time.perf_counter()
-    encode = nest.load(data["directory"], backend="jax", entry="encode", generics=generics)
-    decode = load_jax(
+    encode = nest.load(
+        data["directory"],
+        backend=workload.get("jax_backend", "jax"),
+        entry="encode",
+        generics=generics,
+    )
+    from linnet.jax import load_source
+
+    loader = load_source if workload.get("jax_backend") == "jax_source" else load_jax
+    decode = loader(
         Path(data["directory"]) / data["source"]["path"],
         generics=encode.generics,
         weights=encode.weights,
@@ -273,55 +290,18 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         )
     else:
         notes += "; transcription not timed: one XLA program per prefix length without a cache"
-    save_output(workload, "linnet-jax", jax.device_get(encode_call())[0])
+    save_output(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(encode_call())[0])
     return Result(f"Linnet JAX (XLA, {jax.default_backend()})", "linnet", metrics, notes=notes)
 
 
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    """`encode` alone: a plain forward pass over a fixed shape, unlike
-    `decode`, whose shape grows by one position every step with no cache to
-    keep it static, so only the encoder is exported."""
-    import numpy as np
-    import onnxruntime as ort
-    from linnet.nest import Card, download_weights
-    from linnet.onnx import export_model
-
-    device = workload.get("device", "cuda")
+def _onnx_run(
+    model: Any, data: dict[str, Any], workload: dict[str, Any]
+) -> tuple[dict[str, float], Any]:
+    """`encode` alone: `decode` has no KV cache, so its shape grows every step."""
     mel, _prompt, _eot, _processor = _fixture(data)
-    card = Card.read(data["directory"])
-    generics = {**dict(card.generics), **dict(card.check)}
-
-    start = time.perf_counter()
-    weights = download_weights(card)
-    exported = export_model(
-        card.source_path,
-        generics=generics,
-        weights=weights,
-        entry="encode",
-        root=card.root,
-        bindings=card.bindings_path,
-    )
-    onnx_path = Path(workload["workdir"]) / f"{data['model']['name']}-encode.onnx"
-    exported.save(onnx_path)
-    providers = ["CPUExecutionProvider"] if device == "cpu" else ["CUDAExecutionProvider"]
-    session = ort.InferenceSession(str(onnx_path), providers=providers)
-    load_s = time.perf_counter() - start
-
-    input_name = exported.inputs[0].name
-    onnx_dtype = np.float16 if data["generics"]["T"] == "f16" else np.float32
-    features = mel.astype(onnx_dtype)
-
-    def encode() -> Any:
-        return session.run(None, {input_name: features})[0]
-
-    encode_ms = median_ms(encode, lambda: None, int(workload["warmup"]), int(workload["iters"]))
-    save_output(workload, "linnet-onnx", encode()[0])
-    return Result(
-        "Linnet ONNX -> ONNX Runtime",
-        "linnet",
-        {"encode_ms": encode_ms, "load_s": load_s},
-        notes="encoder only: decode's shape grows every step with no cache, so it is not exported",
-    )
+    warmup, iters = int(workload["warmup"]), int(workload["iters"])
+    encode_ms = median_ms(lambda: model.run_entry("encode", [mel]), lambda: None, warmup, iters)
+    return {"encode_ms": encode_ms}, model.run_entry("encode", [mel])[0]
 
 
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
@@ -329,8 +309,12 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "transformers-compile": _transformers(compiled=True),
     "linnet-torch": _linnet_torch(True),
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
-    "linnet-jax": linnet_jax,
-    "linnet-onnx": linnet_onnx,
+    "linnet-inductor": _linnet_torch("inductor"),
+    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, StableHLO", "linnet-jax"),
+    "linnet-jax-source": stacks.jax_variant(
+        linnet_jax, "XLA, generated source", "linnet-jax-source", jax_backend="jax_source"
+    ),
+    **stacks.onnx_methods(_onnx_run, save_output, note="encoder only: decode has no KV cache"),
 }
 
 REFERENCE = "transformers-eager"

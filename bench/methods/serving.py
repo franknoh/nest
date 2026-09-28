@@ -103,7 +103,7 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     _, concurrency, _, _, new = settings(workload)
     start = time.perf_counter()
     llm = LLM(
-        model=data["weights"]["repo"],
+        model=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         max_model_len=serve_max_seq(workload),
         max_num_seqs=concurrency,
@@ -265,7 +265,15 @@ def _linnet(backend: str) -> Any:
         _, concurrency, _, _, new = settings(workload)
         generics = {"Batch": concurrency, "MaxSeq": serve_max_seq(workload), "T": "bf16"}
         start = time.perf_counter()
-        if backend == "torch":
+        if backend == "onnx":
+            model = nest.load(
+                data["directory"],
+                backend="onnx_model",
+                generics={**generics, "T": "f16"},
+                cast_dtype=True,
+                numerics="fast",
+            )
+        elif backend == "torch":
             model = nest.load(
                 data["directory"],
                 backend="torch",
@@ -284,7 +292,7 @@ def _linnet(backend: str) -> Any:
         requests = prompts(data, workload)
         engine.warmup(len(ids) for ids in requests)
         done, stats = engine.run([Request(prompt=ids, max_new_tokens=new) for ids in requests])
-        label = "CUDA graphs" if backend == "torch" else "XLA"
+        label = {"torch": "CUDA graphs", "jax": "XLA", "onnx": "ONNX Runtime, f16"}[backend]
         return _result(
             f"Linnet {backend} (linnet.serve, {label})",
             "linnet",
@@ -312,10 +320,7 @@ def triton_vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     """vLLM as Triton Inference Server's vLLM backend, fed over HTTP with
     `concurrency` streams open. Prompts go as text (the backend takes text),
     decoded from the same token ids, so their lengths match only roughly."""
-    import requests as http
     from transformers import AutoTokenizer
-
-    from bench import triton
 
     _, concurrency, _, _, new = settings(workload)
     repo = data["weights"]["repo"]
@@ -338,44 +343,101 @@ def triton_vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     )
     tokenizer = AutoTokenizer.from_pretrained(repo)
     texts = [tokenizer.decode(ids) for ids in prompts(data, workload)]
-    start = time.perf_counter()
-    with triton.server(root, python_path=os.environ.get("NEST_VLLM_SITE")) as url:
-        load_s = time.perf_counter() - start
-        endpoint = f"{url}/v2/models/llm/generate_stream"
-
-        began = [0.0]  # when the measured run starts
-
-        def call(index: int) -> tuple[float, int]:
-            body = {
-                "text_input": texts[index],
-                "stream": True,
-                "exclude_input_in_output": True,
-                "sampling_parameters": json.dumps(
-                    {"max_tokens": new, "temperature": 0.0, "ignore_eos": True}
-                ),
-            }
-            first = 0.0
-            chunks = 0
-            with http.post(endpoint, json=body, stream=True, timeout=600) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line.startswith(b"data:"):
-                        continue
-                    chunks += 1
-                    if not first:
-                        first = time.perf_counter() - began[0]
-            return first, chunks
-
-        began[0] = time.perf_counter()
-        triton.closed_loop(call, min(8, len(texts)), min(8, concurrency))  # warm-up
-        began[0] = time.perf_counter()
-        seconds, results = triton.closed_loop(call, len(texts), concurrency)
+    bodies = [
+        {
+            "text_input": text,
+            "stream": True,
+            "exclude_input_in_output": True,
+            "sampling_parameters": json.dumps(
+                {"max_tokens": new, "temperature": 0.0, "ignore_eos": True}
+            ),
+        }
+        for text in texts
+    ]
+    load_s, seconds, firsts = _stream(root, os.environ.get("NEST_VLLM_SITE"), bodies, concurrency)
     return _result(
         "Triton Inference Server (vLLM backend)",
         "reference",
         new * len(texts),
         seconds,
-        [first for first, _ in results],
+        firsts,
+        load_s,
+        _describe(workload) + "; over HTTP, streamed, first tokens timed at the client",
+    )
+
+
+def _stream(
+    root: Path, python_path: str | None, bodies: list[dict[str, Any]], concurrency: int
+) -> tuple[float, float, list[float]]:
+    """Serves the repository at `root` and sends `bodies` to its `llm` model's
+    streaming endpoint with `concurrency` in flight. Returns the server's
+    load time, the run's wall time, and each request's first-token time from
+    the run's start, as the client sees them."""
+    import requests as http
+
+    from bench import triton
+
+    start = time.perf_counter()
+    with triton.server(root, python_path=python_path) as url:
+        load_s = time.perf_counter() - start
+        endpoint = f"{url}/v2/models/llm/generate_stream"
+        began = [0.0]
+
+        def call(index: int) -> float:
+            first = 0.0
+            with http.post(endpoint, json=bodies[index], stream=True, timeout=600) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line.startswith(b"data:") and not first:
+                        first = time.perf_counter() - began[0]
+            return first
+
+        began[0] = time.perf_counter()
+        triton.closed_loop(call, min(8, len(bodies)), min(8, concurrency))  # warm-up
+        began[0] = time.perf_counter()
+        seconds, firsts = triton.closed_loop(call, len(bodies), concurrency)
+    return load_s, seconds, firsts
+
+
+LINNET_TRITON_CONFIG = """backend: "python"
+max_batch_size: 0
+model_transaction_policy { decoupled: True }
+input [
+  { name: "prompt", data_type: TYPE_INT32, dims: [ -1 ] },
+  { name: "max_tokens", data_type: TYPE_INT32, dims: [ 1 ] }
+]
+output [ { name: "tokens", data_type: TYPE_INT32, dims: [ -1 ] } ]
+instance_group [{ count: 1, kind: KIND_GPU }]
+"""
+
+
+def triton_linnet(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+    """Linnet behind Triton Inference Server: its Python backend running
+    `linnet.serve` (CUDA graphs) in a thread, requests joining the engine's
+    rows as they arrive, the first token streamed back as soon as it exists."""
+    _, concurrency, _, _, new = settings(workload)
+    root = Path(tempfile.mkdtemp(prefix="nest-triton-"))
+    model_dir = root / "llm" / "1"
+    model_dir.mkdir(parents=True)
+    (root / "llm" / "config.pbtxt").write_text(LINNET_TRITON_CONFIG, encoding="utf-8")
+    generics = {"Batch": concurrency, "MaxSeq": serve_max_seq(workload), "T": "bf16"}
+    template = (Path(__file__).resolve().parent.parent / "triton_linnet_model.py").read_text(
+        encoding="utf-8"
+    )
+    (model_dir / "model.py").write_text(
+        template.replace("__CARD__", str(data["directory"])).replace(
+            "GENERICS: dict = {}  # __GENERICS__", f"GENERICS: dict = {generics!r}"
+        ),
+        encoding="utf-8",
+    )
+    bodies = [{"prompt": ids, "max_tokens": new} for ids in prompts(data, workload)]
+    load_s, seconds, firsts = _stream(root, os.environ.get("NEST_MAIN_SITE"), bodies, concurrency)
+    return _result(
+        "Triton Inference Server (Python backend, linnet.serve)",
+        "linnet",
+        new * len(bodies),
+        seconds,
+        firsts,
         load_s,
         _describe(workload) + "; over HTTP, streamed, first tokens timed at the client",
     )
@@ -388,4 +450,6 @@ METHODS = {
     "serve-triton-vllm": triton_vllm,
     "serve-linnet-torch": _linnet("torch"),
     "serve-linnet-jax": _linnet("jax"),
+    "serve-linnet-onnx": _linnet("onnx"),
+    "serve-triton-linnet": triton_linnet,
 }

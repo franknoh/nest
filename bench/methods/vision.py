@@ -166,8 +166,16 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
 
 
 def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
-    label = {True: "generated source", "reduce-overhead": "CUDA graphs"}[compile]
-    method = {True: "linnet-torch", "reduce-overhead": "linnet-cudagraphs"}[compile]
+    label = {
+        True: "generated source",
+        "reduce-overhead": "CUDA graphs",
+        "inductor": "torch.compile, inductor",
+    }[compile]
+    method = {
+        True: "linnet-torch",
+        "reduce-overhead": "linnet-cudagraphs",
+        "inductor": "linnet-inductor",
+    }[compile]
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         from linnet import nest
@@ -227,7 +235,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     start = time.perf_counter()
     model = nest.load(
         data["directory"],
-        backend="jax",
+        backend=workload.get("jax_backend", "jax"),
         entry=entry,
         generics={"T": dtype_name},
         cast_dtype=True,
@@ -245,7 +253,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     iters = int(workload["iters"])
     latency_ms = median_ms(lambda: call(images1), lambda: None, warmup, iters)
     throughput_ms = median_ms(lambda: call(images32), lambda: None, warmup, iters)
-    save_output(workload, "linnet-jax", jax.device_get(call(images1)))
+    save_output(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(call(images1)))
     throughput = THROUGHPUT_BATCH / (throughput_ms / 1e3)
     return Result(
         f"Linnet JAX (XLA, {jax.default_backend()})",
@@ -269,45 +277,6 @@ def linnet_onnx_export(data: dict[str, Any], batch: int) -> Any:
         entry=linnet_entry(data),
         root=card.root,
         bindings=bindings,
-    )
-
-
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    import onnxruntime
-
-    device = workload.get("device", "cuda")
-    providers = ["CUDAExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
-
-    def build(batch: int) -> tuple[Any, str]:
-        exported = linnet_onnx_export(data, batch)
-        session = onnxruntime.InferenceSession(
-            exported.model.SerializeToString(), providers=providers
-        )
-        return session, exported.inputs[0].name
-
-    start = time.perf_counter()
-    session1, input_name = build(LATENCY_BATCH)
-    session32, _ = build(THROUGHPUT_BATCH)
-    load_s = time.perf_counter() - start
-
-    images1 = canonical_images(data, workload, LATENCY_BATCH).numpy()
-    images32 = canonical_images(data, workload, THROUGHPUT_BATCH).numpy()
-
-    def call(session: Any, images: Any) -> Any:
-        (output,) = session.run(None, {input_name: images})
-        return output
-
-    warmup = int(workload["warmup"])
-    iters = int(workload["iters"])
-    latency_ms = median_ms(lambda: call(session1, images1), lambda: None, warmup, iters)
-    throughput_ms = median_ms(lambda: call(session32, images32), lambda: None, warmup, iters)
-    save_output(workload, "linnet-onnx", call(session1, images1))
-    throughput = THROUGHPUT_BATCH / (throughput_ms / 1e3)
-    return Result(
-        "Linnet ONNX -> ONNX Runtime",
-        "linnet",
-        {"latency_ms": latency_ms, "throughput_per_s": throughput, "load_s": load_s},
-        notes="the exporter embeds the checkpoint's own f32 tensors, so this always runs f32",
     )
 
 
@@ -517,6 +486,7 @@ def adapter(data: dict[str, Any], workload: dict[str, Any]) -> Adapter:
         linnet=lambda batch: linnet_onnx_export(data, batch),
         save=lambda method, out: save_output(workload, method, out),
         batches=(LATENCY_BATCH, THROUGHPUT_BATCH),
+        entry=lambda batch: (linnet_entry(data), {"B": batch, "T": "bf16"}),
     )
 
 
@@ -536,17 +506,38 @@ def _keras_call(model: Any, arrays: list[Any]) -> Any:
 KERAS_FAMILIES = {"vit"}
 
 
+def _onnx_run(
+    model: Any, data: dict[str, Any], workload: dict[str, Any]
+) -> tuple[dict[str, float], Any]:
+    """The card's image entry at batch 1 (latency) and at the throughput batch."""
+    entry = linnet_entry(data)
+    one = [canonical_images(data, workload, LATENCY_BATCH).numpy()]
+    many = [canonical_images(data, workload, THROUGHPUT_BATCH).numpy()]
+    warmup, iters = int(workload["warmup"]), int(workload["iters"])
+    latency = median_ms(lambda: model.run_entry(entry, one), lambda: None, warmup, iters)
+    wide = median_ms(lambda: model.run_entry(entry, many), lambda: None, warmup, iters)
+    return (
+        {"latency_ms": latency, "throughput_per_s": THROUGHPUT_BATCH / (wide / 1e3)},
+        model.run_entry(entry, one),
+    )
+
+
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "transformers-eager": _transformers(compiled=False),
     "transformers-compile": _transformers(compiled=True),
     "linnet-torch": _linnet_torch(True),
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
-    "linnet-jax": linnet_jax,
-    "linnet-onnx": linnet_onnx,
+    "linnet-inductor": _linnet_torch("inductor"),
+    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, StableHLO", "linnet-jax"),
+    "linnet-jax-source": stacks.jax_variant(
+        linnet_jax, "XLA, generated source", "linnet-jax-source", jax_backend="jax_source"
+    ),
+    **stacks.onnx_methods(_onnx_run, save_output),
     "keras-hub": stacks.keras_hub(adapter, _keras_load, _keras_call),
     "onnx-reference": stacks.onnx_reference(adapter),
     "triton-onnx": stacks.triton(adapter, linnet=False),
     "triton-linnet-onnx": stacks.triton(adapter, linnet=True),
+    "triton-linnet-python": stacks.triton(adapter, linnet=True, python=True),
 }
 
 

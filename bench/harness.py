@@ -238,6 +238,6 @@ def write(
 def python_for(method: str) -> str:
     """vLLM pins its own PyTorch, so it lives in its own environment; the
     pod's setup script exports where. Everything else runs here."""
-    if method in ("vllm", "serve-vllm") and "NEST_VLLM_PYTHON" in os.environ:
+    if method in ("vllm", "serve-vllm", "vllm-tp") and "NEST_VLLM_PYTHON" in os.environ:
         return os.environ["NEST_VLLM_PYTHON"]
     return sys.executable

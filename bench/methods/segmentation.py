@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms, torch_sync
+from bench.methods import stacks
 
 IMAGE_URL = "http://images.cocodataset.org/val2017/000000039769.jpg"
 # Squarely on the larger, right-hand cat's back, clear of both remotes -- in
@@ -95,8 +96,16 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
 
 
 def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
-    label = {True: "generated source", "reduce-overhead": "CUDA graphs"}[compile]
-    method = {True: "linnet-torch", "reduce-overhead": "linnet-cudagraphs"}[compile]
+    label = {
+        True: "generated source",
+        "reduce-overhead": "CUDA graphs",
+        "inductor": "torch.compile, inductor",
+    }[compile]
+    method = {
+        True: "linnet-torch",
+        "reduce-overhead": "linnet-cudagraphs",
+        "inductor": "linnet-inductor",
+    }[compile]
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         import torch
@@ -139,7 +148,10 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
 
     start = time.perf_counter()
     model = nest.load(
-        data["directory"], backend="jax", entry="encode_image", generics=dict(data["generics"])
+        data["directory"],
+        backend=workload.get("jax_backend", "jax"),
+        entry="encode_image",
+        generics=dict(data["generics"]),
     )
     load_s = time.perf_counter() - start
 
@@ -154,7 +166,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         int(workload["warmup"]),
         int(workload["iters"]),
     )
-    save_output(workload, "linnet-jax", jax.device_get(encode())[0])
+    save_output(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(encode())[0])
     return Result(
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
@@ -162,46 +174,16 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     )
 
 
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    """The image encoder is a plain forward pass over a fixed shape, exactly
-    what `linnet.onnx.export_model` is for."""
-    import numpy as np
-    import onnxruntime as ort
-    from linnet.nest import Card, download_weights
-    from linnet.onnx import export_model
-
-    device = workload.get("device", "cuda")
+def _onnx_run(
+    model: Any, data: dict[str, Any], workload: dict[str, Any]
+) -> tuple[dict[str, float], Any]:
+    """The image encoder, the part of SAM that costs."""
     pixel_values, *_rest = _fixture(data)
-    card = Card.read(data["directory"])
-    generics = {**dict(card.generics), **dict(card.check)}
-
-    start = time.perf_counter()
-    weights = download_weights(card)
-    exported = export_model(
-        card.source_path,
-        generics=generics,
-        weights=weights,
-        entry="encode_image",
-        root=card.root,
-        bindings=card.bindings_path,
+    warmup, iters = int(workload["warmup"]), int(workload["iters"])
+    encode_ms = median_ms(
+        lambda: model.run_entry("encode_image", [pixel_values]), lambda: None, warmup, iters
     )
-    onnx_path = Path(workload["workdir"]) / f"{data['model']['name']}-encode.onnx"
-    exported.save(onnx_path)
-    providers = ["CPUExecutionProvider"] if device == "cpu" else ["CUDAExecutionProvider"]
-    session = ort.InferenceSession(str(onnx_path), providers=providers)
-    load_s = time.perf_counter() - start
-
-    input_name = exported.inputs[0].name
-    pixels = pixel_values.astype(np.float32)
-
-    def encode() -> Any:
-        return session.run(None, {input_name: pixels})[0]
-
-    encode_ms = median_ms(encode, lambda: None, int(workload["warmup"]), int(workload["iters"]))
-    save_output(workload, "linnet-onnx", encode()[0])
-    return Result(
-        "Linnet ONNX -> ONNX Runtime", "linnet", {"encode_ms": encode_ms, "load_s": load_s}
-    )
+    return {"encode_ms": encode_ms}, model.run_entry("encode_image", [pixel_values])[0]
 
 
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
@@ -209,8 +191,12 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "transformers-compile": _transformers(compiled=True),
     "linnet-torch": _linnet_torch(True),
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
-    "linnet-jax": linnet_jax,
-    "linnet-onnx": linnet_onnx,
+    "linnet-inductor": _linnet_torch("inductor"),
+    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, StableHLO", "linnet-jax"),
+    "linnet-jax-source": stacks.jax_variant(
+        linnet_jax, "XLA, generated source", "linnet-jax-source", jax_backend="jax_source"
+    ),
+    **stacks.onnx_methods(_onnx_run, save_output, note="the image encoder"),
 }
 
 REFERENCE = "transformers-eager"

@@ -207,8 +207,16 @@ def sentence_transformers_reference(data: dict[str, Any], workload: dict[str, An
 
 
 def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
-    label = {True: "generated source", "reduce-overhead": "CUDA graphs"}[compile]
-    method = {True: "linnet-torch", "reduce-overhead": "linnet-cudagraphs"}[compile]
+    label = {
+        True: "generated source",
+        "reduce-overhead": "CUDA graphs",
+        "inductor": "torch.compile, inductor",
+    }[compile]
+    method = {
+        True: "linnet-torch",
+        "reduce-overhead": "linnet-cudagraphs",
+        "inductor": "linnet-inductor",
+    }[compile]
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         import torch
@@ -284,7 +292,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     start = time.perf_counter()
     model = nest.load(
         data["directory"],
-        backend="jax",
+        backend=workload.get("jax_backend", "jax"),
         numerics="fast",
         generics={**data["generics"], "T": dtype},
         cast_dtype=dtype != "f32",
@@ -306,7 +314,9 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         * 1000.0
         / median_ms(lambda: call(ids_thr, tt_thr), lambda: None, warmup, iters)
     )
-    save_output(workload, "linnet-jax", jax.device_get(call(ids_lat, tt_lat))[0])
+    save_output(
+        workload, workload.get("jax_key", "linnet-jax"), jax.device_get(call(ids_lat, tt_lat))[0]
+    )
     return Result(
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
@@ -342,59 +352,26 @@ def linnet_onnx_export(data: dict[str, Any], batch: int) -> tuple[Any, str]:
         return export_model(card.source_path, optionals="absent", **kwargs), "absent"
 
 
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+def _onnx_run(
+    model: Any, data: dict[str, Any], workload: dict[str, Any]
+) -> tuple[dict[str, float], Any]:
+    """The card's entry at batch 1 (latency) and batch 64 (throughput)."""
     import numpy as np
-    import onnxruntime as ort
 
-    device = workload.get("device", "cuda")
     seq = seq_len(data)
     types = has_token_types(data)
-    warmup = int(workload["warmup"])
-    iters = int(workload["iters"])
-    providers = (
-        ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        if device == "cuda"
-        else ["CPUExecutionProvider"]
-    )
 
-    optionals = "present"
-
-    def build(batch: int) -> tuple[Any, list[str]]:
-        nonlocal optionals
-        exported, optionals = linnet_onnx_export(data, batch)
-        session = ort.InferenceSession(exported.model.SerializeToString(), providers=providers)
-        return session, [port.name for port in exported.inputs]
-
-    start = time.perf_counter()
-    session_lat, names_lat = build(LATENCY_BATCH)
-    session_thr, names_thr = build(THROUGHPUT_BATCH)
-    load_s = time.perf_counter() - start
-
-    def feed(names: list[str], batch: int) -> dict[str, np.ndarray]:
+    def feed(batch: int) -> list[Any]:
         ids = np.asarray(random_ids(data, workload, batch, seq), dtype=np.int32)
-        arrays = [ids, np.zeros_like(ids)] if types else [ids]
-        return dict(zip(names, arrays, strict=True))
+        return [ids, np.zeros_like(ids)] if types else [ids]
 
-    feed_lat = feed(names_lat, LATENCY_BATCH)
-    feed_thr = feed(names_thr, THROUGHPUT_BATCH)
-
-    latency_ms = median_ms(lambda: session_lat.run(None, feed_lat), lambda: None, warmup, iters)
-    throughput_per_s = (
-        THROUGHPUT_BATCH
-        * 1000.0
-        / median_ms(lambda: session_thr.run(None, feed_thr), lambda: None, warmup, iters)
-    )
-    save_output(workload, "linnet-onnx", session_lat.run(None, feed_lat)[0])
-    return Result(
-        f"Linnet ONNX -> ONNX Runtime ({providers[0]})",
-        "linnet",
-        {"latency_ms": latency_ms, "throughput_per_s": throughput_per_s, "load_s": load_s},
-        notes=(
-            f"unpadded batches of exactly {seq} tokens; runs in f32, the published checkpoint's "
-            "own dtype -- export embeds its tensors as initializers as they are, with no cast; "
-            f"optional Linear biases compiled as {optionals} (checkpoint-detected)"
-        ),
-    )
+    entry = data["source"]["entry"]
+    small, large = feed(LATENCY_BATCH), feed(THROUGHPUT_BATCH)
+    warmup, iters = int(workload["warmup"]), int(workload["iters"])
+    latency = median_ms(lambda: model.run_entry(entry, small), lambda: None, warmup, iters)
+    wide = median_ms(lambda: model.run_entry(entry, large), lambda: None, warmup, iters)
+    output = np.asarray(model.run_entry(entry, small))[0]
+    return {"latency_ms": latency, "throughput_per_s": THROUGHPUT_BATCH * 1000.0 / wide}, output
 
 
 # ------------------------------------------------- ONNX, Triton, KerasHub
@@ -439,6 +416,7 @@ def adapter(data: dict[str, Any], workload: dict[str, Any]) -> Adapter:
         save=lambda method, out: save_output(workload, method, np.asarray(out)[0]),
         batches=(LATENCY_BATCH, THROUGHPUT_BATCH),
         note=f"unpadded batches of exactly {seq} tokens",
+        entry=lambda batch: (data["source"]["entry"], {"B": batch, "S": seq, "T": "bf16"}),
     )
 
 
@@ -471,12 +449,21 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "sentence-transformers": sentence_transformers_reference,
     "linnet-torch": _linnet_torch(True),
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
-    "linnet-jax": linnet_jax,
-    "linnet-onnx": linnet_onnx,
+    "linnet-inductor": _linnet_torch("inductor"),
+    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, StableHLO", "linnet-jax"),
+    "linnet-jax-source": stacks.jax_variant(
+        linnet_jax, "XLA, generated source", "linnet-jax-source", jax_backend="jax_source"
+    ),
+    **stacks.onnx_methods(
+        _onnx_run,
+        save_output,
+        note="unpadded batches of exactly the sequence length",
+    ),
     "keras-hub": stacks.keras_hub(adapter, _keras_load, _keras_call),
     "onnx-reference": stacks.onnx_reference(adapter),
     "triton-onnx": stacks.triton(adapter, linnet=False),
     "triton-linnet-onnx": stacks.triton(adapter, linnet=True),
+    "triton-linnet-python": stacks.triton(adapter, linnet=True, python=True),
 }
 
 

@@ -96,4 +96,29 @@ if importlib.util.find_spec("vllm.v1.metrics.buckets") is not None:
     path.write_text(text.replace(old, new))
 EOF
 ls /opt/tritonserver/backends
+
+# llama.cpp with CUDA, for the GGUF rows: its converter needs `gguf` in our
+# environment, its build CUDA's compiler. Best effort -- without it, those
+# rows fail and the rest run.
+(
+    set +e
+    if [ ! -x /workspace/llama.cpp/build/bin/llama-bench ]; then
+        if ! command -v nvcc >/dev/null && [ ! -x /usr/local/cuda/bin/nvcc ]; then
+            version=$(nvidia-smi | grep -oE "CUDA Version: [0-9]+\.[0-9]+" | grep -oE "[0-9]+\.[0-9]+")
+            major=${version%%.*}
+            wget -q "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb" -O /tmp/keyring.deb \
+                && dpkg -i /tmp/keyring.deb >/dev/null && apt-get update -qq
+            apt-get install -y -qq --no-install-recommends "cuda-nvcc-${major}-0" \
+                "cuda-cudart-dev-${major}-0" "libcublas-dev-${major}-0" >/dev/null
+        fi
+        export PATH=/usr/local/cuda/bin:$PATH
+        rm -rf /workspace/llama.cpp
+        git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /workspace/llama.cpp
+        cmake -S /workspace/llama.cpp -B /workspace/llama.cpp/build -G Ninja \
+            -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=90 -DLLAMA_CURL=OFF >/dev/null \
+            && cmake --build /workspace/llama.cpp/build --target llama-bench >/dev/null
+    fi
+    /workspace/venv/bin/python -m pip install --quiet gguf
+    ls -la /workspace/llama.cpp/build/bin/llama-bench || echo "llama.cpp build failed; its rows will fail"
+)
 echo "setup done"

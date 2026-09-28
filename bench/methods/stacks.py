@@ -32,6 +32,8 @@ class Adapter:
     save: Callable[[str, Any], None]  # (method, output) -> saved for comparison
     batches: tuple[int, int]  # (latency batch, throughput batch)
     note: str = ""
+    # For Triton's Python backend: the entry and the generics at a batch size.
+    entry: Callable[[int], tuple[str, dict[str, int | str]]] | None = None
 
 
 def _export_reference(adapter: Adapter, batch: int, path: Path) -> list[str]:
@@ -108,11 +110,18 @@ instance_group [{ count: 1, kind: KIND_GPU }]
 """
 
 
-def triton(make: Make, linnet: bool) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
-    """Triton Inference Server's ONNX Runtime backend over one of the two
-    exports, a model per batch size. Latency is one request at a time at the
-    small batch; throughput keeps four requests at the large batch in
-    flight, which is what a client of a busy server does."""
+PYTHON_INSTANCE = "\ninstance_group [{ count: 1, kind: KIND_GPU }]\n"
+
+
+def triton(
+    make: Make, linnet: bool, python: bool = False
+) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
+    """Triton Inference Server over a model per batch size: its ONNX Runtime
+    backend over the reference's export or Linnet's, or (`python`) its Python
+    backend running Linnet's generated PyTorch (`linnet.triton.export`, bf16,
+    CUDA graphs). Latency is one request at a time at the small batch;
+    throughput keeps four requests at the large batch in flight, which is
+    what a client of a busy server does."""
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         import numpy as np
@@ -126,6 +135,26 @@ def triton(make: Make, linnet: bool) -> Callable[[dict[str, Any], dict[str, Any]
         names: dict[int, list[str]] = {}
         for batch in (low, high):
             directory = root / f"b{batch}" / "1"
+            if python:
+                from linnet import triton as linnet_triton
+
+                if adapter.entry is None:
+                    raise RuntimeError("this family has no entry for Triton's Python backend")
+                entry, generics = adapter.entry(batch)
+                repository = linnet_triton.export(
+                    data["directory"],
+                    root,
+                    name=f"b{batch}",
+                    entry=entry,
+                    generics=generics,
+                    backend="python",
+                    numerics="fast",
+                    options={"cast_dtype": True, "compile": "reduce-overhead"},
+                )
+                with repository.config.open("a", encoding="utf-8") as config:
+                    config.write(PYTHON_INSTANCE)
+                names[batch] = [port.name for port in repository.inputs]
+                continue
             directory.mkdir(parents=True)
             (root / f"b{batch}" / "config.pbtxt").write_text(TRITON_ONNX, encoding="utf-8")
             if linnet:
@@ -135,7 +164,9 @@ def triton(make: Make, linnet: bool) -> Callable[[dict[str, Any], dict[str, Any]
             else:
                 names[batch] = _export_reference(adapter, batch, directory / "model.onnx")
         start = time.perf_counter()
-        with server.server(root) as url:
+        # The Python backend imports Linnet from the benchmark's environment.
+        site = os.environ.get("NEST_MAIN_SITE") if python else None
+        with server.server(root, python_path=site) as url:
             load_s = time.perf_counter() - start
             host = url.removeprefix("http://")
             # One client per thread: the HTTP client runs on gevent, whose
@@ -167,17 +198,26 @@ def triton(make: Make, linnet: bool) -> Callable[[dict[str, Any], dict[str, Any]
             count = max(16, 4 * iters)
             seconds, _ = server.closed_loop(lambda i: request(None, high), count, 4)
             output = request(None, low)
-        adapter.save("triton-linnet-onnx" if linnet else "triton-onnx", output)
-        which = "Linnet ONNX" if linnet else "torch.onnx export"
+        key = (
+            "triton-linnet-python" if python else "triton-linnet-onnx" if linnet else "triton-onnx"
+        )
+        adapter.save(key, output)
+        if python:
+            name = "Triton Inference Server (Python backend, Linnet torch)"
+            precision = "bf16, CUDA graphs"
+        else:
+            which = "Linnet ONNX" if linnet else "torch.onnx export"
+            name = f"Triton Inference Server (ONNX Runtime backend, {which})"
+            precision = "f32"
         return Result(
-            f"Triton Inference Server (ONNX Runtime backend, {which})",
-            "linnet" if linnet else "reference",
+            name,
+            "linnet" if linnet or python else "reference",
             {
                 "latency_ms": latency,
                 "throughput_per_s": high * count / seconds,
                 "load_s": load_s,
             },
-            notes=f"over HTTP; f32; throughput with 4 requests of batch {high} in flight",
+            notes=f"over HTTP; {precision}; throughput with 4 requests of batch {high} in flight",
         )
 
     return run
@@ -225,5 +265,119 @@ def keras_hub(
             {"latency_ms": latency, "throughput_per_s": high / (wide / 1e3), "load_s": load_s},
             notes="bf16, under jax.jit; " + adapter.note,
         )
+
+    return run
+
+
+# ------------------------------------------------ Linnet on ONNX Runtime
+
+ONNX_DTYPES = ("f32", "f16", "bf16")
+ONNX_PROVIDERS = ("cuda", "trt")
+
+
+def onnx_providers(provider: str, dtype: str, workload: dict[str, Any]) -> list[Any]:
+    """ONNX Runtime's execution providers for a row. TensorRT builds an
+    engine per graph, cached in the run's work directory; it runs the graph's
+    own dtype (f16 graphs with its f16 kernels on)."""
+    if workload.get("device", "cuda") == "cpu":
+        return ["CPUExecutionProvider"]
+    if provider == "trt":
+        cache = Path(workload["workdir"]) / "trt-cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        options = {
+            "trt_engine_cache_enable": "True",
+            "trt_engine_cache_path": str(cache),
+            "trt_fp16_enable": "True" if dtype == "f16" else "False",
+            "trt_bf16_enable": "True" if dtype == "bf16" else "False",
+        }
+        return [
+            ("TensorrtExecutionProvider", options),
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+    return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+
+def onnx_key(dtype: str, provider: str) -> str:
+    return f"linnet-onnx-{dtype}" + ("-trt" if provider == "trt" else "")
+
+
+def linnet_onnx(
+    run: Callable[[Any, dict[str, Any], dict[str, Any]], tuple[dict[str, float], Any]],
+    save: Callable[[dict[str, Any], str, Any], None],
+    dtype: str,
+    provider: str,
+    generics: Callable[[dict[str, Any], dict[str, Any]], dict[str, int | str]] | None = None,
+    note: str = "",
+) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
+    """Linnet's ONNX export on ONNX Runtime (`linnet.onnx.load_model`): the
+    checkpoint cast to `dtype`, one copy of the weights on the GPU shared by
+    every entry's session, state kept there. `run(model, card, workload)`
+    times the family's entries and returns its metrics and the output the
+    family compares; `generics` adds the card's own (a cache length)."""
+
+    def method(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+        from linnet import nest
+
+        extra = generics(data, workload) if generics is not None else {}
+        start = time.perf_counter()
+        model = nest.load(
+            data["directory"],
+            backend="onnx_model",
+            generics={**extra, "T": dtype},
+            cast_dtype=True,
+            numerics="fast",
+            providers=onnx_providers(provider, dtype, workload),
+        )
+        load_s = time.perf_counter() - start
+        metrics, output = run(model, data, workload)
+        # ONNX Runtime falls back to the next provider without saying so; a
+        # TensorRT row that ran on CUDA would be a CUDA row under a wrong name.
+        wanted = "TensorrtExecutionProvider" if provider == "trt" else "CUDAExecutionProvider"
+        used = {s.session.get_providers()[0] for s in model._sessions.values()}
+        if workload.get("device", "cuda") != "cpu" and used != {wanted}:
+            raise RuntimeError(f"ONNX Runtime ran on {sorted(used)}, not {wanted}")
+        metrics["load_s"] = load_s
+        save(workload, onnx_key(dtype, provider), output)
+        where = "TensorRT" if provider == "trt" else "CUDA"
+        notes = (
+            f"{dtype}; ONNX Runtime's {where} execution provider; first calls build the sessions"
+        )
+        return Result(
+            f"Linnet ONNX {dtype} -> ONNX Runtime ({where})",
+            "linnet",
+            metrics,
+            notes=notes + ("; " + note if note else ""),
+        )
+
+    return method
+
+
+def onnx_methods(
+    run: Callable[[Any, dict[str, Any], dict[str, Any]], tuple[dict[str, float], Any]],
+    save: Callable[[dict[str, Any], str, Any], None],
+    generics: Callable[[dict[str, Any], dict[str, Any]], dict[str, int | str]] | None = None,
+    note: str = "",
+) -> dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]]:
+    """The six ONNX rows: f32, f16, bf16, each on CUDA and on TensorRT."""
+    return {
+        onnx_key(dtype, provider): linnet_onnx(run, save, dtype, provider, generics, note)
+        for dtype in ONNX_DTYPES
+        for provider in ONNX_PROVIDERS
+    }
+
+
+def jax_variant(
+    method: Callable[[dict[str, Any], dict[str, Any]], Result], label: str, key: str, **flags: Any
+) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
+    """A family's JAX row on one of Linnet's two XLA paths: the StableHLO
+    export (`linnet.jax.load`) or generated JAX source (`load_source`,
+    `load_model`), chosen by `flags` the family's method reads from the
+    workload."""
+
+    def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+        result = method(data, {**workload, **flags, "jax_key": key})
+        result.method = f"Linnet JAX ({label})"
+        return result
 
     return run

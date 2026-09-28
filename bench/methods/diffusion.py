@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms, torch_sync
+from bench.methods import stacks
 
 VAE_REPO = "stabilityai/sd-vae-ft-mse"
 SDXL_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -325,8 +326,16 @@ def _diffusers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], Res
 
 
 def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, Any]], Result]:
-    label = {True: "generated source", "reduce-overhead": "CUDA graphs"}[compile]
-    method = {True: "linnet-torch", "reduce-overhead": "linnet-cudagraphs"}[compile]
+    label = {
+        True: "generated source",
+        "reduce-overhead": "CUDA graphs",
+        "inductor": "torch.compile, inductor",
+    }[compile]
+    method = {
+        True: "linnet-torch",
+        "reduce-overhead": "linnet-cudagraphs",
+        "inductor": "linnet-inductor",
+    }[compile]
     name = f"Linnet torch ({label})"
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
@@ -419,7 +428,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     start = time.perf_counter()
     function = nest.load(
         data["directory"],
-        backend="jax",
+        backend=workload.get("jax_backend", "jax"),
         entry=entry,
         generics=linnet_generics(data, workload),
         weights=numpy_weights(data, dtype_name(workload)),
@@ -439,7 +448,11 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         many = jnp.asarray(vae_latent(batch, side, workload.get("seed", 0)).numpy(), dtype=dtype)
         latency = timed(one)
         per_batch = timed(many)
-        save_output(workload, "linnet-jax", np.asarray(call(one)[0], dtype=np.float32))
+        save_output(
+            workload,
+            workload.get("jax_key", "linnet-jax"),
+            np.asarray(call(one)[0], dtype=np.float32),
+        )
         return Result(
             name,
             "linnet",
@@ -458,7 +471,11 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         for value in linnet_sdxl_inputs(inputs, torch.float32, "cpu")
     ]
     step_ms = timed(*arguments)
-    save_output(workload, "linnet-jax", np.asarray(call(*arguments)[0], dtype=np.float32))
+    save_output(
+        workload,
+        workload.get("jax_key", "linnet-jax"),
+        np.asarray(call(*arguments)[0], dtype=np.float32),
+    )
     return Result(
         name,
         "linnet",
@@ -467,83 +484,31 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     )
 
 
-def linnet_onnx(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    """`linnet.onnx.export_model` under ONNX Runtime. The export embeds the
-    checkpoint in the dtype it is published in, so on a GPU the decoder's
-    tensors are first converted to f16 (ONNX Runtime's CUDA kernels cover f16
-    far better than bf16) in a scratch copy; on a CPU the f32 checkpoint is
-    used as it is."""
-    name = "Linnet ONNX -> ONNX Runtime"
-    gap = conv_gap(data, "onnx")
-    if gap is not None:
-        return Result(name, "linnet", notes=gap)
-    if not is_vae(data):
-        return Result(
-            name,
-            "linnet",
-            notes="not run: the export embeds the f32 checkpoint as published, a 10 GB graph "
-            "at twice the other rows' precision, so it would not be a like-for-like row",
-        )
-    import numpy as np
-    import onnxruntime as ort  # type: ignore[import-untyped]
-    from linnet import nest
-    from linnet.onnx import export_model
+def _onnx_run(
+    model: Any, data: dict[str, Any], workload: dict[str, Any]
+) -> tuple[dict[str, float], Any]:
+    """The VAE decoder at batch 1 and at the throughput batch, or one UNet step."""
+    import torch
 
-    device = device_of(workload)
-    precision = "f32" if device == "cpu" else "f16"
-    providers = (
-        ["CPUExecutionProvider"]
-        if device == "cpu"
-        else ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    )
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
-    side, batch = vae_side(workload), vae_batch(workload)
-    card = nest.resolve(data["directory"])
-    start = time.perf_counter()
-    weights = checkpoint(data)
-    if precision != "f32":
-        from safetensors.numpy import load_file, save_file  # type: ignore[import-untyped]
-
-        converted = {
-            key: value.astype(np.float16)
-            for key, value in load_file(str(weights)).items()
-            if key.startswith(("decoder.", "post_quant_conv."))
-        }
-        weights = Path(workload["workdir"]) / "onnx-f16.safetensors"
-        save_file(converted, str(weights))
-
-    def session(size: int) -> Any:
-        exported = export_model(
-            card.source_path,
-            generics={"H": side, "W": side, "T": precision, "B": size},
-            weights=weights,
-            entry="decode",
-            root=card.root,
-            numerics="fast",
-            bindings=card.bindings_path,
+    if is_vae(data):
+        side, batch = vae_side(workload), vae_batch(workload)
+        one = [vae_latent(1, side, workload.get("seed", 0)).numpy()]
+        many = [vae_latent(batch, side, workload.get("seed", 0)).numpy()]
+        latency = median_ms(lambda: model.run_entry("decode", one), lambda: None, warmup, iters)
+        wide = median_ms(lambda: model.run_entry("decode", many), lambda: None, warmup, iters)
+        return (
+            {"latency_ms": latency, "throughput_per_s": batch / (wide / 1e3)},
+            model.run_entry("decode", one)[0],
         )
-        return ort.InferenceSession(exported.model.SerializeToString(), providers=providers)
+    inputs = sdxl_inputs(sdxl_batch(workload), sdxl_mid(workload), workload.get("seed", 0))
+    arguments = [a.numpy() for a in linnet_sdxl_inputs(inputs, torch.float32, "cpu")]
+    step_ms = median_ms(lambda: model.run_entry("forward", arguments), lambda: None, warmup, iters)
+    return {"step_ms": step_ms}, model.run_entry("forward", arguments)[0]
 
-    one_session, many_session = session(1), session(batch)
-    load_s = time.perf_counter() - start
-    input_type = np.float32 if precision == "f32" else np.float16
-    one = vae_latent(1, side, workload.get("seed", 0)).numpy().astype(input_type)
-    many = vae_latent(batch, side, workload.get("seed", 0)).numpy().astype(input_type)
 
-    def run(active: Any, value: Any) -> Any:
-        return active.run(None, {active.get_inputs()[0].name: value})[0]
-
-    latency = median_ms(lambda: run(one_session, one), lambda: None, warmup, iters)
-    per_batch = median_ms(lambda: run(many_session, many), lambda: None, warmup, iters)
-    save_output(workload, "linnet-onnx", run(one_session, one)[0])
-    provider = one_session.get_providers()[0].removesuffix("ExecutionProvider")
-    return Result(
-        f"{name} ({provider})",
-        "linnet",
-        {"latency_ms": latency, "throughput_per_s": batch / (per_batch / 1e3), "load_s": load_s},
-        notes=f"{side}x{side} latent ({side * 8}-pixel image), {precision} (the export does not "
-        f"cast, so the checkpoint was converted first); throughput at batch {batch}",
-    )
+def _onnx_generics(data: dict[str, Any], workload: dict[str, Any]) -> dict[str, int | str]:
+    return {k: v for k, v in linnet_generics(data, workload).items() if k != "T"}
 
 
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
@@ -551,8 +516,12 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "diffusers-compile": _diffusers(compiled=True),
     "linnet-torch": _linnet_torch(True),
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
-    "linnet-jax": linnet_jax,
-    "linnet-onnx": linnet_onnx,
+    "linnet-inductor": _linnet_torch("inductor"),
+    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, StableHLO", "linnet-jax"),
+    "linnet-jax-source": stacks.jax_variant(
+        linnet_jax, "XLA, generated source", "linnet-jax-source", jax_backend="jax_source"
+    ),
+    **stacks.onnx_methods(_onnx_run, save_output, generics=_onnx_generics),
 }
 
 REFERENCE = "diffusers-eager"

@@ -13,6 +13,10 @@ export LINNET_BIN=/workspace/Linnet/build/release/linnet
 export NEST_VLLM_PYTHON=/workspace/vllm/bin/python
 NEST_VLLM_SITE=$(/workspace/vllm/bin/python -c "import site; print(site.getsitepackages()[0])")
 export NEST_VLLM_SITE
+NEST_MAIN_SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+export NEST_MAIN_SITE LINNET_STD=/workspace/Linnet/stdlib
+export NEST_LLAMA_CONVERTER=/workspace/llama.cpp/convert_hf_to_gguf.py
+export NEST_LLAMA_BENCH=/workspace/llama.cpp/build/bin/llama-bench
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 mkdir -p logs
 

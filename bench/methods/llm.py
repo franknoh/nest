@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, median_ms
+from bench.methods import stacks
+from bench.methods.exports import EXPORTABLE
+from bench.methods.exports import METHODS as EXPORTS
 from bench.methods.serving import METHODS as SERVING
 
 SAFE_TOKENS = (100, 20000)  # ordinary vocabulary, clear of special tokens
@@ -171,10 +174,11 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     new = int(workload["new_tokens"])
     start = time.perf_counter()
     llm = LLM(
-        model=data["weights"]["repo"],
+        model=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         max_model_len=max_seq(workload),
         gpu_memory_utilization=float(workload.get("vllm_memory", 0.85)),
+        tensor_parallel_size=int(workload.get("tensor_parallel", 1)),
     )
     load_s = time.perf_counter() - start
     prompt = {"prompt_token_ids": prompt_ids(data, workload)}
@@ -214,8 +218,16 @@ def _linnet_torch(
     """Linnet's PyTorch backend. `placement` spreads the model over every GPU
     (`"gpus"`) or caps the one GPU so that part of the model is streamed in
     from the host (`"offload"`, the cap from `workload["offload_gib"]`)."""
-    label = {True: "generated source", "reduce-overhead": "CUDA graphs"}[compile]
-    method = {True: "linnet-torch", "reduce-overhead": "linnet-cudagraphs"}[compile]
+    label = {
+        True: "generated source",
+        "reduce-overhead": "CUDA graphs",
+        "inductor": "torch.compile, inductor",
+    }[compile]
+    method = {
+        True: "linnet-torch",
+        "reduce-overhead": "linnet-cudagraphs",
+        "inductor": "linnet-inductor",
+    }[compile]
     if placement == "gpus":
         label, method = "all GPUs", "linnet-gpus"
     elif placement == "offload":
@@ -331,7 +343,14 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
 
     generics = cache_generics(data, max_seq(workload))
     start = time.perf_counter()
-    model = nest.load(data["directory"], backend="jax_model", generics=generics, cast_dtype=True)
+    model = nest.load(
+        data["directory"],
+        backend="jax_model",
+        generics=generics,
+        cast_dtype=True,
+        generated=workload.get("jax_generated", True),
+        mesh=workload.get("jax_mesh"),
+    )
     load_s = time.perf_counter() - start
     ids = jnp.asarray([prompt_ids(data, workload)], dtype=jnp.int32)
     new = int(workload["new_tokens"])
@@ -359,13 +378,77 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         int(workload["iters"]),
     )
     rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
-    save_logits(workload, "linnet-jax", jax.device_get(first())[0])
+    save_logits(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(first())[0])
     return Result(
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
         {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
         notes=f"KV cache compiled for {max_seq(workload)} positions",
     )
+
+
+def vllm_tp(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+    """vLLM with its tensor parallelism over two GPUs."""
+    result = vllm(data, {**workload, "tensor_parallel": 2})
+    result.method = "vLLM (tensor parallel on 2 GPUs)"
+    return result
+
+
+def linnet_tp_torch(data: dict[str, Any], workload: dict[str, Any]) -> Result:
+    """Linnet torch split across two GPUs as DTensors (`tensor_parallel=`),
+    one process per GPU under `torchrun`; the first process reports."""
+    import json
+    import subprocess
+    import sys
+
+    command = [
+        sys.executable, "-m", "torch.distributed.run", "--nproc-per-node", "2",
+        "--master-port", "29531", "-m", "bench.tp_torch",
+        data["model"]["name"], json.dumps(workload),
+    ]  # fmt: skip
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)  # noqa: S603
+    lines = [line for line in completed.stdout.splitlines() if line.startswith("RESULT ")]
+    if completed.returncode != 0 or not lines:
+        tail = (completed.stderr.strip().splitlines() or ["no output"])[-1]
+        raise RuntimeError(f"torchrun exit {completed.returncode}: {tail[:300]}")
+    return Result(**json.loads(lines[-1][len("RESULT ") :]))
+
+
+def _onnx_run(
+    model: Any, data: dict[str, Any], workload: dict[str, Any]
+) -> tuple[dict[str, float], Any]:
+    """The prompt through `prefill`, then `decode` token by token, the KV
+    caches kept on the GPU between calls."""
+    import statistics
+
+    import numpy as np
+
+    ids = np.asarray([prompt_ids(data, workload)], dtype=np.int32)
+    new = int(workload["new_tokens"])
+    length = ids.shape[1]
+
+    def first() -> Any:
+        return model.run_entry("prefill", [ids, np.int32(0)])
+
+    def generate() -> float:
+        token = np.asarray(first()).argmax(-1).reshape(1, 1).astype(np.int32)
+        begin = time.perf_counter()
+        for step in range(new - 1):
+            logits = model.run_entry("decode", [token, np.int32(length + step)])
+            token = np.asarray(logits).argmax(-1).reshape(1, 1).astype(np.int32)
+        return (new - 1) / (time.perf_counter() - begin)
+
+    for _ in range(int(workload["warmup"])):
+        generate()
+    ttft = median_ms(
+        lambda: np.asarray(first()).argmax(-1), lambda: None, 0, int(workload["iters"])
+    )
+    rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
+    return {"ttft_ms": ttft, "decode_tok_s": rate}, np.asarray(first())[0]
+
+
+def _onnx_generics(data: dict[str, Any], workload: dict[str, Any]) -> dict[str, int | str]:
+    return {k: v for k, v in cache_generics(data, max_seq(workload)).items() if k != "T"}
 
 
 # HF model types KerasHub converts from a Transformers checkpoint, by card
@@ -561,9 +644,25 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "linnet-cudagraphs": _linnet_torch("reduce-overhead"),
     "linnet-gpus": _linnet_torch(True, placement="gpus"),
     "linnet-offload": _linnet_torch(True, placement="offload"),
-    "linnet-jax": linnet_jax,
+    "linnet-inductor": _linnet_torch("inductor"),
+    "linnet-jax": stacks.jax_variant(linnet_jax, "XLA, generated source", "linnet-jax"),
+    "linnet-tp-jax": stacks.jax_variant(
+        linnet_jax, "XLA, tensor parallel on 2 GPUs", "linnet-tp-jax", jax_mesh=2
+    ),
+    "linnet-tp-torch": linnet_tp_torch,
+    "vllm-tp": vllm_tp,
+    "linnet-jax-stablehlo": stacks.jax_variant(
+        linnet_jax, "XLA, StableHLO", "linnet-jax-stablehlo", jax_generated=False
+    ),
     "keras-hub": keras_hub,
+    **stacks.onnx_methods(
+        _onnx_run,
+        save_logits,
+        generics=_onnx_generics,
+        note="logits copied to the host each step for the argmax",
+    ),
     **SERVING,
+    **EXPORTS,
 }
 
 REFERENCE = "transformers-eager"
@@ -583,16 +682,18 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     # Placement rows are opt-in (`--methods`): they need a second GPU or a
     # deliberately starved one, and say something about Linnet rather than
     # about each model.
-    optional = {"linnet-gpus", "linnet-offload"}
+    optional = {"linnet-gpus", "linnet-offload", "linnet-tp-jax", "linnet-tp-torch", "vllm-tp"}
     chosen: list[str] = []
     for name in METHODS:
         if name in optional:
             continue
-        if name == "linnet-jax" and not cached:
+        if name in ("linnet-jax", "linnet-jax-stablehlo") and not cached:
             continue
         if name.startswith("serve-linnet") and not serving:
             continue
         if name in ("keras-hub", "serve-keras-hub") and not keras:
+            continue
+        if name in EXPORTS and data["model"].get("family") not in EXPORTABLE:
             continue
         chosen.append(name)
     return chosen
