@@ -118,10 +118,10 @@ function distance(m: Method, index: number): string {
 function capped(m: Method): boolean {
   return m.key === "linnet-offload";
 }
-// vLLM reserves most of the GPU up front, whichever row starts it (its own,
-// Triton's backend, a Linnet export served by it).
+// vLLM, SGLang, and TGI reserve most of the GPU up front, whichever row
+// starts them (their own, Triton's backend, a Linnet export served by them).
 function reserved(m: Method): boolean {
-  return /vllm/.test(m.key) || /reserv\w* .*pool|pool .*reserv|gpu_memory_utilization/i.test(m.notes);
+  return /vllm|sglang|tgi/.test(m.key) || /reserv\w* .*pool|pool .*reserv|gpu_memory_utilization/i.test(m.notes);
 }
 
 // ---- the charts

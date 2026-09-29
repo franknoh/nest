@@ -9,7 +9,7 @@
 # Run it from the registry checkout:
 #
 #     git clone https://github.com/franknoh/nest.git && cd nest
-#     bash bench/setup-pod.sh
+#     bash bench/setup-pod.sh              # add --engines for SGLang and TGI
 #     bash bench/run-all.sh
 set -euo pipefail
 
@@ -124,4 +124,56 @@ ls /opt/tritonserver/backends
     /workspace/venv/bin/python -m pip install --quiet gguf
     ls -la /workspace/llama.cpp/build/bin/llama-bench || echo "llama.cpp build failed; its rows will fail"
 )
+
+# SGLang and Text Generation Inference, for the engine rows, only with
+# `--engines`. SGLang pins its own PyTorch, so it gets an environment of its
+# own, as vLLM does. TGI ships only as an image; its layers are unpacked
+# into /workspace/tgi-root (with resumable downloads: the registry drops
+# long transfers) and linked at the paths it was built for.
+if [ "${1:-}" = "--engines" ]; then
+    python3 -m venv /workspace/sglang
+    /workspace/sglang/bin/python -m pip install --quiet --upgrade pip
+    /workspace/sglang/bin/python -m pip install --quiet "sglang[all]" nvidia-ml-py numpy
+    /workspace/sglang/bin/python -c "import sglang; print('sglang', sglang.__version__)"
+
+    TGI_REPO=huggingface/text-generation-inference
+    TGI_TAG=3.3.7
+    cd /workspace
+    curl -sL https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
+        | tar -xz crane
+    GODEBUG=http2client=0 ./crane manifest --platform linux/amd64 "ghcr.io/$TGI_REPO:$TGI_TAG" \
+        | python3 -c "import json, sys; [print(l['digest']) for l in json.load(sys.stdin)['layers']]" \
+        > tgi-layers.txt
+    mkdir -p tgi-layers tgi-root
+    n=0
+    while read -r digest; do
+        n=$((n + 1))
+        for attempt in $(seq 1 30); do
+            token=$(curl -s "https://ghcr.io/token?scope=repository:$TGI_REPO:pull" \
+                | python3 -c "import json, sys; print(json.load(sys.stdin)['token'])")
+            curl -sL -C - -H "Authorization: Bearer $token" -o "tgi-layers/$n.tar.gz" \
+                "https://ghcr.io/v2/$TGI_REPO/blobs/$digest" || true
+            if gzip -t "tgi-layers/$n.tar.gz" 2>/dev/null; then break; fi
+            echo "TGI layer $n: resuming ($attempt)"
+            sleep 3
+        done
+        tar -xzf "tgi-layers/$n.tar.gz" -C tgi-root --exclude=".wh.*" 2>/dev/null || true
+    done < tgi-layers.txt
+    mkdir -p /usr/src /root/.local/share
+    [ -e /usr/src/.venv ] || ln -s /workspace/tgi-root/usr/src/.venv /usr/src/.venv
+    [ -e /usr/src/server ] || ln -s /workspace/tgi-root/usr/src/server /usr/src/server
+    [ -e /root/.local/share/uv ] || ln -s /workspace/tgi-root/root/.local/share/uv /root/.local/share/uv
+    [ -e /kernels ] || ln -s /workspace/tgi-root/kernels /kernels
+    # The image's environment, which the launcher and its server expect.
+    cat > /workspace/tgi-launcher.sh <<'LAUNCHER'
+#!/bin/bash
+unset PYTHONPATH
+export PATH=/usr/src/.venv/bin:/workspace/tgi-root/usr/local/bin:$PATH
+export LD_LIBRARY_PATH=/root/.local/share/uv/python/cpython-3.11.11-linux-x86_64-gnu/lib:${LD_LIBRARY_PATH:-}
+export VIRTUAL_ENV=/usr/src/.venv HF_KERNELS_CACHE=/kernels EXLLAMA_NO_FLASH_ATTN=1
+exec /workspace/tgi-root/usr/local/bin/text-generation-launcher "$@"
+LAUNCHER
+    chmod +x /workspace/tgi-launcher.sh
+    /workspace/tgi-launcher.sh --version
+fi
 echo "setup done"
