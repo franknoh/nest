@@ -33,5 +33,6 @@ B = 1
 
 [weights]
 repo = "openai/whisper-tiny"
+revision = "169d4a4341b33bc18d8881c4b69c2e104e1cc0af"
 files = ["model.safetensors"]
 bindings = "bindings.json"

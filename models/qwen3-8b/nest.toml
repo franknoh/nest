@@ -34,6 +34,7 @@ S = 8
 
 [weights]
 repo = "Qwen/Qwen3-8B"
+revision = "b968826d9c46dd6066d109eabc6255188de91218"
 files = [
     "model-00001-of-00005.safetensors",
     "model-00002-of-00005.safetensors",

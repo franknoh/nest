@@ -27,5 +27,6 @@ B = 1
 
 [weights]
 repo = "microsoft/resnet-18"
+revision = "65a5785d9156231087c481e0c7dd33a5ff6f7e3e"
 files = ["model.safetensors"]
 bindings = "bindings.json"

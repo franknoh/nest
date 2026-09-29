@@ -32,5 +32,6 @@ B = 1
 
 [weights]
 repo = "facebook/dinov2-base"
+revision = "f9e44c814b77203eaa57a6bdbbd535f21ede1415"
 files = ["model.safetensors"]
 bindings = "bindings.json"

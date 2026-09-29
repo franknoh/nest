@@ -32,5 +32,6 @@ S = 8
 
 [weights]
 repo = "FacebookAI/roberta-base"
+revision = "e2da8e2f811d1448a5b465c236feacd80ffbac7b"
 files = ["model.safetensors"]
 bindings = "bindings.json"

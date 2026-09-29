@@ -30,5 +30,6 @@ B = 1
 
 [weights]
 repo = "facebook/sam-vit-base"
+revision = "70c1a07f894ebb5b307fd9eaaee97b9dfc16068f"
 files = ["model.safetensors"]
 bindings = "bindings.json"

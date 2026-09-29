@@ -33,5 +33,6 @@ B = 1
 
 [weights]
 repo = "google/vit-base-patch16-224"
+revision = "3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3"
 files = ["model.safetensors"]
 bindings = "bindings.json"

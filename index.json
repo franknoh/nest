@@ -90,7 +90,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
         "bindings": "bindings.json"
       },
       "files": [
@@ -194,7 +194,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "86b5e0934494bd15c9632b12f734a8a67f723594",
         "bindings": "bindings.json"
       },
       "files": [
@@ -275,7 +275,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "f9e44c814b77203eaa57a6bdbbd535f21ede1415",
         "bindings": "bindings.json"
       },
       "files": [
@@ -494,7 +494,7 @@
           "model-00001-of-00002.safetensors",
           "model-00002-of-00002.safetensors"
         ],
-        "revision": null,
+        "revision": "6cee5e81ee83917806bbde320786a8fb61efebee",
         "bindings": "bindings.json"
       },
       "files": [
@@ -667,7 +667,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
         "bindings": "bindings.json"
       },
       "files": [
@@ -928,7 +928,7 @@
           "model-00003-of-00004.safetensors",
           "model-00004-of-00004.safetensors"
         ],
-        "revision": null,
+        "revision": "d10aef7999a2b5ba950ab3974312feeedbfe0b77",
         "bindings": "bindings.json"
       },
       "files": [
@@ -1191,7 +1191,7 @@
           "model-00002-of-00003.safetensors",
           "model-00003-of-00003.safetensors"
         ],
-        "revision": null,
+        "revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
         "bindings": "bindings.json"
       },
       "files": [
@@ -1280,7 +1280,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "8949b909ec900327062f0ebf497f51aef5e6f0c8",
         "bindings": "bindings.json"
       },
       "files": [
@@ -1537,7 +1537,7 @@
           "model-00001-of-00002.safetensors",
           "model-00002-of-00002.safetensors"
         ],
-        "revision": null,
+        "revision": "f39ac1d28e925b323eae81227eaba4464caced4e",
         "bindings": "bindings.json"
       },
       "files": [
@@ -1799,7 +1799,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2063,7 +2063,7 @@
           "model-00002-of-00003.safetensors",
           "model-00003-of-00003.safetensors"
         ],
-        "revision": null,
+        "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2330,7 +2330,7 @@
           "model-00004-of-00005.safetensors",
           "model-00005-of-00005.safetensors"
         ],
-        "revision": null,
+        "revision": "b968826d9c46dd6066d109eabc6255188de91218",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2409,7 +2409,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "65a5785d9156231087c481e0c7dd33a5ff6f7e3e",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2486,7 +2486,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "34c2154c194f829b11125337b98c8f5f9965ff19",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2572,7 +2572,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "e2da8e2f811d1448a5b465c236feacd80ffbac7b",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2703,7 +2703,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "70c1a07f894ebb5b307fd9eaaee97b9dfc16068f",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2786,7 +2786,7 @@
         "files": [
           "diffusion_pytorch_model.safetensors"
         ],
-        "revision": null,
+        "revision": "31f26fdeee1355a5c34592e401dd41e45d25a493",
         "bindings": "bindings.json"
       },
       "files": [
@@ -2885,7 +2885,7 @@
         "files": [
           "unet/diffusion_pytorch_model.safetensors"
         ],
-        "revision": null,
+        "revision": "462165984030d82259a11f4367a4eed129e94a7b",
         "bindings": "bindings.json"
       },
       "files": [
@@ -3011,7 +3011,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed",
         "bindings": "bindings.json"
       },
       "files": [
@@ -3270,7 +3270,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "31b70e2e869a7173562077fd711b654946d38674",
         "bindings": "bindings.json"
       },
       "files": [
@@ -3531,7 +3531,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "fe8a4ea1ffedaf415f4da2f062534de366a451e6",
         "bindings": "bindings.json"
       },
       "files": [
@@ -3613,7 +3613,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3",
         "bindings": "bindings.json"
       },
       "files": [
@@ -3717,7 +3717,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
         "bindings": "bindings.json"
       },
       "files": [
@@ -3820,7 +3820,7 @@
         "files": [
           "model.safetensors"
         ],
-        "revision": null,
+        "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
         "bindings": "bindings.json"
       },
       "files": [

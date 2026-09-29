@@ -32,5 +32,6 @@ S = 8
 
 [weights]
 repo = "google-bert/bert-base-uncased"
+revision = "86b5e0934494bd15c9632b12f734a8a67f723594"
 files = ["model.safetensors"]
 bindings = "bindings.json"

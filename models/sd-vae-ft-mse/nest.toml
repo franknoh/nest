@@ -26,5 +26,6 @@ B = 1
 
 [weights]
 repo = "stabilityai/sd-vae-ft-mse"
+revision = "31f26fdeee1355a5c34592e401dd41e45d25a493"
 files = ["diffusion_pytorch_model.safetensors"]
 bindings = "bindings.json"

@@ -50,6 +50,7 @@ S = 8
 
 [weights]
 repo = "openai/gpt-oss-20b"
+revision = "6cee5e81ee83917806bbde320786a8fb61efebee"
 files = [
     "model-00000-of-00002.safetensors",
     "model-00001-of-00002.safetensors",
