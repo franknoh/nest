@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-26T00:24:09+00:00",
+  "date": "2026-09-28T20:26:01+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -33,8 +33,8 @@
       "method": "diffusers (eager)",
       "kind": "reference",
       "metrics": {
-        "step_ms": 47.04277217388153,
-        "load_s": 9.881114784628153,
+        "step_ms": 48.75558614730835,
+        "load_s": 31.051084680482745,
         "peak_vram_mib": 6444.0
       },
       "max_abs_diff": 0.0,
@@ -46,9 +46,9 @@
       "method": "diffusers (torch.compile)",
       "kind": "reference",
       "metrics": {
-        "step_ms": 39.613690227270126,
-        "load_s": 17.55719855800271,
-        "peak_vram_mib": 6414.0
+        "step_ms": 34.96252279728651,
+        "load_s": 8.126229412853718,
+        "peak_vram_mib": 6450.0
       },
       "max_abs_diff": 0.03125,
       "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
@@ -59,8 +59,8 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "step_ms": 63.74552473425865,
-        "load_s": 21.98149538040161,
+        "step_ms": 56.34945724159479,
+        "load_s": 16.951975528150797,
         "peak_vram_mib": 6660.0
       },
       "max_abs_diff": 0.015625,
@@ -72,9 +72,9 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "step_ms": 43.027136474847794,
-        "load_s": 22.15475085005164,
-        "peak_vram_mib": 6580.0
+        "step_ms": 34.701963886618614,
+        "load_s": 19.832168167456985,
+        "peak_vram_mib": 6578.0
       },
       "max_abs_diff": 0.03125,
       "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
@@ -82,12 +82,25 @@
       "key": "linnet-cudagraphs"
     },
     {
-      "method": "Linnet JAX (XLA, gpu)",
+      "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "step_ms": 56.80653639137745,
-        "load_s": 9.488765176385641,
-        "peak_vram_mib": 6431.8,
+        "step_ms": 35.708000883460045,
+        "load_s": 17.24027957767248,
+        "peak_vram_mib": 6430.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16",
+      "error": null,
+      "key": "linnet-inductor"
+    },
+    {
+      "method": "Linnet JAX (XLA, StableHLO)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 53.69105003774166,
+        "load_s": 22.19277235120535,
+        "peak_vram_mib": 6462.5,
         "driver_vram_mib": 8830.0
       },
       "max_abs_diff": 0.03125,
@@ -96,13 +109,96 @@
       "key": "linnet-jax"
     },
     {
-      "method": "Linnet ONNX -> ONNX Runtime",
+      "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
-      "metrics": {},
-      "max_abs_diff": null,
-      "notes": "not run: the export embeds the f32 checkpoint as published, a 10 GB graph at twice the other rows' precision, so it would not be a like-for-like row",
+      "metrics": {
+        "step_ms": 39.26968388259411,
+        "load_s": 25.015996523201466,
+        "peak_vram_mib": 5362.8,
+        "driver_vram_mib": 8822.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "one step, 128x128 latent (1024-pixel image), batch 2, 77-token context, bf16; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
-      "key": "linnet-onnx"
+      "key": "linnet-jax-source"
+    },
+    {
+      "method": "Linnet ONNX f32 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 141.48175157606602,
+        "load_s": 0.304186325520277,
+        "peak_vram_mib": 24896.0
+      },
+      "max_abs_diff": 0.030341625213623047,
+      "notes": "f32; ONNX Runtime's CUDA execution provider; first calls build the sessions",
+      "error": null,
+      "key": "linnet-onnx-f32"
+    },
+    {
+      "method": "Linnet ONNX f32 -> ONNX Runtime (TensorRT)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 141.18169527500868,
+        "load_s": 0.2994882967323065,
+        "peak_vram_mib": 24896.0
+      },
+      "max_abs_diff": 0.030341625213623047,
+      "notes": "f32; ONNX Runtime's TensorRT execution provider; first calls build the sessions",
+      "error": null,
+      "key": "linnet-onnx-f32-trt"
+    },
+    {
+      "method": "Linnet ONNX f16 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 90.84733575582504,
+        "load_s": 0.29076390713453293,
+        "peak_vram_mib": 14408.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "f16; ONNX Runtime's CUDA execution provider; first calls build the sessions",
+      "error": null,
+      "key": "linnet-onnx-f16"
+    },
+    {
+      "method": "Linnet ONNX f16 -> ONNX Runtime (TensorRT)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 91.36343374848366,
+        "load_s": 0.2947181537747383,
+        "peak_vram_mib": 14408.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "f16; ONNX Runtime's TensorRT execution provider; first calls build the sessions",
+      "error": null,
+      "key": "linnet-onnx-f16-trt"
+    },
+    {
+      "method": "Linnet ONNX bf16 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 100.23484658449888,
+        "load_s": 0.2915325667709112,
+        "peak_vram_mib": 14944.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "bf16; ONNX Runtime's CUDA execution provider; first calls build the sessions",
+      "error": null,
+      "key": "linnet-onnx-bf16"
+    },
+    {
+      "method": "Linnet ONNX bf16 -> ONNX Runtime (TensorRT)",
+      "kind": "linnet",
+      "metrics": {
+        "step_ms": 100.17553810030222,
+        "load_s": 0.28839540481567383,
+        "peak_vram_mib": 14944.0
+      },
+      "max_abs_diff": 0.03125,
+      "notes": "bf16; ONNX Runtime's TensorRT execution provider; first calls build the sessions",
+      "error": null,
+      "key": "linnet-onnx-bf16-trt"
     }
   ],
   "reference": "diffusers-eager"

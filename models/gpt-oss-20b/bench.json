@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-26T00:14:42+00:00",
+  "date": "2026-09-28T20:56:55+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -33,9 +33,9 @@
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 44.67990808188915,
-        "decode_tok_s": 36.830917185690886,
-        "load_s": 212.21415131166577,
+        "ttft_ms": 41.88473429530859,
+        "decode_tok_s": 44.89978494395782,
+        "load_s": 114.69324987567961,
         "peak_vram_mib": 41386.0
       },
       "max_abs_diff": 0.0,
@@ -47,12 +47,12 @@
       "method": "transformers (torch.compile, static cache)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 27.00958400964737,
-        "decode_tok_s": 87.33992934925644,
-        "load_s": 156.3325796984136,
+        "ttft_ms": 25.567395612597466,
+        "decode_tok_s": 100.31750366467506,
+        "load_s": 125.57700556889176,
         "peak_vram_mib": 41286.0
       },
-      "max_abs_diff": 0.1953125,
+      "max_abs_diff": 0.1875,
       "notes": "eager attention: no SDPA for this architecture",
       "error": null,
       "key": "transformers-compile"
@@ -61,9 +61,9 @@
       "method": "vLLM",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 13.784511014819145,
-        "decode_tok_s": 302.578360025127,
-        "load_s": 122.50158478692174,
+        "ttft_ms": 9.887253865599632,
+        "decode_tok_s": 302.7300060283726,
+        "load_s": 95.20763371512294,
         "first_token": 220.0,
         "peak_vram_mib": 70788.8
       },
@@ -76,10 +76,10 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 816.2694368511438,
-        "decode_tok_s": 3.7296171993330933,
-        "load_s": 3.58774271607399,
-        "peak_vram_mib": 21642.0
+        "ttft_ms": 89.68058449681848,
+        "decode_tok_s": 20.63387978640501,
+        "load_s": 2.6797778210020624,
+        "peak_vram_mib": 53858.0
       },
       "max_abs_diff": 0.1953125,
       "notes": "KV cache compiled for 768 positions",
@@ -90,54 +90,153 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 87.70332671701908,
-        "decode_tok_s": 6.942648492744661,
-        "load_s": 3.341271385550499,
-        "peak_vram_mib": 20716.0
+        "ttft_ms": 45.37069451180287,
+        "decode_tok_s": 79.15795324776988,
+        "load_s": 2.5535397530184127,
+        "peak_vram_mib": 53852.0
       },
-      "max_abs_diff": 0.078125,
+      "max_abs_diff": 0.0625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
     },
     {
-      "method": "Linnet JAX (XLA, gpu)",
+      "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 115.89704267680645,
-        "decode_tok_s": 54.172344109937505,
-        "load_s": 12.272314388304949,
-        "peak_vram_mib": 15215.2,
-        "driver_vram_mib": 33398.0
+        "ttft_ms": 45.842231484130025,
+        "decode_tok_s": 76.2734649232162,
+        "load_s": 2.509028491040226,
+        "peak_vram_mib": 53854.0
       },
       "max_abs_diff": 0.0625,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-inductor"
+    },
+    {
+      "method": "Linnet JAX (XLA, StableHLO)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 116.85243051033467,
+        "decode_tok_s": 145.43696926321354,
+        "load_s": 8.292947790003382,
+        "peak_vram_mib": 15202.3,
+        "driver_vram_mib": 33398.0
+      },
+      "max_abs_diff": 0.109375,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },
     {
+      "method": "Linnet JAX (XLA, generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 47.83724248409271,
+        "decode_tok_s": 217.4895986928134,
+        "load_s": 8.339538107975386,
+        "peak_vram_mib": 51645.5,
+        "driver_vram_mib": 66164.0
+      },
+      "max_abs_diff": 0.0625,
+      "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "linnet-jax-source"
+    },
+    {
       "method": "KerasHub (JAX)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 71.99770398437977,
-        "decode_tok_s": 67.43509527813742,
-        "load_s": 1690.929352901876,
-        "peak_vram_mib": 45158.5,
+        "ttft_ms": 72.83677533268929,
+        "decode_tok_s": 67.37037337686414,
+        "load_s": 2104.777321504429,
+        "peak_vram_mib": 45163.0,
         "driver_vram_mib": 61452.0
       },
       "max_abs_diff": 8.9140625,
-      "notes": "peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions; its first-token logits are 8.9 from the reference where every other stack is within 0.2: KerasHub computes this checkpoint differently, so its speed is not a like-for-like comparison",
+      "notes": "peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "keras-hub"
+    },
+    {
+      "method": "linnet-onnx-f32",
+      "kind": "linnet",
+      "metrics": {
+        "peak_vram_mib": 79578.0
+      },
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "RuntimeError: Error in execution: Non-zero status code returned while running Mul node. Name:'' Status Message: /onnxruntime_src/onnxruntime/core/framework/bfc_arena.cc:360 void* onnxruntime::BFCArena::AllocateRawInternal(size_t, bool, onnxruntime::Stream*) Failed to allocate memory for requested buffer of size 2123366400\n",
+      "key": "linnet-onnx-f32"
+    },
+    {
+      "method": "linnet-onnx-f32-trt",
+      "kind": "linnet",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "exit -9: [5] Failed to import initializer: In node -1 with name:  and operator:  (parseGraph): UNSUPPORTED_NODE: Assertion failed: ctx->getWeightsContext().convertOnnxWeights(initializer, &weights): Failed to import initializer: v582\u001b[m",
+      "key": "linnet-onnx-f32-trt"
+    },
+    {
+      "method": "Linnet ONNX f16 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 111.17643749457784,
+        "decode_tok_s": 19.529929119762773,
+        "load_s": 0.37113252095878124,
+        "peak_vram_mib": 70220.0
+      },
+      "max_abs_diff": 0.19140625,
+      "notes": "f16; ONNX Runtime's CUDA execution provider; first calls build the sessions; logits copied to the host each step for the argmax",
+      "error": null,
+      "key": "linnet-onnx-f16"
+    },
+    {
+      "method": "linnet-onnx-f16-trt",
+      "kind": "linnet",
+      "metrics": {
+        "peak_vram_mib": 70006.0
+      },
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "Fail: [ONNXRuntimeError] : 1 : FAIL : TensorRT EP failed to create engine from network for fused node: TensorrtExecutionProvider_TRTKernel_graph_main_8376132635522534149_0_0",
+      "key": "linnet-onnx-f16-trt"
+    },
+    {
+      "method": "Linnet ONNX bf16 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 116.9133385119494,
+        "decode_tok_s": 19.33084337057525,
+        "load_s": 0.3639938239939511,
+        "peak_vram_mib": 69742.0
+      },
+      "max_abs_diff": 0.1953125,
+      "notes": "bf16; ONNX Runtime's CUDA execution provider; first calls build the sessions; logits copied to the host each step for the argmax",
+      "error": null,
+      "key": "linnet-onnx-bf16"
+    },
+    {
+      "method": "linnet-onnx-bf16-trt",
+      "kind": "linnet",
+      "metrics": {
+        "peak_vram_mib": 69482.0
+      },
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "Fail: [ONNXRuntimeError] : 1 : FAIL : TensorRT EP failed to create engine from network for fused node: TensorrtExecutionProvider_TRTKernel_graph_main_11065519248658182765_0_0",
+      "key": "linnet-onnx-bf16-trt"
     },
     {
       "method": "vLLM (offline, continuous batching)",
       "kind": "reference",
       "metrics": {
-        "serve_tok_s": 3778.0883497287205,
-        "serve_s": 8.673169329762459,
-        "load_s": 101.57612579315901,
-        "peak_vram_mib": 69920.8
+        "serve_tok_s": 4313.237144994805,
+        "serve_s": 7.59707822650671,
+        "load_s": 79.9682690333575,
+        "peak_vram_mib": 70152.8
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.85",
@@ -145,13 +244,13 @@
       "key": "serve-vllm"
     },
     {
-      "method": "transformers (generate_batch, continuous batching)",
+      "method": "serve-transformers",
       "kind": "reference",
       "metrics": {
-        "load_s": 148.97139753773808
+        "peak_vram_mib": 79444.0
       },
       "max_abs_diff": null,
-      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; paged|eager attention; reserves a paged KV-cache pool up front, so its memory is a setting, not a need; no per-request timestamps",
+      "notes": "",
       "error": "RuntimeError: generate_batch returned no tokens for any request",
       "key": "serve-transformers"
     },
@@ -170,10 +269,10 @@
       "method": "Triton Inference Server (vLLM backend)",
       "kind": "reference",
       "metrics": {
-        "serve_tok_s": 1683.5293327481963,
-        "serve_s": 19.463872332125902,
-        "load_s": 122.11882650852203,
-        "serve_ttft_ms": 8860.843131318688,
+        "serve_tok_s": 1701.2363790417264,
+        "serve_s": 19.261285735294223,
+        "load_s": 106.10278656892478,
+        "serve_ttft_ms": 8388.68260756135,
         "peak_vram_mib": 69816.4
       },
       "max_abs_diff": null,
@@ -185,11 +284,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 127.88768166922955,
-        "serve_s": 256.22483395040035,
-        "load_s": 4.606464955955744,
-        "serve_ttft_ms": 122080.20989596844,
-        "peak_vram_mib": 26512.0
+        "serve_tok_s": 765.4074916452457,
+        "serve_s": 42.811182746023405,
+        "load_s": 3.896462078031618,
+        "serve_ttft_ms": 17779.03667301871,
+        "peak_vram_mib": 58812.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -200,17 +299,43 @@
       "method": "Linnet jax (linnet.serve, XLA)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 406.63123118810665,
-        "serve_s": 80.58407098799944,
-        "load_s": 9.834605149924755,
-        "serve_ttft_ms": 33982.49901086092,
-        "peak_vram_mib": 17269.0,
-        "driver_vram_mib": 33408.0
+        "serve_tok_s": 1389.1218987163538,
+        "serve_s": 23.58900254202308,
+        "load_s": 8.342572114022914,
+        "serve_ttft_ms": 9900.940419029212,
+        "peak_vram_mib": 56187.9,
+        "driver_vram_mib": 66214.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "serve-linnet-jax"
+    },
+    {
+      "method": "serve-linnet-onnx",
+      "kind": "reference",
+      "metrics": {
+        "peak_vram_mib": 80792.0
+      },
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "RuntimeError: Error in execution: Non-zero status code returned while running Einsum node. Name:'' Status Message: /onnxruntime_src/onnxruntime/core/framework/bfc_arena.cc:360 void* onnxruntime::BFCArena::AllocateRawInternal(size_t, bool, onnxruntime::Stream*) Failed to allocate memory for requested buffer of size 301989888\n",
+      "key": "serve-linnet-onnx"
+    },
+    {
+      "method": "Triton Inference Server (Python backend, linnet.serve)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 746.286239800306,
+        "serve_s": 43.90808546700282,
+        "load_s": 25.035817388969008,
+        "serve_ttft_ms": 18376.38907346991,
+        "peak_vram_mib": 61216.4
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",
+      "error": null,
+      "key": "serve-triton-linnet"
     }
   ],
   "reference": "transformers-eager"

@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-26T00:21:30+00:00",
+  "date": "2026-09-28T19:33:54+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -33,9 +33,9 @@
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "encode_ms": 2.499012276530266,
-        "transcribe_ms": 64.34340961277485,
-        "load_s": 0.44685157760977745,
+        "encode_ms": 2.5331340730190277,
+        "transcribe_ms": 63.134714029729366,
+        "load_s": 1.9117679838091135,
         "peak_vram_mib": 934.0
       },
       "max_abs_diff": 0.0,
@@ -47,12 +47,12 @@
       "method": "transformers (torch.compile, static cache)",
       "kind": "reference",
       "metrics": {
-        "encode_ms": 2.168361097574234,
-        "transcribe_ms": 65.48911705613136,
-        "load_s": 1.1857020370662212,
+        "encode_ms": 2.177765592932701,
+        "transcribe_ms": 51.773007959127426,
+        "load_s": 0.6697663590312004,
         "peak_vram_mib": 1120.0
       },
-      "max_abs_diff": 0.0008831024169921875,
+      "max_abs_diff": 0.0008020401000976562,
       "notes": "",
       "error": null,
       "key": "transformers-compile"
@@ -61,9 +61,9 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 2.7136169373989105,
-        "transcribe_ms": 56.98242783546448,
-        "load_s": 0.39440852776169777,
+        "encode_ms": 2.2824453189969063,
+        "transcribe_ms": 38.13802823424339,
+        "load_s": 0.3659683186560869,
         "peak_vram_mib": 960.0
       },
       "max_abs_diff": 0.07941150665283203,
@@ -75,9 +75,9 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 2.6837866753339767,
-        "transcribe_ms": 51.705002784729004,
-        "load_s": 0.4365391209721565,
+        "encode_ms": 1.9950196146965027,
+        "transcribe_ms": 34.48421973735094,
+        "load_s": 0.348796084523201,
         "peak_vram_mib": 1336.0
       },
       "max_abs_diff": 0.07965850830078125,
@@ -86,32 +86,126 @@
       "key": "linnet-cudagraphs"
     },
     {
-      "method": "Linnet JAX (XLA, gpu)",
+      "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 1.6635172069072723,
-        "load_s": 0.2274865135550499,
-        "transcribe_ms": 45.95489241182804,
-        "peak_vram_mib": 3716.4,
+        "encode_ms": 2.017729915678501,
+        "transcribe_ms": 36.81036550551653,
+        "load_s": 0.3354542013257742,
+        "peak_vram_mib": 958.0
+      },
+      "max_abs_diff": 0.07965850830078125,
+      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "error": null,
+      "key": "linnet-inductor"
+    },
+    {
+      "method": "Linnet JAX (XLA, StableHLO)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 1.7913077026605606,
+        "load_s": 0.22018027305603027,
+        "transcribe_ms": 29.894095845520496,
+        "peak_vram_mib": 3732.7,
         "driver_vram_mib": 4802.0
       },
-      "max_abs_diff": 0.645538330078125,
+      "max_abs_diff": 0.6236057281494141,
       "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate(); peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },
     {
-      "method": "Linnet ONNX -> ONNX Runtime",
+      "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 1.9348319619894028,
-        "load_s": 4.949585810303688,
-        "peak_vram_mib": 1212.0
+        "encode_ms": 1.828872598707676,
+        "load_s": 0.2713873162865639,
+        "transcribe_ms": 33.1822894513607,
+        "peak_vram_mib": 3732.4,
+        "driver_vram_mib": 4802.0
+      },
+      "max_abs_diff": 0.38489609956741333,
+      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate(); peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "linnet-jax-source"
+    },
+    {
+      "method": "Linnet ONNX f32 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 1.4746813103556633,
+        "load_s": 0.30686648190021515,
+        "peak_vram_mib": 1052.0
       },
       "max_abs_diff": 0.750401496887207,
-      "notes": "encoder only: decode's shape grows every step with no cache, so it is not exported",
+      "notes": "f32; ONNX Runtime's CUDA execution provider; first calls build the sessions; encoder only: decode has no KV cache",
       "error": null,
-      "key": "linnet-onnx"
+      "key": "linnet-onnx-f32"
+    },
+    {
+      "method": "Linnet ONNX f32 -> ONNX Runtime (TensorRT)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 0.7774913683533669,
+        "load_s": 0.28415448032319546,
+        "peak_vram_mib": 2224.0
+      },
+      "max_abs_diff": 0.7837371826171875,
+      "notes": "f32; ONNX Runtime's TensorRT execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "error": null,
+      "key": "linnet-onnx-f32-trt"
+    },
+    {
+      "method": "Linnet ONNX f16 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 1.1337921023368835,
+        "load_s": 0.29440639540553093,
+        "peak_vram_mib": 888.0
+      },
+      "max_abs_diff": 1.076730728149414,
+      "notes": "f16; ONNX Runtime's CUDA execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "error": null,
+      "key": "linnet-onnx-f16"
+    },
+    {
+      "method": "Linnet ONNX f16 -> ONNX Runtime (TensorRT)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 0.41798315942287445,
+        "load_s": 0.3235307987779379,
+        "peak_vram_mib": 2206.0
+      },
+      "max_abs_diff": 1.3495330810546875,
+      "notes": "f16; ONNX Runtime's TensorRT execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "error": null,
+      "key": "linnet-onnx-f16-trt"
+    },
+    {
+      "method": "Linnet ONNX bf16 -> ONNX Runtime (CUDA)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 1.310070976614952,
+        "load_s": 0.3378135785460472,
+        "peak_vram_mib": 890.0
+      },
+      "max_abs_diff": 2.8996400833129883,
+      "notes": "bf16; ONNX Runtime's CUDA execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "error": null,
+      "key": "linnet-onnx-bf16"
+    },
+    {
+      "method": "Linnet ONNX bf16 -> ONNX Runtime (TensorRT)",
+      "kind": "linnet",
+      "metrics": {
+        "encode_ms": 0.43440982699394226,
+        "load_s": 0.31963680498301983,
+        "peak_vram_mib": 2206.0
+      },
+      "max_abs_diff": 5.7948455810546875,
+      "notes": "bf16; ONNX Runtime's TensorRT execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "error": null,
+      "key": "linnet-onnx-bf16-trt"
     }
   ],
   "reference": "transformers-eager"
