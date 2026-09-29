@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-28T13:10:24+00:00",
+  "date": "2026-09-29T15:07:15+00:00",
   "environment": {
     "python": "3.12.3",
     "machine": "x86_64",
@@ -33,10 +33,10 @@
       "method": "transformers (eager)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 20.289224572479725,
-        "decode_tok_s": 74.28456392243086,
-        "load_s": 52.70288185030222,
-        "peak_vram_mib": 14836.0
+        "ttft_ms": 21.291871555149555,
+        "decode_tok_s": 48.701821492335746,
+        "load_s": 5.0697523560374975,
+        "peak_vram_mib": 14844.9
       },
       "max_abs_diff": 0.0,
       "notes": "",
@@ -406,6 +406,126 @@
       "notes": "linnet.gguf.export, then llama-bench with every layer on the GPU; the first token is the prompt at llama-bench's prompt rate",
       "error": null,
       "key": "linnet-llamacpp"
+    },
+    {
+      "method": "SGLang",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 19.374131225049496,
+        "decode_tok_s": 165.49173198449475,
+        "load_s": 59.06863775849342,
+        "first_token": 1054.0,
+        "peak_vram_mib": 69635.6
+      },
+      "max_abs_diff": null,
+      "notes": "reserves a KV-cache pool up front (mem_fraction_static 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "sglang"
+    },
+    {
+      "method": "Linnet -> SGLang",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 19.409666769206524,
+        "decode_tok_s": 165.28226222907185,
+        "load_s": 31.485597802326083,
+        "first_token": 1054.0,
+        "peak_vram_mib": 69635.6,
+        "driver_vram_mib": 69635.6
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.hf.export (15 s), then SGLang on the exported checkpoint; reserves a KV-cache pool up front (mem_fraction_static 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "linnet-sglang"
+    },
+    {
+      "method": "SGLang (offline, continuous batching)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 4905.692160738505,
+        "serve_s": 6.679587492719293,
+        "load_s": 49.675609743222594,
+        "peak_vram_mib": 71673.6
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at mem_fraction_static 0.85",
+      "error": null,
+      "key": "serve-sglang"
+    },
+    {
+      "method": "Linnet -> SGLang (offline, continuous batching)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 4926.704639670798,
+        "serve_s": 6.6510989386588335,
+        "load_s": 36.524502135813236,
+        "peak_vram_mib": 71673.6,
+        "driver_vram_mib": 71673.6
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.hf.export (0 s), then SGLang (offline, continuous batching) on the exported checkpoint; 256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at mem_fraction_static 0.85",
+      "error": null,
+      "key": "serve-linnet-sglang"
+    },
+    {
+      "method": "Text Generation Inference",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 23.002566769719124,
+        "decode_tok_s": 118.05026112411038,
+        "load_s": 52.11064511537552,
+        "peak_vram_mib": 60642.9
+      },
+      "max_abs_diff": null,
+      "notes": "over HTTP, streamed; the prompt is the token ids decoded and tokenized again; reserves a KV-cache pool up front (cuda-memory-fraction 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "tgi"
+    },
+    {
+      "method": "Linnet -> Text Generation Inference",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 22.629539482295513,
+        "decode_tok_s": 121.30967088917365,
+        "load_s": 36.07101030834019,
+        "peak_vram_mib": 60642.9,
+        "driver_vram_mib": 60642.9
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.hf.export (17 s), then Text Generation Inference on the exported checkpoint; over HTTP, streamed; the prompt is the token ids decoded and tokenized again; reserves a KV-cache pool up front (cuda-memory-fraction 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "linnet-tgi"
+    },
+    {
+      "method": "Text Generation Inference (continuous batching)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 1664.2477352960555,
+        "serve_s": 6.843332130461931,
+        "load_s": 42.088825173676014,
+        "serve_ttft_ms": 1649.5383251458406,
+        "peak_vram_mib": 62520.9
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed; stops at end-of-sequence (TGI cannot ignore it), so throughput counts the tokens produced; KV-cache pool at cuda-memory-fraction 0.85",
+      "error": null,
+      "key": "serve-tgi"
+    },
+    {
+      "method": "Linnet -> Text Generation Inference (continuous batching)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 1825.622420567375,
+        "serve_s": 6.318393042311072,
+        "load_s": 36.08311059884727,
+        "serve_ttft_ms": 1408.4483832120895,
+        "peak_vram_mib": 62646.9,
+        "driver_vram_mib": 62646.9
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.hf.export (0 s), then Text Generation Inference (continuous batching) on the exported checkpoint; 256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed; stops at end-of-sequence (TGI cannot ignore it), so throughput counts the tokens produced; KV-cache pool at cuda-memory-fraction 0.85",
+      "error": null,
+      "key": "serve-linnet-tgi"
     }
   ],
   "reference": "transformers-eager"
