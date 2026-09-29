@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result
-from bench.methods.llm import max_seq, prompt_ids
 from bench.methods.serving import _describe, _result, prompts, serve_max_seq, settings
 
 # ------------------------------------------------------------------ SGLang
@@ -51,6 +50,8 @@ def _sampling(new: int) -> dict[str, Any]:
 
 def sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     """One request at a time: the first token alone, then the whole completion."""
+    from bench.methods.llm import max_seq, prompt_ids  # llm imports this module
+
     new = int(workload["new_tokens"])
     start = time.perf_counter()
     engine = _sglang_engine(data, workload, max_seq(workload), 1)
@@ -189,6 +190,8 @@ def _generate(url: str, text: str, new: int) -> tuple[float, list[float]]:
 def tgi(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     """One request at a time, streamed: the first token's time, then the
     rate of the rest."""
+    from bench.methods.llm import max_seq, prompt_ids  # llm imports this module
+
     model = workload.get("model_path", data["weights"]["repo"])
     new = int(workload["new_tokens"])
     text = _texts(data, model, [prompt_ids(data, workload)])[0]
