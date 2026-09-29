@@ -29,15 +29,14 @@ def _export_hf(data: dict[str, Any], workload: dict[str, Any]) -> Path:
     return out
 
 
-def linnet_vllm(serving: bool) -> Any:
-    """The card exported by `linnet.hf.export`, run by the vLLM rows
-    (`vllm` or `serve-vllm`) in vLLM's own environment."""
+def linnet_engine(method: str, label: str) -> Any:
+    """The card exported by `linnet.hf.export`, run by another row (`vllm`,
+    `serve-sglang`, ...) in that engine's own environment."""
 
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         start = time.perf_counter()
         directory = _export_hf(data, workload)
         export_s = time.perf_counter() - start
-        method = "serve-vllm" if serving else "vllm"
         child = {**workload, "model_path": str(directory)}
         result = run_isolated(
             python_for(method),
@@ -47,9 +46,9 @@ def linnet_vllm(serving: bool) -> Any:
             float(workload.get("timeout", 3600)),
         )
         result.kind = "linnet"
-        result.method = "Linnet -> vLLM" + (" (offline, continuous batching)" if serving else "")
+        result.method = f"Linnet -> {label}"
         result.notes = (
-            f"linnet.hf.export ({export_s:.0f} s), then vLLM on the exported checkpoint; "
+            f"linnet.hf.export ({export_s:.0f} s), then {label} on the exported checkpoint; "
             + result.notes
         )
         return result
@@ -100,9 +99,15 @@ def linnet_llamacpp(data: dict[str, Any], workload: dict[str, Any]) -> Result:
 
 
 METHODS = {
-    "linnet-vllm": linnet_vllm(serving=False),
-    "serve-linnet-vllm": linnet_vllm(serving=True),
+    "linnet-vllm": linnet_engine("vllm", "vLLM"),
+    "serve-linnet-vllm": linnet_engine("serve-vllm", "vLLM (offline, continuous batching)"),
     "linnet-llamacpp": linnet_llamacpp,
+    "linnet-sglang": linnet_engine("sglang", "SGLang"),
+    "serve-linnet-sglang": linnet_engine("serve-sglang", "SGLang (offline, continuous batching)"),
+    "linnet-tgi": linnet_engine("tgi", "Text Generation Inference"),
+    "serve-linnet-tgi": linnet_engine(
+        "serve-tgi", "Text Generation Inference (continuous batching)"
+    ),
 }
 
 # The families `linnet.hf.export` recognizes, by card family.

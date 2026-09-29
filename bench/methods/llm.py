@@ -20,6 +20,7 @@ from typing import Any
 
 from bench.harness import Result, median_ms
 from bench.methods import stacks
+from bench.methods.engines import METHODS as ENGINES
 from bench.methods.exports import EXPORTABLE
 from bench.methods.exports import METHODS as EXPORTS
 from bench.methods.serving import METHODS as SERVING
@@ -666,6 +667,7 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     ),
     **SERVING,
     **EXPORTS,
+    **ENGINES,
 }
 
 REFERENCE = "transformers-eager"
@@ -686,6 +688,8 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     # deliberately starved one, and say something about Linnet rather than
     # about each model.
     optional = {"linnet-gpus", "linnet-offload", "linnet-tp-jax", "linnet-tp-torch", "vllm-tp"}
+    # SGLang and TGI need a setup of their own (`setup-pod.sh --engines`).
+    optional |= set(ENGINES) | {m for m in EXPORTS if "sglang" in m or "tgi" in m}
     chosen: list[str] = []
     for name in METHODS:
         if name in optional:
