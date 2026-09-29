@@ -27,9 +27,9 @@ from bench.harness import Result, median_ms, torch_sync
 from bench.methods import stacks
 
 CLIP = "hf-internal-testing/librispeech_asr_dummy"
-NO_CACHE = (
-    "Linnet's decode has no KV cache: it recomputes the whole token prefix "
-    "every step, unlike the reference's generate()"
+CACHED = (
+    "transcribed with the card's KV caches: `listen` encodes and fills the "
+    "cross-attention caches, `prefill` feeds the prompt, `step` one token each"
 )
 
 
@@ -196,16 +196,8 @@ def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, An
         def encode() -> torch.Tensor:
             return model.run_entry("encode", [features])
 
-        def transcribe() -> torch.Tensor:
-            states = model.run_entry("encode", [features])
-            tokens = prompt_ids
-            for _ in range(steps):
-                logits = model.run_entry("decode", [tokens, states])
-                next_token = logits[:, -1].argmax(-1, keepdim=True).to(torch.int32)
-                tokens = torch.cat([tokens, next_token], dim=1)
-                if int(next_token.item()) == eot:
-                    break
-            return tokens
+        def transcribe() -> list[int]:
+            return _transcribe_torch(model, features, prompt_ids, prompt, eot, steps)
 
         encode_ms = median_ms(encode, sync, int(workload["warmup"]), int(workload["iters"]))
         transcribe_ms = median_ms(transcribe, sync, int(workload["warmup"]), int(workload["iters"]))
@@ -214,40 +206,50 @@ def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, An
             f"Linnet torch ({label})",
             "linnet",
             {"encode_ms": encode_ms, "transcribe_ms": transcribe_ms, "load_s": load_s},
-            notes=NO_CACHE,
+            notes=CACHED,
         )
 
     return run
 
 
+def _transcribe_torch(
+    model: Any, features: Any, prompt_ids: Any, prompt: list[int], eot: int, steps: int
+) -> list[int]:
+    """Greedy transcription over the card's caches; the prompt pass runs as
+    generated source, each step as the model was loaded to run."""
+    import torch
+
+    model.run_entry("listen", [features])
+    logits = model.run_entry("prefill", [prompt_ids], compile=True)
+    token = logits.argmax(-1, keepdim=True).to(torch.int32)
+    tokens = [*prompt, int(token.item())]
+    position = torch.zeros((), dtype=torch.int32, device=features.device)
+    for _ in range(steps - 1):
+        if tokens[-1] == eot:
+            break
+        position.fill_(len(tokens) - 1)
+        token = model.run_entry("step", [token, position]).argmax(-1, keepdim=True)
+        token = token.to(torch.int32)
+        tokens.append(int(token.item()))
+    return tokens
+
+
 def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
-    """`encode` and `decode` as two StableHLO exports sharing one copy of the
-    weights on the device, the way `bench.methods.llm.linnet_jax` shares
-    `prefill`'s and `decode`'s."""
+    """Every entry as an XLA program over one copy of the weights, the
+    caches kept on the device between them (`linnet.jax.load_model`), from
+    the StableHLO export or from generated JAX source."""
     import jax
     import jax.numpy as jnp
     from linnet import nest
-    from linnet.jax import load as load_jax
 
     mel, prompt, eot, _processor = _fixture(data)
-    generics = dict(data["generics"])
-
     start = time.perf_counter()
-    encode = nest.load(
+    model = nest.load(
         data["directory"],
-        backend=workload.get("jax_backend", "jax"),
-        entry="encode",
-        generics=generics,
-    )
-    from linnet.jax import load_source
-
-    loader = load_source if workload.get("jax_backend") == "jax_source" else load_jax
-    decode = loader(
-        Path(data["directory"]) / data["source"]["path"],
-        generics=encode.generics,
-        weights=encode.weights,
-        root=encode.root,
-        entry="decode",
+        backend="jax_model",
+        generics=dict(data["generics"]),
+        cast_dtype=True,
+        generated=workload.get("jax_backend") == "jax_source",
     )
     load_s = time.perf_counter() - start
 
@@ -257,54 +259,66 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     steps = _max_steps(data, len(prompt), workload)
 
     def encode_call() -> Any:
-        return encode(features)
+        return model.run_entry("encode", [features])
 
-    def transcribe() -> Any:
-        states = encode_call()
-        tokens = prompt_ids
-        for _ in range(steps):
-            logits = decode(tokens, states)
-            next_token = jnp.argmax(logits[:, -1], axis=-1).reshape(1, 1).astype(jnp.int32)
-            tokens = jnp.concatenate([tokens, next_token], axis=1)
-            if int(next_token[0, 0]) == eot:
+    def transcribe() -> list[int]:
+        model.run_entry("listen", [features])
+        logits = model.run_entry("prefill", [prompt_ids])
+        token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
+        tokens = [*prompt, int(token[0, 0])]
+        for _ in range(steps - 1):
+            if tokens[-1] == eot:
                 break
+            logits = model.run_entry("step", [token, jnp.int32(len(tokens) - 1)])
+            token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
+            tokens.append(int(token[0, 0]))
         return tokens
 
-    encode_ms = median_ms(
-        lambda: jax.block_until_ready(encode_call()),
-        lambda: None,
-        int(workload["warmup"]),
-        int(workload["iters"]),
-    )
-    # Transcription is timed only where every prefix length's program fits:
-    # without a KV cache each new length is a new XLA program and its own
-    # buffers, which exhausted a 94 GB GPU on large-v3's 32-layer decoder.
-    metrics: dict[str, float | None] = {"encode_ms": encode_ms, "load_s": load_s}
-    notes = NO_CACHE
-    if int(data["generics"].get("DecoderLayers", 0)) <= 4:
-        metrics["transcribe_ms"] = median_ms(
-            lambda: jax.block_until_ready(transcribe()),
-            lambda: None,
-            int(workload["warmup"]),
-            int(workload["iters"]),
-        )
-    else:
-        notes += "; transcription not timed: one XLA program per prefix length without a cache"
+    warmup, iters = int(workload["warmup"]), int(workload["iters"])
+    metrics: dict[str, float | None] = {
+        "encode_ms": median_ms(
+            lambda: jax.block_until_ready(encode_call()), lambda: None, warmup, iters
+        ),
+        "transcribe_ms": median_ms(transcribe, lambda: None, warmup, iters),
+        "load_s": load_s,
+    }
     save_output(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(encode_call())[0])
-    return Result(f"Linnet JAX (XLA, {jax.default_backend()})", "linnet", metrics, notes=notes)
+    return Result(f"Linnet JAX (XLA, {jax.default_backend()})", "linnet", metrics, notes=CACHED)
 
 
 def _onnx_run(
     model: Any, data: dict[str, Any], workload: dict[str, Any]
 ) -> tuple[dict[str, float], Any]:
-    """`encode` alone: `decode` has no KV cache, so its shape grows every step."""
-    mel, _prompt, _eot, _processor = _fixture(data)
+    """`encode`, and transcription over the caches: the argmax taken in the
+    graph, each step replayed as a CUDA graph where ONNX Runtime can."""
+    import numpy as np
+
+    mel, prompt, eot, _processor = _fixture(data)
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
     placed = stacks.onnx_placed(model, [mel])
+    steps = _max_steps(data, len(prompt), workload)
     encode_ms = median_ms(
         lambda: model.run_entry("encode", placed, keep_on_device=True), lambda: None, warmup, iters
     )
-    return {"encode_ms": encode_ms}, model.run_entry("encode", [mel])[0]
+
+    def transcribe() -> list[int]:
+        model.run_entry("listen", placed, keep_on_device=True)
+        chosen = model.run_entry("prefill", [np.asarray([prompt], np.int32)], argmax=True)
+        token = np.asarray(chosen, dtype=np.int32).reshape(1, 1)
+        tokens = [*prompt, int(token[0, 0])]
+        for _ in range(steps - 1):
+            if tokens[-1] == eot:
+                break
+            chosen = model.run_entry(
+                "step", [token, np.int32(len(tokens) - 1)], argmax=True, cuda_graph=True
+            )
+            token = np.asarray(chosen, dtype=np.int32).reshape(1, 1)
+            tokens.append(int(token[0, 0]))
+        return tokens
+
+    transcribe_ms = median_ms(transcribe, lambda: None, warmup, iters)
+    metrics = {"encode_ms": encode_ms, "transcribe_ms": transcribe_ms}
+    return metrics, model.run_entry("encode", [mel])[0]
 
 
 METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
@@ -317,7 +331,7 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     "linnet-jax-source": stacks.jax_variant(
         linnet_jax, "XLA, generated source", "linnet-jax-source", jax_backend="jax_source"
     ),
-    **stacks.onnx_methods(_onnx_run, save_output, note="encoder only: decode has no KV cache"),
+    **stacks.onnx_methods(_onnx_run, save_output, note=CACHED),
 }
 
 REFERENCE = "transformers-eager"
@@ -339,16 +353,10 @@ def sample(card: dict[str, Any], workload: dict[str, Any]) -> dict[str, Any]:
 
     model = nest.load(card["directory"], backend="torch", device=device)
     features = torch.tensor(mel, dtype=dtype, device=device)
-    tokens = torch.tensor([prompt], dtype=torch.int32, device=device)
-    states = model.run_entry("encode", [features])
+    prompt_ids = torch.tensor([prompt], dtype=torch.int32, device=device)
     steps = _max_steps(card, len(prompt), workload)
-    for _ in range(steps):
-        logits = model.run_entry("decode", [tokens, states])
-        next_token = logits[:, -1].argmax(-1, keepdim=True).to(torch.int32)
-        tokens = torch.cat([tokens, next_token], dim=1)
-        if int(next_token.item()) == eot:
-            break
-    text = processor.tokenizer.decode(tokens[0].tolist(), skip_special_tokens=True).strip()
+    tokens = _transcribe_torch(model, features, prompt_ids, prompt, eot, steps)
+    text = processor.tokenizer.decode(tokens, skip_special_tokens=True).strip()
 
     reference = (
         WhisperForConditionalGeneration.from_pretrained(
