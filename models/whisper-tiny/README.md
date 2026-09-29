@@ -104,8 +104,8 @@ logits = model.run_entry("step", [token, position]) # one more token at `positio
 | `step(token, pos)` | one token at `pos` over the caches; its logits |
 
 Greedy transcription of the benchmark's clip gives the same tokens through
-these entries as through `decode` over the whole prefix on PyTorch (CUDA
-graphs, generated source), JAX, and ONNX Runtime.
+these entries as through `decode` over the whole prefix, on PyTorch (CUDA
+graphs and generated source), JAX, and ONNX Runtime alike.
 
 ## Numerics
 

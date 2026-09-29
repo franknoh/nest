@@ -99,7 +99,9 @@ logits = model.run_entry("step", [token, position]) # one more token at `positio
 
 Greedy transcription of the benchmark's clip gives the same tokens through
 these entries as through `decode` over the whole prefix on PyTorch (CUDA
-graphs, generated source), JAX, and ONNX Runtime.
+graphs), and the same on ONNX Runtime. JAX in the card's f16 rounds one
+near-tie the other way and drops the transcript's opening quotation mark and
+a comma; in f32 it gives the same text.
 
 ## Numerics
 
