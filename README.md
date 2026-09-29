@@ -11,7 +11,7 @@ from linnet import nest
 model = nest.load("tinyllama-1.1b-chat", backend="torch")
 ```
 
-Browse the models at [linnet.franknoh.dev/nest](https://linnet.franknoh.dev/nest/).
+Browse the models at [nest.franknoh.dev](https://nest.franknoh.dev).
 
 ## What a model is
 

@@ -33,5 +33,6 @@ S = 8
 
 [weights]
 repo = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+revision = "31b70e2e869a7173562077fd711b654946d38674"
 files = ["model.safetensors"]
 bindings = "bindings.json"

@@ -33,5 +33,6 @@ B = 1
 
 [weights]
 repo = "openai/whisper-large-v3"
+revision = "06f233fe06e710322aca913c1bc4249a0d71fce1"
 files = ["model.safetensors"]
 bindings = "bindings.json"

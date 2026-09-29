@@ -33,6 +33,7 @@ S = 8
 
 [weights]
 repo = "mistralai/Mistral-7B-Instruct-v0.3"
+revision = "c170c708c41dac9275d15a8fff4eca08d52bab71"
 files = [
     "model-00001-of-00003.safetensors",
     "model-00002-of-00003.safetensors",

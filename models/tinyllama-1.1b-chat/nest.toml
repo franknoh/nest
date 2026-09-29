@@ -33,5 +33,6 @@ S = 8
 
 [weights]
 repo = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+revision = "fe8a4ea1ffedaf415f4da2f062534de366a451e6"
 files = ["model.safetensors"]
 bindings = "bindings.json"
