@@ -3699,17 +3699,76 @@
             "Tensor[B, S, Vocab; T]"
           ],
           "states": []
+        },
+        {
+          "name": "listen",
+          "signature": "pub entry listen(mel: Tensor[Batch, Mels, Frames; T]) -> Tensor[Batch, 1 + (-1 + Frames) / 2, D; T]",
+          "inputs": [
+            {
+              "name": "mel",
+              "type": "Tensor[Batch, Mels, Frames; T]"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, 1 + (-1 + Frames) / 2, D; T]"
+          ],
+          "states": [
+            "decoder_layers[*].cross_k",
+            "decoder_layers[*].cross_v"
+          ]
+        },
+        {
+          "name": "prefill",
+          "signature": "pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32]) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[Batch, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "decoder_layers[*].cross_k",
+            "decoder_layers[*].cross_v",
+            "decoder_layers[*].self_k",
+            "decoder_layers[*].self_v"
+          ]
+        },
+        {
+          "name": "step",
+          "signature": "pub entry step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "decoder_layers[*].cross_k",
+            "decoder_layers[*].cross_v",
+            "decoder_layers[*].self_k",
+            "decoder_layers[*].self_v"
+          ]
         }
       ],
       "blocks": {
-        "Attention": "whisper::Attention<D: Dim, Heads: Dim, T: Float>\n  sub q_proj: Linear<D, D, T>\n  sub k_proj: Linear<D, D, T>\n  sub v_proj: Linear<D, D, T>\n  sub out_proj: Linear<D, D, T>\n  pub fn forward<B: Dim, Q: Dim, Src: Dim>(x: Tensor[B, Q, D; T], source: Tensor[B, Src, D; T], mask: Tensor[Q, Src; bool]?) -> Tensor[B, Q, D; T]",
-        "DecoderLayer": "whisper::DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub encoder_attn_layer_norm: LayerNorm<D, T>\n  sub encoder_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim, A: Dim>(x: Tensor[B, S, D; T], audio: Tensor[B, A, D; T]) -> Tensor[B, S, D; T]",
+        "Attention": "whisper::Attention<D: Dim, Heads: Dim, T: Float>\n  sub q_proj: Linear<D, D, T>\n  sub k_proj: Linear<D, D, T>\n  sub v_proj: Linear<D, D, T>\n  sub out_proj: Linear<D, D, T>\n  pub fn forward<B: Dim, Q: Dim, Src: Dim>(x: Tensor[B, Q, D; T], source: Tensor[B, Src, D; T], mask: Tensor[Q, Src; bool]?) -> Tensor[B, Q, D; T]\n  pub fn keys<B: Dim, N: Dim>(source: Tensor[B, N, D; T]) -> Tensor[B, Heads, N, D / Heads; T]\n  pub fn values<B: Dim, N: Dim>(source: Tensor[B, N, D; T]) -> Tensor[B, Heads, N, D / Heads; T]\n  pub fn attend<B: Dim, Q: Dim, K: Dim>(x: Tensor[B, Q, D; T], keys: Tensor[B, Heads, K, D / Heads; T], values: Tensor[B, Heads, K, D / Heads; T], mask: Tensor[Q, K; bool]?) -> Tensor[B, Q, D; T]",
+        "DecoderLayer": "whisper::DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, Batch: Dim, MaxTokens: Dim, Audio: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub encoder_attn_layer_norm: LayerNorm<D, T>\n  sub encoder_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  state self_k: Tensor[Batch, Heads, MaxTokens, D / Heads; T]\n  state self_v: Tensor[Batch, Heads, MaxTokens, D / Heads; T]\n  state cross_k: Tensor[Batch, Heads, Audio, D / Heads; T]\n  state cross_v: Tensor[Batch, Heads, Audio, D / Heads; T]\n  pub fn forward<B: Dim, S: Dim, A: Dim>(x: Tensor[B, S, D; T], audio: Tensor[B, A, D; T]) -> Tensor[B, S, D; T]\n  pub fn listen(audio: Tensor[Batch, Audio, D; T]) -> Tensor[Batch, Audio, D; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, D; T]) -> Tensor[Batch, S, D; T]\n  pub fn step(x: Tensor[Batch, 1, D; T], pos: i32) -> Tensor[Batch, 1, D; T]\n  fn cross<S: Dim>(attended: Tensor[Batch, S, D; T]) -> Tensor[Batch, S, D; T]",
         "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
         "EncoderLayer": "whisper::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
         "LayerNorm": "whisper::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
         "Mlp": "whisper::Mlp<D: Dim, Inner: Dim, T: Float>\n  sub fc1: Linear<D, Inner, T>\n  sub fc2: Linear<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
-        "Model": "whisper::Model<Mels: Dim, Frames: Dim, D: Dim, Heads: Dim, Inner: Dim, EncoderLayers: Dim, DecoderLayers: Dim, Vocab: Dim, MaxTokens: Dim, T: Float = f32>\n  param conv1_weight: Tensor[D, Mels, 3; T]\n  param conv1_bias: Tensor[D; T]\n  param conv2_weight: Tensor[D, D, 3; T]\n  param conv2_bias: Tensor[D; T]\n  param encoder_positions: Tensor[1 + (-1 + Frames) / 2, D; T]\n  sub encoder_layers: [EncoderLayer<D, Heads, Inner, T>; EncoderLayers]\n  sub encoder_norm: LayerNorm<D, T>\n  param token_embedding: Tensor[Vocab, D; T]\n  param decoder_positions: Tensor[MaxTokens, D; T]\n  sub decoder_layers: [DecoderLayer<D, Heads, Inner, T>; DecoderLayers]\n  sub decoder_norm: LayerNorm<D, T>\n  pub entry encode<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  pub entry decode<B: Dim, S: Dim, A: Dim>(tokens: Tensor[B, S; i32], audio: Tensor[B, A, D; T]) -> Tensor[B, S, Vocab; T]",
+        "Model": "whisper::Model<Mels: Dim, Frames: Dim, D: Dim, Heads: Dim, Inner: Dim, EncoderLayers: Dim, DecoderLayers: Dim, Vocab: Dim, MaxTokens: Dim, T: Float = f32, Batch: Dim = 1>\n  param conv1_weight: Tensor[D, Mels, 3; T]\n  param conv1_bias: Tensor[D; T]\n  param conv2_weight: Tensor[D, D, 3; T]\n  param conv2_bias: Tensor[D; T]\n  param encoder_positions: Tensor[1 + (-1 + Frames) / 2, D; T]\n  sub encoder_layers: [EncoderLayer<D, Heads, Inner, T>; EncoderLayers]\n  sub encoder_norm: LayerNorm<D, T>\n  param token_embedding: Tensor[Vocab, D; T]\n  param decoder_positions: Tensor[MaxTokens, D; T]\n  sub decoder_layers: [DecoderLayer<D, Heads, Inner, Batch, MaxTokens, 1 + (-1 + Frames) / 2, T>; DecoderLayers]\n  sub decoder_norm: LayerNorm<D, T>\n  pub entry encode<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  fn encoded<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  pub entry decode<B: Dim, S: Dim, A: Dim>(tokens: Tensor[B, S; i32], audio: Tensor[B, A, D; T]) -> Tensor[B, S, Vocab; T]\n  pub entry listen(mel: Tensor[Batch, Mels, Frames; T]) -> Tensor[Batch, 1 + (-1 + Frames) / 2, D; T]\n  pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32]) -> Tensor[Batch, Vocab; T]\n  pub entry step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
       },
       "weights": {
@@ -3802,17 +3861,76 @@
             "Tensor[B, S, Vocab; T]"
           ],
           "states": []
+        },
+        {
+          "name": "listen",
+          "signature": "pub entry listen(mel: Tensor[Batch, Mels, Frames; T]) -> Tensor[Batch, 1 + (-1 + Frames) / 2, D; T]",
+          "inputs": [
+            {
+              "name": "mel",
+              "type": "Tensor[Batch, Mels, Frames; T]"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, 1 + (-1 + Frames) / 2, D; T]"
+          ],
+          "states": [
+            "decoder_layers[*].cross_k",
+            "decoder_layers[*].cross_v"
+          ]
+        },
+        {
+          "name": "prefill",
+          "signature": "pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32]) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[Batch, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "decoder_layers[*].cross_k",
+            "decoder_layers[*].cross_v",
+            "decoder_layers[*].self_k",
+            "decoder_layers[*].self_v"
+          ]
+        },
+        {
+          "name": "step",
+          "signature": "pub entry step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "decoder_layers[*].cross_k",
+            "decoder_layers[*].cross_v",
+            "decoder_layers[*].self_k",
+            "decoder_layers[*].self_v"
+          ]
         }
       ],
       "blocks": {
-        "Attention": "whisper::Attention<D: Dim, Heads: Dim, T: Float>\n  sub q_proj: Linear<D, D, T>\n  sub k_proj: Linear<D, D, T>\n  sub v_proj: Linear<D, D, T>\n  sub out_proj: Linear<D, D, T>\n  pub fn forward<B: Dim, Q: Dim, Src: Dim>(x: Tensor[B, Q, D; T], source: Tensor[B, Src, D; T], mask: Tensor[Q, Src; bool]?) -> Tensor[B, Q, D; T]",
-        "DecoderLayer": "whisper::DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub encoder_attn_layer_norm: LayerNorm<D, T>\n  sub encoder_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim, A: Dim>(x: Tensor[B, S, D; T], audio: Tensor[B, A, D; T]) -> Tensor[B, S, D; T]",
+        "Attention": "whisper::Attention<D: Dim, Heads: Dim, T: Float>\n  sub q_proj: Linear<D, D, T>\n  sub k_proj: Linear<D, D, T>\n  sub v_proj: Linear<D, D, T>\n  sub out_proj: Linear<D, D, T>\n  pub fn forward<B: Dim, Q: Dim, Src: Dim>(x: Tensor[B, Q, D; T], source: Tensor[B, Src, D; T], mask: Tensor[Q, Src; bool]?) -> Tensor[B, Q, D; T]\n  pub fn keys<B: Dim, N: Dim>(source: Tensor[B, N, D; T]) -> Tensor[B, Heads, N, D / Heads; T]\n  pub fn values<B: Dim, N: Dim>(source: Tensor[B, N, D; T]) -> Tensor[B, Heads, N, D / Heads; T]\n  pub fn attend<B: Dim, Q: Dim, K: Dim>(x: Tensor[B, Q, D; T], keys: Tensor[B, Heads, K, D / Heads; T], values: Tensor[B, Heads, K, D / Heads; T], mask: Tensor[Q, K; bool]?) -> Tensor[B, Q, D; T]",
+        "DecoderLayer": "whisper::DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, Batch: Dim, MaxTokens: Dim, Audio: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub encoder_attn_layer_norm: LayerNorm<D, T>\n  sub encoder_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  state self_k: Tensor[Batch, Heads, MaxTokens, D / Heads; T]\n  state self_v: Tensor[Batch, Heads, MaxTokens, D / Heads; T]\n  state cross_k: Tensor[Batch, Heads, Audio, D / Heads; T]\n  state cross_v: Tensor[Batch, Heads, Audio, D / Heads; T]\n  pub fn forward<B: Dim, S: Dim, A: Dim>(x: Tensor[B, S, D; T], audio: Tensor[B, A, D; T]) -> Tensor[B, S, D; T]\n  pub fn listen(audio: Tensor[Batch, Audio, D; T]) -> Tensor[Batch, Audio, D; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, D; T]) -> Tensor[Batch, S, D; T]\n  pub fn step(x: Tensor[Batch, 1, D; T], pos: i32) -> Tensor[Batch, 1, D; T]\n  fn cross<S: Dim>(attended: Tensor[Batch, S, D; T]) -> Tensor[Batch, S, D; T]",
         "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
         "EncoderLayer": "whisper::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub self_attn_layer_norm: LayerNorm<D, T>\n  sub self_attn: Attention<D, Heads, T>\n  sub final_layer_norm: LayerNorm<D, T>\n  sub mlp: Mlp<D, Inner, T>\n  pub fn forward<B: Dim, N: Dim>(x: Tensor[B, N, D; T]) -> Tensor[B, N, D; T]",
         "LayerNorm": "whisper::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
         "Mlp": "whisper::Mlp<D: Dim, Inner: Dim, T: Float>\n  sub fc1: Linear<D, Inner, T>\n  sub fc2: Linear<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
-        "Model": "whisper::Model<Mels: Dim, Frames: Dim, D: Dim, Heads: Dim, Inner: Dim, EncoderLayers: Dim, DecoderLayers: Dim, Vocab: Dim, MaxTokens: Dim, T: Float = f32>\n  param conv1_weight: Tensor[D, Mels, 3; T]\n  param conv1_bias: Tensor[D; T]\n  param conv2_weight: Tensor[D, D, 3; T]\n  param conv2_bias: Tensor[D; T]\n  param encoder_positions: Tensor[1 + (-1 + Frames) / 2, D; T]\n  sub encoder_layers: [EncoderLayer<D, Heads, Inner, T>; EncoderLayers]\n  sub encoder_norm: LayerNorm<D, T>\n  param token_embedding: Tensor[Vocab, D; T]\n  param decoder_positions: Tensor[MaxTokens, D; T]\n  sub decoder_layers: [DecoderLayer<D, Heads, Inner, T>; DecoderLayers]\n  sub decoder_norm: LayerNorm<D, T>\n  pub entry encode<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  pub entry decode<B: Dim, S: Dim, A: Dim>(tokens: Tensor[B, S; i32], audio: Tensor[B, A, D; T]) -> Tensor[B, S, Vocab; T]",
+        "Model": "whisper::Model<Mels: Dim, Frames: Dim, D: Dim, Heads: Dim, Inner: Dim, EncoderLayers: Dim, DecoderLayers: Dim, Vocab: Dim, MaxTokens: Dim, T: Float = f32, Batch: Dim = 1>\n  param conv1_weight: Tensor[D, Mels, 3; T]\n  param conv1_bias: Tensor[D; T]\n  param conv2_weight: Tensor[D, D, 3; T]\n  param conv2_bias: Tensor[D; T]\n  param encoder_positions: Tensor[1 + (-1 + Frames) / 2, D; T]\n  sub encoder_layers: [EncoderLayer<D, Heads, Inner, T>; EncoderLayers]\n  sub encoder_norm: LayerNorm<D, T>\n  param token_embedding: Tensor[Vocab, D; T]\n  param decoder_positions: Tensor[MaxTokens, D; T]\n  sub decoder_layers: [DecoderLayer<D, Heads, Inner, Batch, MaxTokens, 1 + (-1 + Frames) / 2, T>; DecoderLayers]\n  sub decoder_norm: LayerNorm<D, T>\n  pub entry encode<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  fn encoded<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, 1 + (-1 + Frames) / 2, D; T]\n  pub entry decode<B: Dim, S: Dim, A: Dim>(tokens: Tensor[B, S; i32], audio: Tensor[B, A, D; T]) -> Tensor[B, S, Vocab; T]\n  pub entry listen(mel: Tensor[Batch, Mels, Frames; T]) -> Tensor[Batch, 1 + (-1 + Frames) / 2, D; T]\n  pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32]) -> Tensor[Batch, Vocab; T]\n  pub entry step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
       },
       "weights": {

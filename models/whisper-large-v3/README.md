@@ -42,7 +42,7 @@ keys do not, exactly as in `whisper-tiny`. `k_proj.bias` is left out of
 `bindings.json`, `Linear`'s bias is an optional parameter, and the absent
 optional makes the `none` branch of `std.nn.linear::linear` run.
 
-## Two entries
+## Entries
 
 Transcription encodes once and decodes many times, so the two stacks are
 separate entries rather than one forward pass, as in `whisper-tiny`.
@@ -71,11 +71,37 @@ ids).
 | `encode<B>(mel)` | encoder states for a 30-second window |
 | `decode<B, S, A>(tokens, audio)` | logits for every token position |
 
-There is no KV cache: `decode` recomputes the prefix each step. The encoder
-attends over all 1500 positions, including the silence a shorter clip was
-padded with, exactly as the reference encoder does; `std.nn.attention::attention`
-takes an unbatched `Tensor[Q, K; bool]` mask, so a per-sequence padding mask
-could not be expressed even if the reference used one.
+`decode` recomputes the whole prefix each step; the cached entries below
+do not. The encoder attends over all 1500 positions, including the silence
+a shorter clip was padded with, exactly as the reference encoder does;
+`std.nn.attention::attention` takes an unbatched `Tensor[Q, K; bool]` mask,
+so a per-sequence padding mask could not be expressed even if the reference
+used one.
+
+## Transcribing with caches
+
+`listen`, `prefill`, and `step` transcribe without recomputing: each
+decoder layer keeps the keys and values of every token so far (`MaxTokens`
+positions) and those of the encoder's states (1500 positions), sized by the
+`Batch` generic (1 by default).
+
+```python
+model.run_entry("listen", [mel])                    # encode; fill the cross-attention caches
+logits = model.run_entry("prefill", [prompt])       # the prompt's tokens; logits after it
+logits = model.run_entry("step", [token, position]) # one more token at `position`
+```
+
+| Entry | |
+| --- | --- |
+| `listen(mel)` | encoder states, and every decoder layer's cross-attention keys and values |
+| `prefill<S>(tokens)` | the prompt from position 0 into the self-attention caches; logits after its last token |
+| `step(token, pos)` | one token at `pos` over the caches; its logits |
+
+Greedy transcription of the benchmark's clip gives the same tokens through
+these entries as through `decode` over the whole prefix on PyTorch (CUDA
+graphs), and the same on ONNX Runtime. JAX in the card's f16 rounds one
+near-tie the other way and drops the transcript's opening quotation mark and
+a comma; in f32 it gives the same text.
 
 ## Numerics
 

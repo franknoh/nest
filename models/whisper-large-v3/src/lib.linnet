@@ -12,6 +12,7 @@ module whisper
 
 use std.nn.activations::{gelu_erf}
 use std.nn.attention::{attention, causal_mask}
+use std.nn.cache::{write_at, write_span}
 use std.nn.embedding::{embedding}
 use std.nn.linear::{Linear, linear}
 use std.nn.norm::{layer_norm}
@@ -106,10 +107,32 @@ where
         source: Tensor[B, Src, D; T],
         mask: Tensor[Q, Src; bool]?,
     ) -> Tensor[B, Q, D; T] {
+        return attend(x, keys(source), values(source), mask)
+    }
+
+    // The keys and the values of `source`, split into heads: what a cache
+    // holds so that later tokens do not project them again.
+    pub fn keys<B: Dim, N: Dim>(source: Tensor[B, N, D; T]) -> Tensor[B, Heads, N, D / Heads; T] {
+        return heads<B, N, Heads, D / Heads, T>(k_proj.forward(source))
+    }
+
+    pub fn values<B: Dim, N: Dim>(
+        source: Tensor[B, N, D; T],
+    ) -> Tensor[B, Heads, N, D / Heads; T] {
+        return heads<B, N, Heads, D / Heads, T>(v_proj.forward(source))
+    }
+
+    // `x`'s queries over keys and values already split into heads.
+    pub fn attend<B: Dim, Q: Dim, K: Dim>(
+        x: Tensor[B, Q, D; T],
+        keys: Tensor[B, Heads, K, D / Heads; T],
+        values: Tensor[B, Heads, K, D / Heads; T],
+        mask: Tensor[Q, K; bool]?,
+    ) -> Tensor[B, Q, D; T] {
         let mixed = attention(
             heads<B, Q, Heads, D / Heads, T>(q_proj.forward(x)),
-            heads<B, Src, Heads, D / Heads, T>(k_proj.forward(source)),
-            heads<B, Src, Heads, D / Heads, T>(v_proj.forward(source)),
+            keys,
+            values,
             rsqrt(cast<f32>(D / Heads)),
             mask,
         )
@@ -156,10 +179,24 @@ where
 // Three residual steps: causal self-attention over the tokens decoded so far,
 // then attention over the encoder's states, then the MLP. The cross-attention
 // needs no mask, since every token may read the whole utterance.
-pub block DecoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>
+//
+// For decoding one token at a time the layer keeps what it would otherwise
+// recompute: the keys and values of every token so far (`self_k`, `self_v`,
+// `MaxTokens` positions) and those of the encoder's states (`cross_k`,
+// `cross_v`, `Audio` positions), which `listen` fills once per utterance.
+pub block DecoderLayer<
+    D: Dim,
+    Heads: Dim,
+    Inner: Dim,
+    Batch: Dim,
+    MaxTokens: Dim,
+    Audio: Dim,
+    T: Float,
+>
 where
     Heads > 0,
-    D % Heads == 0
+    D % Heads == 0,
+    MaxTokens > 0
 {
     sub self_attn_layer_norm: LayerNorm<D, T>
     sub self_attn: Attention<D, Heads, T>
@@ -167,6 +204,11 @@ where
     sub encoder_attn: Attention<D, Heads, T>
     sub final_layer_norm: LayerNorm<D, T>
     sub mlp: Mlp<D, Inner, T>
+
+    state self_k: Tensor[Batch, Heads, MaxTokens, D / Heads; T]
+    state self_v: Tensor[Batch, Heads, MaxTokens, D / Heads; T]
+    state cross_k: Tensor[Batch, Heads, Audio, D / Heads; T]
+    state cross_v: Tensor[Batch, Heads, Audio, D / Heads; T]
 
     pub fn forward<B: Dim, S: Dim, A: Dim>(
         x: Tensor[B, S, D; T],
@@ -176,6 +218,51 @@ where
         let attended = x + self_attn.forward(normed, normed, some(causal_mask<S, S>()))
         let crossed =
             attended + encoder_attn.forward(encoder_attn_layer_norm.forward(attended), audio, none)
+        return crossed + mlp.forward(final_layer_norm.forward(crossed))
+    }
+
+    // The encoder's states as this layer's cross-attention reads them.
+    pub fn listen(audio: Tensor[Batch, Audio, D; T]) -> Tensor[Batch, Audio, D; T] {
+        cross_k = encoder_attn.keys(audio)
+        cross_v = encoder_attn.values(audio)
+        return audio
+    }
+
+    // A prompt of `S` tokens from the first position: their keys and values
+    // go into the caches, and they attend causally among themselves.
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, D; T]) -> Tensor[Batch, S, D; T]
+    where S > 0 {
+        let normed = self_attn_layer_norm.forward(x)
+        let k = self_attn.keys(normed)
+        let v = self_attn.values(normed)
+        self_k = write_span(self_k, k, 0)
+        self_v = write_span(self_v, v, 0)
+        let attended = x + self_attn.attend(normed, k, v, some(causal_mask<S, S>()))
+        return cross(attended)
+    }
+
+    // One token at position `pos`, over the tokens before it in the cache.
+    pub fn step(x: Tensor[Batch, 1, D; T], pos: i32) -> Tensor[Batch, 1, D; T] {
+        let normed = self_attn_layer_norm.forward(x)
+        self_k = write_at(self_k, self_attn.keys(normed), pos)
+        self_v = write_at(self_v, self_attn.values(normed), pos)
+        let slots = iota<i32>(MaxTokens)
+        let seen[t] = slots[t] <= pos
+        let attended =
+            x + self_attn.attend(normed, self_k, self_v, some(reshape(seen, [1, MaxTokens])))
+        return cross(attended)
+    }
+
+    // Cross-attention over the cached encoder states, then the MLP.
+    fn cross<S: Dim>(attended: Tensor[Batch, S, D; T]) -> Tensor[Batch, S, D; T] {
+        let crossed =
+            attended +
+            encoder_attn.attend(
+                encoder_attn_layer_norm.forward(attended),
+                cross_k,
+                cross_v,
+                none,
+            )
         return crossed + mlp.forward(final_layer_norm.forward(crossed))
     }
 }
@@ -191,11 +278,13 @@ pub block Model<
     Vocab: Dim,
     MaxTokens: Dim,
     T: Float = f32,
+    Batch: Dim = 1,
 >
 where
     Heads > 0,
     D % Heads == 0,
-    Frames > 0
+    Frames > 0,
+    MaxTokens > 0
 {
     // The stem, with the `[Cout, Cin, K]` kernels the checkpoint stores.
     param conv1_weight: Tensor[D, Mels, 3; T]
@@ -210,7 +299,8 @@ where
 
     param token_embedding: Tensor[Vocab, D; T]
     param decoder_positions: Tensor[MaxTokens, D; T]
-    sub decoder_layers: [DecoderLayer<D, Heads, Inner, T>; DecoderLayers]
+    sub decoder_layers: [DecoderLayer<D, Heads, Inner, Batch, MaxTokens, (Frames - 1) / 2 +
+        1, T>; DecoderLayers]
     sub decoder_norm: LayerNorm<D, T>
 
     // The spectrogram to the encoder's states: `Frames` mel frames become
@@ -222,6 +312,10 @@ where
     pub entry encode<B: Dim>(
         mel: Tensor[B, Mels, Frames; T],
     ) -> Tensor[B, (Frames - 1) / 2 + 1, D; T] {
+        return encoded(mel)
+    }
+
+    fn encoded<B: Dim>(mel: Tensor[B, Mels, Frames; T]) -> Tensor[B, (Frames - 1) / 2 + 1, D; T] {
         let signal = permute(mel, [0, 2, 1])
         let first = gelu_erf(
             conv1d<B, Frames, Mels, D, 3, 1, 1, T>(signal, conv1_weight, conv1_bias),
@@ -250,5 +344,40 @@ where
         // The head is the token embedding read as a projection; Whisper ties
         // the two, so the checkpoint has no separate output matrix.
         return linear(decoder_norm.forward(x), token_embedding)
+    }
+
+    // Transcribing with caches: `listen` encodes the spectrogram and gives
+    // every decoder layer the keys and values of its states, `prefill`
+    // feeds the prompt (start of transcript, language, task) and returns
+    // the logits after it, and `step` feeds one more token at `pos`,
+    // reading the caches instead of recomputing every token before it.
+    pub entry listen(mel: Tensor[Batch, Mels, Frames; T]) -> Tensor[Batch, (Frames - 1) / 2 +
+        1, D; T] {
+        let audio = encoded(mel)
+        static for layer in decoder_layers {
+            let _ = layer.listen(audio)
+        }
+        return audio
+    }
+
+    pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32]) -> Tensor[Batch, Vocab; T]
+    where
+        S > 0,
+        S <= MaxTokens
+    {
+        var x = embedding(tokens, token_embedding) + embedding(iota<i32>(S), decoder_positions)
+        static for layer in decoder_layers {
+            x = layer.prefill(x)
+        }
+        return linear(decoder_norm.forward(x[:, S - 1, :]), token_embedding)
+    }
+
+    pub entry step(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T] {
+        let position[d] = decoder_positions[cast<i64>(pos), d]
+        var x = embedding(token, token_embedding) + reshape(position, [1, 1, D])
+        static for layer in decoder_layers {
+            x = layer.step(x, pos)
+        }
+        return linear(decoder_norm.forward(x[:, 0, :]), token_embedding)
     }
 }
