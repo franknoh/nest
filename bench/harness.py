@@ -133,6 +133,9 @@ def run_isolated(
     # JAX reserves 75% of the GPU at start unless told not to, which would
     # make its "peak" a setting rather than a measurement.
     env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+    # Without preallocation JAX still stops at 75% of the GPU; the other
+    # stacks may use all of it (vLLM takes 90% by default).
+    env.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.95")
     # CUDA numbers GPUs fastest first by default, NVML by bus; the memory
     # reading maps one to the other, so both count by bus.
     env.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
