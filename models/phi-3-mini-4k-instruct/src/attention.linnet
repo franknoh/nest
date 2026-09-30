@@ -11,7 +11,7 @@ module phi3.attention
 
 use crate.rope::{THETA, tables}
 use std.nn.attention::{attention, attention_rows}
-use std.nn.cache::{write_at, write_rows, write_slots, write_span}
+use std.nn.cache::{write_at, write_rows, write_slots, write_span, write_tokens}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
 
@@ -230,6 +230,49 @@ where
             some(window_mask<S, S>()),
         )
         return o_proj.forward(merge_heads<M, S, Heads, H / Heads, T>(mixed))
+    }
+
+    // Prompts packed end to end, `P` tokens in all: token `p` is position
+    // `positions[p]` of prompt `segments[p]`, whose row of the caches is
+    // `rows[p]`. Each token's key and value go to its row at its position, and
+    // its query attends to the tokens of its own prompt up to itself -- no
+    // padding between prompts, and none of the pass's other prompts seen.
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
+        let cos_at[p, d] = cos_table[cast<i64>(positions[p]), d]
+        let sin_at[p, d] = sin_table[cast<i64>(positions[p]), d]
+        let projected = qkv.forward(x)
+        let q = rope(
+            split_heads<1, P, Heads, H / Heads, T>(projected[:, :, 0:H]),
+            cos_at,
+            sin_at,
+        )
+        let k = rope(
+            split_heads<1, P, Heads, H / Heads, T>(projected[:, :, H:2 * H]),
+            cos_at,
+            sin_at,
+        )
+        let v = split_heads<1, P, Heads, H / Heads, T>(projected[:, :, 2 * H:3 * H])
+        cache_k = write_tokens(cache_k, k, rows, positions)
+        cache_v = write_tokens(cache_v, v, rows, positions)
+        let own[i, j] =
+            segments[i] == segments[j] &&
+            positions[j] <= positions[i] &&
+            positions[j] > positions[i] - WINDOW
+        let mixed = attention(
+            q,
+            k,
+            v,
+            rsqrt(cast<f32>(H / Heads)),
+            some(own),
+        )
+        return o_proj.forward(merge_heads<1, P, Heads, H / Heads, T>(mixed))
     }
 }
 

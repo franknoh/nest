@@ -83,6 +83,18 @@ where
         let attended = x + attention.prefill_slots(attention_norm.forward(x), slots)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
+
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let attended =
+            x + attention.prefill_packed(attention_norm.forward(x), rows, positions, segments)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
 }
 
 pub block Model<
@@ -181,6 +193,30 @@ where
         }
         let last[b, h] = x[b, cast<i64>(lengths[b]) - 1, h]
         return lm_head.forward(norm.forward(last))
+    }
+
+    // Prompts of several requests packed end to end into one pass of `P`
+    // tokens, with no padding between them: token `p` is position
+    // `positions[p]` of prompt `segments[p]`, and its key and value go to row
+    // `rows[p]` of the caches. A pack may end in padding that writes where no
+    // request reads (the engine uses position `MaxSeq - 1`, which decoding
+    // never reaches) with a segment of its own. Returns the logits after
+    // prompt `m`'s last token, `last[m]`, for up to `Batch` prompts; rows
+    // past the pass's prompts repeat whichever token `last` names.
+    pub entry prefill_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        last: Tensor[Batch; i32],
+    ) -> Tensor[Batch, Vocab; T]
+    where P > 0 {
+        var x = embedding.forward(reshape(tokens, [1, P]))
+        static for layer in layers {
+            x = layer.prefill_packed(x, rows, positions, segments)
+        }
+        let ends[m, h] = x[0, cast<i64>(last[m]), h]
+        return lm_head.forward(norm.forward(ends))
     }
 
     // Greedy generation inside the graph: `Steps` tokens after `token` at
