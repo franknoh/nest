@@ -74,7 +74,7 @@ where
     ) -> Tensor[Batch, S, H; T]
     where S > 0 {
         let attended = x + self_attn.prefill(input_layernorm.forward(x), pos, window)
-        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+        return attended + mlp.forward_routed<Batch, S>(post_attention_layernorm.forward(attended))
     }
 
     pub fn decode_rows(
@@ -96,7 +96,7 @@ where
         S > 0
     {
         let attended = x + self_attn.prefill_slots(input_layernorm.forward(x), slots, window)
-        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+        return attended + mlp.forward_routed<M, S>(post_attention_layernorm.forward(attended))
     }
 }
 
