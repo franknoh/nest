@@ -34,14 +34,13 @@ split still produces fluent-looking text, since SwiGLU is not symmetric but
 both halves are learned linear projections of the same input -- see
 "Validation" below for the check that actually catches it.
 
-## Not modeled
+## Sliding window
 
-`config.json` sets `sliding_window` to 2047, and recent `transformers`
-applies a sliding-window causal mask throughout when it is set. The Linnet
-source uses a plain causal mask instead. This only differs from the
-reference beyond 2047 tokens of context, which the 4K instruction-tuned
-checkpoint rarely reaches and the validation below does not exercise; a
-sequence at or under the window sees identical attention either way.
+`config.json` sets `sliding_window` to 2047, and `transformers` masks every
+layer with it: a query attends to itself and the 2046 positions before it.
+The Linnet source does the same (`WINDOW`, `window_mask`), in every entry;
+the caches still hold every position, and a sequence at or under the window
+sees plain causal attention.
 
 ## Loading
 
