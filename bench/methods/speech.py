@@ -240,6 +240,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     the StableHLO export or from generated JAX source."""
     import jax
     import jax.numpy as jnp
+    import numpy as np
     from linnet import nest
 
     mel, prompt, eot, _processor = _fixture(data)
@@ -261,16 +262,18 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     def encode_call() -> Any:
         return model.run_entry("encode", [features])
 
+    # The next token in one dispatch, positions as NumPy scalars (see the
+    # decoders' `linnet_jax`).
+    pick = jax.jit(lambda logits: jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32))
+
     def transcribe() -> list[int]:
         model.run_entry("listen", [features])
-        logits = model.run_entry("prefill", [prompt_ids])
-        token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
+        token = pick(model.run_entry("prefill", [prompt_ids]))
         tokens = [*prompt, int(token[0, 0])]
         for _ in range(steps - 1):
             if tokens[-1] == eot:
                 break
-            logits = model.run_entry("step", [token, jnp.int32(len(tokens) - 1)])
-            token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
+            token = pick(model.run_entry("step", [token, np.int32(len(tokens) - 1)]))
             tokens.append(int(token[0, 0]))
         return tokens
 
