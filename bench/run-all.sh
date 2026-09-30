@@ -22,6 +22,11 @@ export NEST_LLAMA_BENCH=/workspace/llama.cpp/build/bin/llama-bench
 if [ -x /workspace/sglang/bin/python ]; then export NEST_SGLANG_PYTHON=/workspace/sglang/bin/python; fi
 if [ -x /workspace/tgi-launcher.sh ]; then export NEST_TGI_LAUNCHER=/workspace/tgi-launcher.sh; fi
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+# A pod's CPU quota is a fraction of the cores it shows (22 of 208, say), and
+# an OpenMP pool as wide as the cores spins past it after any CPU work: the
+# container is then throttled for the rest of the period, and a timed step
+# with it. A pool of eight keeps well inside.
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 # Cloud machines often lack the fabric manager NVLink SHARP needs, and NCCL
 # then fails to start; plain NVLink is what two GPUs use anyway.
 export NCCL_NVLS_ENABLE=0
