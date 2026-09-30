@@ -111,4 +111,4 @@ METHODS = {
 }
 
 # The families `linnet.hf.export` recognizes, by card family.
-EXPORTABLE = {"llama", "gpt2"}
+EXPORTABLE = {"llama", "qwen2", "qwen3", "phi3", "gpt2"}
