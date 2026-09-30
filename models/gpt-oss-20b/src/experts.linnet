@@ -14,7 +14,7 @@ module gpt_oss.experts
 use crate.mxfp4::{dequantize_mxfp4}
 use std.nn.activations::{sigmoid}
 use std.nn.linear::{linear, Linear}
-use std.nn.moe::{linear_experts}
+use std.nn.moe::{combine_experts, linear_experts, linear_experts_shared}
 use std.nn.softmax::{softmax}
 
 // `swiglu_limit` in config.json, and the gate's sigmoid slope.
@@ -102,34 +102,84 @@ where
     // large batch every expert is chosen by someone, and the dense form reads
     // each once.
     pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
-        let logits = router.forward(x)
-        let scores = route<B, 1>(logits)
-        let ranked = ranks<B, 1>(logits)
-        let slots = iota<i32>(Experts)
-        let places = iota<i32>(TopK)
-        // `chosen[b, k]` is the expert ranked `k`-th, `weight[b, k]` its
-        // probability.
-        let chosen[b, k] = sum<i32>[e] select(ranked[b, 0, e] == places[k], slots[e], 0)
-        let weight[b, k] =
-            sum[e] select(ranked[b, 0, e] == places[k], scores[b, 0, e], cast<T>(0.0))
-        let expert[b, k] = cast<i64>(chosen[b, k])
+        let expert = experts_of<B>(x)
+        let weight = weights_of<B>(x)
         let gate_up_all = dequantize_mxfp4<Experts, 2 * Inner, Blocks, T>(
             gate_up_blocks,
             gate_up_scales,
         )
         let up_weight[b, k, o, h] = gate_up_all[expert[b, k], o, h]
-        let up_bias[b, k, o] = gate_up_bias[expert[b, k], o]
         let gate_up[b, k, o] = sum<f32>[h] cast<f32>(x[b, 0, h]) * cast<f32>(up_weight[b, k, o, h])
-        let biased = cast<T>(gate_up) + up_bias
-        let gate = min(biased[..., 0::2], cast<T>(LIMIT))
-        let up = min(max(biased[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
-        let activated = (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))
+        let activated = activate<B>(cast<T>(gate_up), expert)
         let weighted[b, k, i] = activated[b, k, i] * weight[b, k]
         let down_all = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
         let down = linear_experts(weighted, down_all, expert)
         let mixed[b, h] = sum<f32>[k] cast<f32>(down[b, k, h])
-        let bias[b, h] = sum[k] weight[b, k] * down_bias[expert[b, k], h]
-        return reshape(cast<T>(mixed) + bias, [B, 1, H])
+        return reshape(cast<T>(mixed) + down_bias_of<B>(weight, expert), [B, 1, H])
+    }
+
+    // A prompt's tokens through their `TopK` experts only, every token a row
+    // of its own: the gate and up projections `linear_experts_shared`, the
+    // down projection with the router's weights `combine_experts`. Their
+    // bodies are the dense form's work, which any backend runs; one with a
+    // grouped matrix product multiplies each expert by the tokens that chose
+    // it instead, an eighth of the work.
+    pub fn forward_routed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        let rows = reshape(x, [B * S, 1, H])
+        let expert = experts_of<B * S>(rows)
+        let weight = weights_of<B * S>(rows)
+        let gate_up_all = dequantize_mxfp4<Experts, 2 * Inner, Blocks, T>(
+            gate_up_blocks,
+            gate_up_scales,
+        )
+        let gate_up = linear_experts_shared(reshape(x, [B * S, H]), gate_up_all, expert)
+        let activated = activate<B * S>(gate_up, expert)
+        let down_all = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
+        let mixed = combine_experts(activated, down_all, expert, weight)
+        return reshape(mixed + down_bias_of<B * S>(weight, expert), [B, S, H])
+    }
+
+    // Each row's `TopK` experts, the highest-ranked first.
+    fn experts_of<R: Dim>(x: Tensor[R, 1, H; T]) -> Tensor[R, TopK; i64] {
+        let ranked = ranks<R, 1>(router.forward(x))
+        let slots = iota<i32>(Experts)
+        let places = iota<i32>(TopK)
+        let chosen[r, k] = sum<i32>[e] select(ranked[r, 0, e] == places[k], slots[e], 0)
+        let expert[r, k] = cast<i64>(chosen[r, k])
+        return expert
+    }
+
+    // The router's probability for each of those experts.
+    fn weights_of<R: Dim>(x: Tensor[R, 1, H; T]) -> Tensor[R, TopK; T] {
+        let logits = router.forward(x)
+        let scores = route<R, 1>(logits)
+        let ranked = ranks<R, 1>(logits)
+        let places = iota<i32>(TopK)
+        let weight[r, k] =
+            sum[e] select(ranked[r, 0, e] == places[k], scores[r, 0, e], cast<T>(0.0))
+        return weight
+    }
+
+    // The chosen experts' gate and up products with their biases, through
+    // the gated activation.
+    fn activate<R: Dim>(
+        gate_up: Tensor[R, TopK, 2 * Inner; T],
+        expert: Tensor[R, TopK; i64],
+    ) -> Tensor[R, TopK, Inner; T] {
+        let up_bias[r, k, o] = gate_up_bias[expert[r, k], o]
+        let biased = gate_up + up_bias
+        let gate = min(biased[..., 0::2], cast<T>(LIMIT))
+        let up = min(max(biased[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
+        return (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))
+    }
+
+    // The chosen experts' down biases, weighed by the router.
+    fn down_bias_of<R: Dim>(
+        weight: Tensor[R, TopK; T],
+        expert: Tensor[R, TopK; i64],
+    ) -> Tensor[R, H; T] {
+        let bias[r, h] = sum[k] weight[r, k] * down_bias[expert[r, k], h]
+        return bias
     }
 
     // The router's probabilities, with zeros outside the top `TopK`.
