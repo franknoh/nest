@@ -33,7 +33,12 @@ export default defineConfig({
   },
   themeConfig: {},
   vite: {
-    resolve: { alias: { "@nest/index.json": resolve(registry, "index.json") } },
+    resolve: {
+      alias: {
+        "@nest/index.json": resolve(registry, "index.json"),
+        "@nest/compare.json": resolve(registry, "bench/compare.json"),
+      },
+    },
     server: { fs: { allow: [resolve(here, ".."), registry] } },
   },
 });

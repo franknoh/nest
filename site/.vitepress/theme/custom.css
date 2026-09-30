@@ -909,6 +909,103 @@ a.nest-row:hover .nest-row-name {
   font-size: 0.8rem;
   color: var(--vp-c-text-3);
 }
+/* What the numbers show: one tile per stack Linnet is measured against. */
+.nest-verdicts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 0.7rem;
+  margin: 0.8rem 0 0.5rem;
+}
+.nest-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 0.85rem 0.7rem;
+  border: 1px solid var(--vp-c-divider);
+  border-top: 3px solid var(--nest-bench-best);
+  border-radius: 0.25rem;
+  background: var(--vp-c-bg-alt);
+}
+.nest-verdict.is-behind {
+  border-top-color: var(--nest-bench-reference);
+}
+.nest-verdict.is-even {
+  border-top-color: var(--nest-bench-linnet);
+}
+.vp-doc .nest-verdicts-title {
+  margin: 1.6rem 0 0;
+  font-size: 0.95rem;
+}
+.nest-verdict-title {
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--vp-c-text-2);
+}
+.nest-verdict-number {
+  font-size: 0.8rem;
+  color: var(--vp-c-text-2);
+}
+.nest-verdict-number strong {
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--vp-c-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.nest-verdict-measure {
+  font-size: 0.72rem;
+  color: var(--vp-c-text-3);
+}
+.vp-doc .nest-verdict ul {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+.vp-doc .nest-verdict li {
+  margin: 0;
+  padding: 0.3rem 0 0;
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--vp-c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.vp-doc .nest-verdict li + li {
+  margin-top: 0.3rem;
+}
+.nest-verdict li > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.nest-verdict li > span > span:last-child {
+  white-space: nowrap;
+}
+.nest-verdict .is-linnet {
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+}
+.nest-bench-head line {
+  stroke: var(--vp-c-divider);
+  stroke-width: 1;
+}
+.nest-bench-head text {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  fill: var(--vp-c-text-3);
+}
+.nest-bench-table .nest-bench-group th {
+  text-align: left;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-3);
+  background: var(--vp-c-bg-soft);
+}
+
 .nest-bench-legend {
   display: flex;
   flex-wrap: wrap;
