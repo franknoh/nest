@@ -61,13 +61,13 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 7.2396425530314445,
-        "transcribe_ms": 232.2000926360488,
-        "load_s": 1.9374510757625103,
-        "peak_vram_mib": 4122.0
+        "encode_ms": 7.340836804360151,
+        "transcribe_ms": 338.20221992209554,
+        "load_s": 2.0714575983583927,
+        "peak_vram_mib": 5448.0
       },
-      "max_abs_diff": 2.1484375,
-      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "max_abs_diff": 1.125,
+      "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-torch"
     },
@@ -75,13 +75,13 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 6.375475786626339,
-        "transcribe_ms": 129.30471915751696,
-        "load_s": 2.0393169708549976,
-        "peak_vram_mib": 4686.0
+        "encode_ms": 5.629597697407007,
+        "transcribe_ms": 67.41623114794493,
+        "load_s": 2.004842147231102,
+        "peak_vram_mib": 5632.0
       },
-      "max_abs_diff": 3.7705078125,
-      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "max_abs_diff": 4.5703125,
+      "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-cudagraphs"
     },
@@ -89,13 +89,13 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 6.576583720743656,
-        "transcribe_ms": 172.97762166708708,
-        "load_s": 2.092629048973322,
-        "peak_vram_mib": 4128.0
+        "encode_ms": 6.58007524907589,
+        "transcribe_ms": 159.25538539886475,
+        "load_s": 2.0097391046583652,
+        "peak_vram_mib": 5492.0
       },
-      "max_abs_diff": 3.7705078125,
-      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate()",
+      "max_abs_diff": 4.5703125,
+      "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-inductor"
     },
@@ -103,13 +103,14 @@
       "method": "Linnet JAX (XLA, StableHLO)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 12.00746651738882,
-        "load_s": 2.074414875358343,
-        "peak_vram_mib": 3263.9,
-        "driver_vram_mib": 4720.0
+        "encode_ms": 13.293105643242598,
+        "transcribe_ms": 158.18366827443242,
+        "load_s": 2.5020762206986547,
+        "peak_vram_mib": 3697.1,
+        "driver_vram_mib": 4740.0
       },
-      "max_abs_diff": 3.78125,
-      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate(); transcription not timed: one XLA program per prefix length without a cache; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "max_abs_diff": 3.2890625,
+      "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax"
     },
@@ -117,13 +118,14 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 7.857948541641235,
-        "load_s": 2.516401605680585,
-        "peak_vram_mib": 3177.3,
-        "driver_vram_mib": 4720.0
+        "encode_ms": 9.26947221159935,
+        "transcribe_ms": 155.57878138497472,
+        "load_s": 2.674152670428157,
+        "peak_vram_mib": 3614.2,
+        "driver_vram_mib": 4736.0
       },
-      "max_abs_diff": 16.2734375,
-      "notes": "Linnet's decode has no KV cache: it recomputes the whole token prefix every step, unlike the reference's generate(); transcription not timed: one XLA program per prefix length without a cache; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "max_abs_diff": 16.263671875,
+      "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax-source"
     },
@@ -131,12 +133,13 @@
       "method": "Linnet ONNX f32 -> ONNX Runtime (CUDA)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 25.348283350467682,
-        "load_s": 0.30011812411248684,
-        "peak_vram_mib": 4462.0
+        "encode_ms": 25.25244653224945,
+        "transcribe_ms": 158.34852773696184,
+        "load_s": 0.24869217164814472,
+        "peak_vram_mib": 12022.0
       },
-      "max_abs_diff": 3.7822418212890625,
-      "notes": "f32; ONNX Runtime's CUDA execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "max_abs_diff": 4.8056793212890625,
+      "notes": "f32; ONNX Runtime's CUDA execution provider; first calls build the sessions; transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-onnx-f32"
     },
@@ -144,12 +147,13 @@
       "method": "Linnet ONNX f32 -> ONNX Runtime (TensorRT)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 25.212761014699936,
-        "load_s": 0.29255759343504906,
-        "peak_vram_mib": 4462.0
+        "encode_ms": 25.001354981213808,
+        "transcribe_ms": 250.2225381322205,
+        "load_s": 0.24531798344105482,
+        "peak_vram_mib": 18440.0
       },
-      "max_abs_diff": 3.7822418212890625,
-      "notes": "f32; ONNX Runtime's TensorRT execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "max_abs_diff": 4.8056793212890625,
+      "notes": "f32; ONNX Runtime's TensorRT execution provider; first calls build the sessions; transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-onnx-f32-trt"
     },
@@ -157,12 +161,13 @@
       "method": "Linnet ONNX f16 -> ONNX Runtime (CUDA)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 15.291433781385422,
-        "load_s": 0.33413107320666313,
-        "peak_vram_mib": 2720.0
+        "encode_ms": 28.81768671795726,
+        "transcribe_ms": 153.90245476737618,
+        "load_s": 0.24280712846666574,
+        "peak_vram_mib": 7756.0
       },
-      "max_abs_diff": 0.681640625,
-      "notes": "f16; ONNX Runtime's CUDA execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "max_abs_diff": 0.636474609375,
+      "notes": "f16; ONNX Runtime's CUDA execution provider; first calls build the sessions; transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-onnx-f16"
     },
@@ -170,12 +175,13 @@
       "method": "Linnet ONNX f16 -> ONNX Runtime (TensorRT)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 5.522940307855606,
-        "load_s": 0.29458601027727127,
-        "peak_vram_mib": 4806.0
+        "encode_ms": 5.420684814453125,
+        "transcribe_ms": 193.60361387953162,
+        "load_s": 0.24492099788039923,
+        "peak_vram_mib": 11168.0
       },
-      "max_abs_diff": 3.4990234375,
-      "notes": "f16; ONNX Runtime's TensorRT execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "max_abs_diff": 3.9921875,
+      "notes": "f16; ONNX Runtime's TensorRT execution provider; first calls build the sessions; transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-onnx-f16-trt"
     },
@@ -183,12 +189,13 @@
       "method": "Linnet ONNX bf16 -> ONNX Runtime (CUDA)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 19.826055504381657,
-        "load_s": 0.29910324327647686,
-        "peak_vram_mib": 2722.0
+        "encode_ms": 21.007349248975515,
+        "transcribe_ms": 159.69179524108768,
+        "load_s": 0.24099965393543243,
+        "peak_vram_mib": 8864.0
       },
-      "max_abs_diff": 11.9375,
-      "notes": "bf16; ONNX Runtime's CUDA execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "max_abs_diff": 15.03515625,
+      "notes": "bf16; ONNX Runtime's CUDA execution provider; first calls build the sessions; transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-onnx-bf16"
     },
@@ -196,12 +203,13 @@
       "method": "Linnet ONNX bf16 -> ONNX Runtime (TensorRT)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 6.059545092284679,
-        "load_s": 0.2839550916105509,
-        "peak_vram_mib": 4806.0
+        "encode_ms": 6.134360563009977,
+        "transcribe_ms": 202.09650788456202,
+        "load_s": 0.2431494677439332,
+        "peak_vram_mib": 10936.0
       },
-      "max_abs_diff": 14.140625,
-      "notes": "bf16; ONNX Runtime's TensorRT execution provider; first calls build the sessions; encoder only: decode has no KV cache",
+      "max_abs_diff": 14.21875,
+      "notes": "bf16; ONNX Runtime's TensorRT execution provider; first calls build the sessions; transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each",
       "error": null,
       "key": "linnet-onnx-bf16-trt"
     }

@@ -243,12 +243,18 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     load_s = time.perf_counter() - start
 
     def call(images: Any) -> Any:
-        output = model(jnp.asarray(images.float().numpy()).astype(jax_dtype))
+        output = model(images)
         jax.block_until_ready(output)
         return output
 
-    images1 = canonical_images(data, workload, LATENCY_BATCH)
-    images32 = canonical_images(data, workload, THROUGHPUT_BATCH)
+    # On the device in the run's dtype before timing, as the torch rows'
+    # images are: converting and copying them in every call timed the host.
+    images1 = jax.device_put(
+        jnp.asarray(canonical_images(data, workload, LATENCY_BATCH).float().numpy(), jax_dtype)
+    )
+    images32 = jax.device_put(
+        jnp.asarray(canonical_images(data, workload, THROUGHPUT_BATCH).float().numpy(), jax_dtype)
+    )
     warmup = int(workload["warmup"])
     iters = int(workload["iters"])
     latency_ms = median_ms(lambda: call(images1), lambda: None, warmup, iters)

@@ -35,7 +35,8 @@ class TritonPythonModel:
             cast_dtype=True,
         )
         self.engine = Engine(model)
-        self.engine.warmup(range(16, GENERICS["MaxSeq"], 128))
+        # Every prompt length the engine compiles, so no request waits on one.
+        self.engine.warmup(self.engine.buckets)
         self.incoming = queue.Queue()
         self.running = True
         self.worker = threading.Thread(target=self.loop, daemon=True)

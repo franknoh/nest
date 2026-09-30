@@ -133,12 +133,12 @@
       "method": "Linnet ONNX f32 -> ONNX Runtime (CUDA)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 36.13997047068551,
-        "throughput_per_s": 29.18813977286808,
-        "load_s": 0.28126382402842864,
-        "peak_vram_mib": 78976.0
+        "latency_ms": 24.69853451475501,
+        "throughput_per_s": 49.0535573243936,
+        "load_s": 0.2650200417265296,
+        "peak_vram_mib": 26942.0
       },
-      "max_abs_diff": 0.039380550384521484,
+      "max_abs_diff": 0.03966502845287323,
       "notes": "f32; ONNX Runtime's CUDA execution provider; first calls build the sessions",
       "error": null,
       "key": "linnet-onnx-f32"
@@ -147,12 +147,12 @@
       "method": "Linnet ONNX f32 -> ONNX Runtime (TensorRT)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 36.09991999110207,
-        "throughput_per_s": 29.192901446846705,
-        "load_s": 0.2540425619808957,
-        "peak_vram_mib": 78932.0
+        "latency_ms": 13.719194568693638,
+        "throughput_per_s": 71.17127329554906,
+        "load_s": 0.2420487180352211,
+        "peak_vram_mib": 11810.0
       },
-      "max_abs_diff": 0.039380550384521484,
+      "max_abs_diff": 0.03982146084308624,
       "notes": "f32; ONNX Runtime's TensorRT execution provider; first calls build the sessions",
       "error": null,
       "key": "linnet-onnx-f32-trt"
@@ -161,12 +161,12 @@
       "method": "Linnet ONNX f16 -> ONNX Runtime (CUDA)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 31.82628148351796,
-        "throughput_per_s": 33.53226264311669,
-        "load_s": 0.27045087999431416,
-        "peak_vram_mib": 53284.0
+        "latency_ms": 20.964902825653553,
+        "throughput_per_s": 68.98890739471747,
+        "load_s": 0.24249091278761625,
+        "peak_vram_mib": 13338.0
       },
-      "max_abs_diff": 0.038818359375,
+      "max_abs_diff": 0.0379638671875,
       "notes": "f16; ONNX Runtime's CUDA execution provider; first calls build the sessions",
       "error": null,
       "key": "linnet-onnx-f16"
@@ -175,12 +175,12 @@
       "method": "Linnet ONNX f16 -> ONNX Runtime (TensorRT)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 31.817577488254756,
-        "throughput_per_s": 33.53332089152423,
-        "load_s": 0.253577665949706,
-        "peak_vram_mib": 53380.0
+        "latency_ms": 5.413785111159086,
+        "throughput_per_s": 198.65953267683375,
+        "load_s": 0.2381060104817152,
+        "peak_vram_mib": 8788.0
       },
-      "max_abs_diff": 0.038818359375,
+      "max_abs_diff": 0.043212890625,
       "notes": "f16; ONNX Runtime's TensorRT execution provider; first calls build the sessions",
       "error": null,
       "key": "linnet-onnx-f16-trt"
@@ -189,12 +189,12 @@
       "method": "Linnet ONNX bf16 -> ONNX Runtime (CUDA)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 41.612501023337245,
-        "throughput_per_s": 26.11529202643075,
-        "load_s": 0.2465983449947089,
-        "peak_vram_mib": 62590.0
+        "latency_ms": 28.114710934460163,
+        "throughput_per_s": 42.060546343285914,
+        "load_s": 0.24200607649981976,
+        "peak_vram_mib": 21742.0
       },
-      "max_abs_diff": 0.060546875,
+      "max_abs_diff": 0.056640625,
       "notes": "bf16; ONNX Runtime's CUDA execution provider; first calls build the sessions",
       "error": null,
       "key": "linnet-onnx-bf16"
@@ -203,10 +203,10 @@
       "method": "Linnet ONNX bf16 -> ONNX Runtime (TensorRT)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 24.158223008271307,
-        "throughput_per_s": 26.12828968399999,
-        "load_s": 0.2588870140025392,
-        "peak_vram_mib": 64216.0
+        "latency_ms": 12.522325851023197,
+        "throughput_per_s": 78.14133330442961,
+        "load_s": 0.24206591118127108,
+        "peak_vram_mib": 10708.0
       },
       "max_abs_diff": 0.03515625,
       "notes": "bf16; ONNX Runtime's TensorRT execution provider; first calls build the sessions",

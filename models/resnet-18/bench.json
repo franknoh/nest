@@ -103,11 +103,11 @@
       "method": "Linnet JAX (XLA, StableHLO)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 1.221924088895321,
-        "throughput_per_s": 4383.418098092357,
-        "load_s": 0.3452433329075575,
-        "peak_vram_mib": 446.0,
-        "driver_vram_mib": 1138.0
+        "latency_ms": 0.6447909399867058,
+        "throughput_per_s": 32230.026558081794,
+        "load_s": 0.3718865728005767,
+        "peak_vram_mib": 443.9,
+        "driver_vram_mib": 1142.0
       },
       "max_abs_diff": 0.03125,
       "notes": "bf16, like the torch rows; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -118,11 +118,11 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 1.4325855299830437,
-        "throughput_per_s": 4177.80188654239,
-        "load_s": 0.4489681050181389,
-        "peak_vram_mib": 510.0,
-        "driver_vram_mib": 1138.0
+        "latency_ms": 1.0999972000718117,
+        "throughput_per_s": 31052.71714970759,
+        "load_s": 0.4325738847255707,
+        "peak_vram_mib": 512.5,
+        "driver_vram_mib": 1142.0
       },
       "max_abs_diff": 0.03125,
       "notes": "bf16, like the torch rows; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",

@@ -90,14 +90,17 @@ where
         return mixed + linear(scores, permute(down_bias, [1, 0]))
     }
 
-    // One token per row through its `TopK` experts only: each row's chosen
-    // experts multiply it (`linear_experts`), `TopK / Experts` of the dense
-    // form's work (an eighth here). The dequantization reads nothing but
-    // weights, so a runtime that prepares weight-only work (`linnet torch
-    // --prepare`) does it once at load; each step then reads four experts,
-    // on CUDA with one grouped matrix product that reads them where they
-    // lie. In a large batch every expert is chosen by someone, and the dense
-    // form reads each once.
+    // One token per row through its `TopK` experts only, `TopK / Experts` of
+    // the dense form's work (an eighth here). The dequantization reads
+    // nothing but weights, so a runtime that prepares weight-only work
+    // (`linnet torch --prepare`) does it once at load; each step then reads
+    // four experts. The gate and up projections take the one input all four
+    // share, written as a contraction over the gathered weights, which XLA
+    // and inductor each fuse into one pass over them; the down projection's
+    // inputs differ per expert, so it is `linear_experts`, on CUDA one
+    // grouped matrix product that reads the experts where they lie. In a
+    // large batch every expert is chosen by someone, and the dense form reads
+    // each once.
     pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
         let logits = router.forward(x)
         let scores = route<B, 1>(logits)
@@ -114,9 +117,10 @@ where
             gate_up_blocks,
             gate_up_scales,
         )
-        let inputs = broadcast_to(x, [B, TopK, H])
+        let up_weight[b, k, o, h] = gate_up_all[expert[b, k], o, h]
         let up_bias[b, k, o] = gate_up_bias[expert[b, k], o]
-        let biased = linear_experts(inputs, gate_up_all, expert) + up_bias
+        let gate_up[b, k, o] = sum<f32>[h] cast<f32>(x[b, 0, h]) * cast<f32>(up_weight[b, k, o, h])
+        let biased = cast<T>(gate_up) + up_bias
         let gate = min(biased[..., 0::2], cast<T>(LIMIT))
         let up = min(max(biased[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
         let activated = (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))

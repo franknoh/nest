@@ -139,14 +139,17 @@ window is the whole cache. `prefill_slots` and `decode_rows` are what
 `linnet.serve` batches continuously.
 
 A decoded token reads the experts differently from a prompt. `decode` routes
-through `MixtureOfExperts.forward_topk`: each token's four chosen experts
-multiply it (`std.nn.moe::linear_experts`), an eighth of the dense form's
-work. The dequantization reads nothing but weights, so PyTorch does it once
-at load (`--prepare`), and on CUDA the four products are one grouped matrix
-product that reads the chosen experts' weights where they lie. `decode_rows`
-keeps the dense form, since in a batch of rows every expert is chosen by
-someone and the dense form reads each once. Reading the experts as MXFP4
-rather than dequantized would take a fused kernel.
+through `MixtureOfExperts.forward_topk`: only each token's four chosen
+experts multiply it, an eighth of the dense form's work. The dequantization
+reads nothing but weights, so PyTorch does it once at load (`--prepare`).
+The gate and up projections share the token's one input and are written as
+a contraction over the gathered weights, which XLA and inductor fuse into
+one pass; the down projection's inputs differ per expert, so it is
+`std.nn.moe::linear_experts`, on CUDA one grouped matrix product that reads
+the chosen experts where they lie. `decode_rows` keeps the dense form, since
+in a batch of rows every expert is chosen by someone and the dense form
+reads each once. Reading the experts as MXFP4 rather than dequantized would
+take a fused kernel.
 
 ## Validation
 

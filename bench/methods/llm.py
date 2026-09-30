@@ -427,23 +427,32 @@ def _onnx_run(
     ids = np.asarray([prompt_ids(data, workload)], dtype=np.int32)
     new = int(workload["new_tokens"])
     length = ids.shape[1]
+    # A step replays as a CUDA graph on the CUDA provider; TensorRT's rows
+    # stay on TensorRT, which a captured session would leave.
+    first_provider = model.providers[0]
+    graphed = (
+        first_provider if isinstance(first_provider, str) else first_provider[0]
+    ) == "CUDAExecutionProvider"
 
     def first() -> Any:
         return model.run_entry("prefill", [ids, np.int32(0)])
 
+    def first_chosen() -> Any:
+        return model.run_entry("prefill", [ids, np.int32(0)], argmax=True)
+
     def generate() -> float:
-        token = np.asarray(first()).argmax(-1).reshape(1, 1).astype(np.int32)
+        token = np.asarray(first_chosen()).reshape(1, 1).astype(np.int32)
         begin = time.perf_counter()
         for step in range(new - 1):
-            logits = model.run_entry("decode", [token, np.int32(length + step)])
-            token = np.asarray(logits).argmax(-1).reshape(1, 1).astype(np.int32)
+            chosen = model.run_entry(
+                "decode", [token, np.int32(length + step)], argmax=True, cuda_graph=graphed
+            )
+            token = np.asarray(chosen).reshape(1, 1).astype(np.int32)
         return (new - 1) / (time.perf_counter() - begin)
 
     for _ in range(int(workload["warmup"])):
         generate()
-    ttft = median_ms(
-        lambda: np.asarray(first()).argmax(-1), lambda: None, 0, int(workload["iters"])
-    )
+    ttft = median_ms(lambda: np.asarray(first_chosen()), lambda: None, 0, int(workload["iters"]))
     rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
     return {"ttft_ms": ttft, "decode_tok_s": rate}, np.asarray(first())[0]
 
@@ -663,7 +672,8 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
         _onnx_run,
         save_logits,
         generics=_onnx_generics,
-        note="logits copied to the host each step for the argmax",
+        note="the argmax taken in the graph, each step replayed as a CUDA graph on the CUDA "
+        "provider",
     ),
     **SERVING,
     **EXPORTS,

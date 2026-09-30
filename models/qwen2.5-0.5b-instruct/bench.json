@@ -61,11 +61,11 @@
       "method": "vLLM",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 11.245503090322018,
-        "decode_tok_s": 813.5583204729191,
-        "load_s": 37.83413271419704,
+        "ttft_ms": 9.322373196482658,
+        "decode_tok_s": 510.9727021599524,
+        "load_s": 21.666182440705597,
         "first_token": 13.0,
-        "peak_vram_mib": 70740.8
+        "peak_vram_mib": 70818.8
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
@@ -90,10 +90,10 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 2.4590445682406425,
-        "decode_tok_s": 611.4589523285342,
-        "load_s": 0.8143681287765503,
-        "peak_vram_mib": 2198.0
+        "ttft_ms": 1.873834989964962,
+        "decode_tok_s": 915.912877983742,
+        "load_s": 0.8440422592684627,
+        "peak_vram_mib": 2330.0
       },
       "max_abs_diff": 0.1796875,
       "notes": "KV cache compiled for 768 positions",
@@ -133,13 +133,13 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 4.765767604112625,
-        "decode_tok_s": 462.46769928677764,
-        "load_s": 0.8173200525343418,
-        "peak_vram_mib": 1578.4,
-        "driver_vram_mib": 2674.0
+        "ttft_ms": 3.3798683434724808,
+        "decode_tok_s": 457.05901489648426,
+        "load_s": 0.7203451972454786,
+        "peak_vram_mib": 1572.0,
+        "driver_vram_mib": 2672.0
       },
-      "max_abs_diff": 0.171875,
+      "max_abs_diff": 0.234375,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax-source"
@@ -247,10 +247,10 @@
       "method": "vLLM (offline, continuous batching)",
       "kind": "reference",
       "metrics": {
-        "serve_tok_s": 24599.206225927253,
-        "serve_s": 1.3320755027234554,
-        "load_s": 26.707573123276234,
-        "peak_vram_mib": 69810.8
+        "serve_tok_s": 18828.150272560866,
+        "serve_s": 1.7403727676719427,
+        "load_s": 18.310222055763006,
+        "peak_vram_mib": 69678.8
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.85",
@@ -305,11 +305,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 21937.189801653964,
-        "serve_s": 1.4937191270291805,
-        "load_s": 2.249090177938342,
-        "serve_ttft_ms": 610.9049851074815,
-        "peak_vram_mib": 2918.0
+        "serve_tok_s": 26638.89237840404,
+        "serve_s": 1.2300811735913157,
+        "load_s": 4.992904777638614,
+        "serve_ttft_ms": 614.063904620707,
+        "peak_vram_mib": 3128.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -320,12 +320,12 @@
       "method": "Linnet jax (linnet.serve, XLA)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 8764.529148096377,
-        "serve_s": 3.738706260919571,
-        "load_s": 1.3164045624434948,
-        "serve_ttft_ms": 1498.7530186772346,
-        "peak_vram_mib": 2147.0,
-        "driver_vram_mib": 4746.0
+        "serve_tok_s": 29017.85056115599,
+        "serve_s": 1.1292359484359622,
+        "load_s": 2.7512129386886954,
+        "serve_ttft_ms": 570.5343200825155,
+        "peak_vram_mib": 2149.1,
+        "driver_vram_mib": 4792.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -336,11 +336,11 @@
       "method": "Linnet onnx (linnet.serve, ONNX Runtime, f16)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 970.1717567790357,
-        "serve_s": 33.775462716817856,
-        "load_s": 0.2898914609104395,
-        "serve_ttft_ms": 12564.077057875693,
-        "peak_vram_mib": 7998.0
+        "serve_tok_s": 13227.26884516834,
+        "serve_s": 2.477306568995118,
+        "load_s": 0.25077642500400543,
+        "serve_ttft_ms": 1105.1781452260911,
+        "peak_vram_mib": 10372.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -351,16 +351,61 @@
       "method": "Triton Inference Server (Python backend, linnet.serve)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 13539.47687537681,
-        "serve_s": 2.420182131230831,
-        "load_s": 13.026686657220125,
-        "serve_ttft_ms": 1097.4618820473552,
-        "peak_vram_mib": 3554.4
+        "serve_tok_s": 12755.34316290078,
+        "serve_s": 2.5689626364037395,
+        "load_s": 25.050482819788158,
+        "serve_ttft_ms": 1416.4857468567789,
+        "peak_vram_mib": 3784.4
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",
       "error": null,
       "key": "serve-triton-linnet"
+    },
+    {
+      "method": "Linnet -> llama.cpp (GGUF, f16)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 5.949413322821142,
+        "decode_tok_s": 766.983501,
+        "load_s": 11.983776700682938,
+        "peak_vram_mib": 1950.8
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.gguf.export, then llama-bench with every layer on the GPU; the first token is the prompt at llama-bench's prompt rate",
+      "error": null,
+      "key": "linnet-llamacpp"
+    },
+    {
+      "method": "Linnet -> vLLM",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 12.188578955829144,
+        "decode_tok_s": 510.20422256728494,
+        "load_s": 39.15125427953899,
+        "first_token": 13.0,
+        "peak_vram_mib": 70740.8,
+        "driver_vram_mib": 70740.8
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.hf.export (2 s), then vLLM on the exported checkpoint; reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
+      "error": null,
+      "key": "linnet-vllm"
+    },
+    {
+      "method": "Linnet -> vLLM (offline, continuous batching)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 26247.5853553564,
+        "serve_s": 1.2484195996075869,
+        "load_s": 29.64677148591727,
+        "peak_vram_mib": 69350.8,
+        "driver_vram_mib": 69350.8
+      },
+      "max_abs_diff": null,
+      "notes": "linnet.hf.export (0 s), then vLLM (offline, continuous batching) on the exported checkpoint; 256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.85",
+      "error": null,
+      "key": "serve-linnet-vllm"
     }
   ],
   "reference": "transformers-eager"

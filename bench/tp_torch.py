@@ -6,6 +6,7 @@ reads."""
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import statistics
@@ -37,10 +38,10 @@ def main() -> None:
         backend="torch",
         device=f"cuda:{rank}",
         numerics="fast",
-        # Inductor traces DTensor: eager generated code runs every op
-        # through DTensor's Python dispatch, 8x slower. CUDA graphs hang
-        # with NCCL here.
-        compile="inductor",
+        # Each step captured as one CUDA graph, its all-reduces inside:
+        # eager generated code would run every op through DTensor's Python
+        # dispatch, and inductor alone launches each kernel from the host.
+        compile="reduce-overhead",
         generics=cache_generics(data, max_seq(workload)),
         cast_dtype=True,
         tensor_parallel=mesh,
@@ -79,11 +80,16 @@ def main() -> None:
             f"Linnet torch (tensor parallel on {world} GPUs, DTensor)",
             "linnet",
             {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
-            notes=f"one process per GPU under torchrun, NCCL, inductor; KV cache compiled for "
+            notes=f"one process per GPU under torchrun, NCCL, CUDA graphs; KV cache compiled for "
             f"{max_seq(workload)} positions",
             key="linnet-tp-torch",
         )
         print("RESULT " + json.dumps(asdict(result)), flush=True)
+    # The captured graphs hold the process group's communicators: let go of
+    # them first, or tearing the group down waits on them.
+    model = None
+    gc.collect()
+    torch.cuda.synchronize()
     dist.destroy_process_group()
 
 
