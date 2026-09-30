@@ -81,10 +81,12 @@ this op's body; `linnet explain` says whether one did.
 
 The reference gathers the tokens each expert was chosen for and runs the
 experts one at a time. That needs indices whose *values* decide which rows are
-read, which the language has no shapes for. `src/experts.linnet` instead
-evaluates every expert on every token and weighs the results by the router's
+read, which the language has no shapes for. `MixtureOfExperts.forward` in
+`src/experts.linnet`, the whole-sequence reference entry, instead evaluates
+every expert on every token and weighs the results by the router's
 probabilities, which are exactly zero outside the top four, so the sum is the
-same and costs eight times the arithmetic.
+same and costs eight times the arithmetic. The entries that serve prompts and
+decoded tokens route through library ops a backend can run sparsely (below).
 
 Both expert projections go through `std.nn.linear::linear` with the weight
 flattened rather than through a contraction with a free expert axis. That is
@@ -138,7 +140,17 @@ caches every position and masks all but the last 128 of them; the full layers'
 window is the whole cache. `prefill_slots` and `decode_rows` are what
 `linnet.serve` batches continuously.
 
-A decoded token reads the experts differently from a prompt. `decode` routes
+A prompt's tokens take the same route. `prefill` and `prefill_slots` go
+through `MixtureOfExperts.forward_routed`, where every token is a row of its
+own: `std.nn.moe::linear_experts_shared` for the gate and up projections,
+which read the token's one input, and `std.nn.moe::combine_experts` for the
+down projection with the router's weights. The ops' bodies are the dense
+form's work, which XLA and ONNX Runtime run as before; on CUDA, PyTorch runs
+each as one grouped matrix product over the tokens sorted by expert, each
+expert multiplying only the tokens that chose it. On an H100, the first
+token of a 512-token prompt takes 30.6 ms with CUDA graphs, down from 45.7.
+
+A decoded token reads the experts differently again. `decode` routes
 through `MixtureOfExperts.forward_topk`: only each token's four chosen
 experts multiply it, an eighth of the dense form's work. The dequantization
 reads nothing but weights, so PyTorch does it once at load (`--prepare`).
