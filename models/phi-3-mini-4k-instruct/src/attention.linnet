@@ -10,7 +10,7 @@
 module phi3.attention
 
 use crate.rope::{THETA, tables}
-use std.nn.attention::{attention, attention_rows, causal_mask}
+use std.nn.attention::{attention, attention_rows}
 use std.nn.cache::{write_at, write_rows, write_slots, write_span}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
@@ -31,6 +31,24 @@ use std.nn.rope::{rope, rope_rows}
 // already expects `[Out, In]`), and `forward` slices the projected result
 // the way `models/gpt2` slices its fused QKV, rather than splitting the
 // weight in `bindings.json`.
+
+// `sliding_window` in `config.json`: a query attends to itself and the
+// `WINDOW - 1` positions before it, as `transformers` masks every layer.
+// Every position is still cached; the mask leaves out all but the last
+// `WINDOW` of them, which a sequence under that length never notices.
+pub const WINDOW: i32 = 2047
+
+// Keys at or before each query position and no further back than `WINDOW`
+// positions, counting the query itself. `K - Q` aligns the query block with
+// the end of the keys, as `std.nn.attention::causal_mask` does.
+pub fn window_mask<Q: Dim, K: Dim>() -> Tensor[Q, K; bool] {
+    let queries = iota<i32>(Q)
+    let keys = iota<i32>(K)
+    let offset = cast<i32>(K - Q)
+    let mask[q, k] = keys[k] <= queries[q] + offset && keys[k] > queries[q] + offset - WINDOW
+    return mask
+}
+
 pub block Attention<H: Dim, Heads: Dim, Batch: Dim, MaxSeq: Dim, T: Float>
 where
     Heads > 0,
@@ -63,7 +81,7 @@ where
             k,
             v,
             rsqrt(cast<f32>(H / Heads)),
-            some(causal_mask<S, S>()),
+            some(window_mask<S, S>()),
         )
         return o_proj.forward(merge_heads<B, S, Heads, H / Heads, T>(mixed))
     }
@@ -92,7 +110,7 @@ where
         cache_k = write_at(cache_k, k, pos)
         cache_v = write_at(cache_v, v, pos)
         let positions = iota<i32>(MaxSeq)
-        let seen[s] = positions[s] <= pos
+        let seen[s] = positions[s] <= pos && positions[s] > pos - WINDOW
         let mixed = attention(
             q,
             cache_k,
@@ -131,7 +149,8 @@ where
         cache_v = write_span(cache_v, v, pos)
         let positions = iota<i32>(MaxSeq)
         let queries = iota<i32>(S)
-        let seen[i, s] = positions[s] <= pos + queries[i]
+        let seen[i, s] =
+            positions[s] <= pos + queries[i] && positions[s] > pos + queries[i] - WINDOW
         let mixed = attention(q, cache_k, cache_v, rsqrt(cast<f32>(H / Heads)), some(seen))
         return o_proj.forward(merge_heads<Batch, S, Heads, H / Heads, T>(mixed))
     }
@@ -164,7 +183,7 @@ where
         cache_k = write_rows(cache_k, k, positions)
         cache_v = write_rows(cache_v, v, positions)
         let slots = iota<i32>(MaxSeq)
-        let seen[b, s] = slots[s] <= positions[b]
+        let seen[b, s] = slots[s] <= positions[b] && slots[s] > positions[b] - WINDOW
         let mixed = attention_rows(
             q,
             cache_k,
@@ -208,7 +227,7 @@ where
             k,
             v,
             rsqrt(cast<f32>(H / Heads)),
-            some(causal_mask<S, S>()),
+            some(window_mask<S, S>()),
         )
         return o_proj.forward(merge_heads<M, S, Heads, H / Heads, T>(mixed))
     }
