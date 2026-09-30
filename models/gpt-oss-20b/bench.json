@@ -76,10 +76,10 @@
       "method": "Linnet torch (generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 89.68058449681848,
-        "decode_tok_s": 20.63387978640501,
-        "load_s": 2.6797778210020624,
-        "peak_vram_mib": 53858.0
+        "ttft_ms": 89.98703537508845,
+        "decode_tok_s": 25.48134065162181,
+        "load_s": 2.537807548418641,
+        "peak_vram_mib": 54578.0
       },
       "max_abs_diff": 0.1953125,
       "notes": "KV cache compiled for 768 positions",
@@ -90,12 +90,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 45.37069451180287,
-        "decode_tok_s": 79.15795324776988,
-        "load_s": 2.5535397530184127,
-        "peak_vram_mib": 53852.0
+        "ttft_ms": 44.45310356095433,
+        "decode_tok_s": 202.96469367320776,
+        "load_s": 2.507439020089805,
+        "peak_vram_mib": 54574.0
       },
-      "max_abs_diff": 0.0625,
+      "max_abs_diff": 0.06640625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -104,12 +104,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 45.842231484130025,
-        "decode_tok_s": 76.2734649232162,
-        "load_s": 2.509028491040226,
-        "peak_vram_mib": 53854.0
+        "ttft_ms": 45.784367714077234,
+        "decode_tok_s": 155.2307350754984,
+        "load_s": 2.718522840179503,
+        "peak_vram_mib": 54574.0
       },
-      "max_abs_diff": 0.0625,
+      "max_abs_diff": 0.06640625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-inductor"
@@ -133,13 +133,13 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 47.83724248409271,
-        "decode_tok_s": 217.4895986928134,
-        "load_s": 8.339538107975386,
-        "peak_vram_mib": 51645.5,
+        "ttft_ms": 47.35214961692691,
+        "decode_tok_s": 298.7225966622018,
+        "load_s": 9.089660670608282,
+        "peak_vram_mib": 51737.8,
         "driver_vram_mib": 66164.0
       },
-      "max_abs_diff": 0.0625,
+      "max_abs_diff": 0.21875,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax-source"
@@ -284,11 +284,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 765.4074916452457,
-        "serve_s": 42.811182746023405,
-        "load_s": 3.896462078031618,
-        "serve_ttft_ms": 17779.03667301871,
-        "peak_vram_mib": 58812.0
+        "serve_tok_s": 790.5247505298041,
+        "serve_s": 41.450947586447,
+        "load_s": 6.693862479180098,
+        "serve_ttft_ms": 18268.297859467566,
+        "peak_vram_mib": 61072.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -299,12 +299,12 @@
       "method": "Linnet jax (linnet.serve, XLA)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 1389.1218987163538,
-        "serve_s": 23.58900254202308,
-        "load_s": 8.342572114022914,
-        "serve_ttft_ms": 9900.940419029212,
-        "peak_vram_mib": 56187.9,
-        "driver_vram_mib": 66214.0
+        "serve_tok_s": 1662.7005373614472,
+        "serve_s": 19.70769796706736,
+        "load_s": 11.053593276068568,
+        "serve_ttft_ms": 8592.068316414952,
+        "peak_vram_mib": 56188.0,
+        "driver_vram_mib": 66294.0
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -315,7 +315,7 @@
       "method": "serve-linnet-onnx",
       "kind": "reference",
       "metrics": {
-        "peak_vram_mib": 80792.0
+        "peak_vram_mib": 81028.0
       },
       "max_abs_diff": null,
       "notes": "",
@@ -326,11 +326,11 @@
       "method": "Triton Inference Server (Python backend, linnet.serve)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 746.286239800306,
-        "serve_s": 43.90808546700282,
-        "load_s": 25.035817388969008,
-        "serve_ttft_ms": 18376.38907346991,
-        "peak_vram_mib": 61216.4
+        "serve_tok_s": 769.622535528627,
+        "serve_s": 42.57671584095806,
+        "load_s": 62.08477358147502,
+        "serve_ttft_ms": 17705.71764325723,
+        "peak_vram_mib": 63224.4
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",
