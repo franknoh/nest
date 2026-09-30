@@ -198,22 +198,44 @@ def triton(
                     local.client = httpclient.InferenceServerClient(host)
                 return local.client
 
+            # Each model's output, asked for once: fetching the metadata in
+            # every request would add a second round trip to each one.
+            outputs = {
+                batch: client_here().get_model_metadata(f"b{batch}")["outputs"][0]["name"]
+                for batch in (low, high)
+            }
+
+            # The inputs, made once: a client has its data before it asks, and
+            # making a batch of images inside each request timed the host's
+            # random number generator along with the server.
+            arrays = {
+                batch: [np.ascontiguousarray(a) for a in adapter.inputs(batch)]
+                for batch in (low, high)
+            }
+
+            def ports(batch: int) -> list[Any]:
+                made = local.__dict__.setdefault("ports", {})
+                if batch not in made:
+                    made[batch] = []
+                    for name, array in zip(names[batch], arrays[batch], strict=True):
+                        port = httpclient.InferInput(
+                            name, list(array.shape), _triton_dtype(array.dtype)
+                        )
+                        port.set_data_from_numpy(array, binary_data=True)
+                        made[batch].append(port)
+                return made[batch]
+
             def request(_unused: Any, batch: int) -> Any:
                 client = client_here()
-                arrays = adapter.inputs(batch)
-                inputs = []
-                for name, array in zip(names[batch], arrays, strict=True):
-                    port = httpclient.InferInput(
-                        name, list(array.shape), _triton_dtype(np.asarray(array).dtype)
-                    )
-                    port.set_data_from_numpy(np.ascontiguousarray(array), binary_data=True)
-                    inputs.append(port)
-                return client.infer(f"b{batch}", inputs).as_numpy(
-                    client.get_model_metadata(f"b{batch}")["outputs"][0]["name"]
-                )
+                wanted = [httpclient.InferRequestedOutput(outputs[batch], binary_data=True)]
+                result = client.infer(f"b{batch}", ports(batch), outputs=wanted)
+                return result.as_numpy(outputs[batch])
 
+            # A round trip over HTTP varies by a millisecond from one request
+            # to the next; the median of 10 moved by half of that from run to
+            # run, so the latency takes at least 50.
             warmup, iters = int(workload["warmup"]), int(workload["iters"])
-            latency = median_ms(lambda: request(None, low), lambda: None, warmup, iters)
+            latency = median_ms(lambda: request(None, low), lambda: None, warmup, max(50, iters))
             server.closed_loop(lambda i: request(None, high), 8, 4)
             count = max(16, 4 * iters)
             seconds, _ = server.closed_loop(lambda i: request(None, high), count, 4)
