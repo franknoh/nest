@@ -340,6 +340,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
 
     import jax
     import jax.numpy as jnp
+    import numpy as np
     from linnet import nest
 
     generics = cache_generics(data, max_seq(workload))
@@ -357,23 +358,28 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     new = int(workload["new_tokens"])
     length = ids.shape[1]
 
+    # The next token in one dispatch: eager `argmax`, `reshape` and `astype`
+    # are a dispatch each in JAX, and a step's host time is what a small
+    # decoder waits on. Positions go as NumPy scalars, which the jitted entry
+    # takes as they are; `jnp.int32(p)` runs a conversion on the device first.
+    pick = jax.jit(lambda logits: jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32))
+
     def first() -> Any:
-        return model.run_entry("prefill", [ids, jnp.int32(0)])
+        return model.run_entry("prefill", [ids, np.int32(0)])
 
     def generate() -> float:
-        token = jnp.argmax(first(), -1).reshape(1, 1).astype(jnp.int32)
+        token = pick(first())
         jax.block_until_ready(token)
         begin = time.perf_counter()
         for step in range(new - 1):
-            logits = model.run_entry("decode", [token, jnp.int32(length + step)])
-            token = jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32)
+            token = pick(model.run_entry("decode", [token, np.int32(length + step)]))
         jax.block_until_ready(token)
         return (new - 1) / (time.perf_counter() - begin)
 
     for _ in range(int(workload["warmup"])):
         generate()
     ttft = median_ms(
-        lambda: jax.block_until_ready(jnp.argmax(first(), -1)),
+        lambda: jax.block_until_ready(pick(first())),
         lambda: None,
         0,
         int(workload["iters"]),
