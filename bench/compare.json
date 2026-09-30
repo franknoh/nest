@@ -1,0 +1,447 @@
+{
+  "about": "How the benchmark rows relate, for the pages that draw them (this site's model pages and linnet.franknoh.dev/benchmarks). `groups` sorts every row by where it runs, each stack's own row before Linnet's. `matchups` pair Linnet with the stack it replaces on the same ground: each pair compares the best of `them` with the best of `us` on `metric` (`primary` is the model's own: decode speed, transcription, or batch-1 latency). `parity` matchups ask whether Linnet's export runs the same as the original in someone else's engine. `runtimes` are the places Linnet's rows run, for the coverage table. `labels` name each row briefly.",
+  "groups": [
+    {
+      "id": "pytorch",
+      "title": "PyTorch",
+      "keys": [
+        "transformers-eager",
+        "transformers-compile",
+        "diffusers-eager",
+        "diffusers-compile",
+        "sentence-transformers",
+        "linnet-torch",
+        "linnet-inductor",
+        "linnet-cudagraphs"
+      ]
+    },
+    {
+      "id": "jax",
+      "title": "JAX",
+      "keys": [
+        "keras-hub",
+        "linnet-jax",
+        "linnet-jax-source"
+      ]
+    },
+    {
+      "id": "onnx",
+      "title": "ONNX Runtime and TensorRT",
+      "keys": [
+        "onnx-reference",
+        "linnet-onnx-f32",
+        "linnet-onnx-f16",
+        "linnet-onnx-bf16",
+        "linnet-onnx-f32-trt",
+        "linnet-onnx-f16-trt",
+        "linnet-onnx-bf16-trt"
+      ]
+    },
+    {
+      "id": "engines",
+      "title": "LLM engines",
+      "keys": [
+        "vllm",
+        "linnet-vllm",
+        "sglang",
+        "linnet-sglang",
+        "tgi",
+        "linnet-tgi",
+        "linnet-llamacpp"
+      ]
+    },
+    {
+      "id": "triton",
+      "title": "Triton Inference Server",
+      "keys": [
+        "triton-onnx",
+        "triton-linnet-onnx",
+        "triton-linnet-python"
+      ]
+    },
+    {
+      "id": "multi",
+      "title": "Beyond one GPU",
+      "keys": [
+        "vllm-tp",
+        "linnet-tp-torch",
+        "linnet-tp-jax",
+        "linnet-gpus",
+        "linnet-offload"
+      ]
+    },
+    {
+      "id": "serving",
+      "title": "Serving many requests",
+      "keys": [
+        "serve-vllm",
+        "serve-linnet-torch",
+        "serve-linnet-jax",
+        "serve-linnet-onnx",
+        "serve-linnet-vllm",
+        "serve-sglang",
+        "serve-linnet-sglang",
+        "serve-tgi",
+        "serve-linnet-tgi",
+        "serve-triton-vllm",
+        "serve-triton-linnet",
+        "serve-transformers",
+        "serve-keras-hub"
+      ]
+    }
+  ],
+  "matchups": [
+    {
+      "id": "vllm",
+      "title": "One request at a time, against vLLM",
+      "short": "vs vLLM, one request",
+      "group": null,
+      "metric": "decode_tok_s",
+      "pairs": [
+        {
+          "them": [
+            "vllm"
+          ],
+          "us": [
+            "linnet-cudagraphs",
+            "linnet-jax-source",
+            "linnet-jax",
+            "linnet-inductor",
+            "linnet-torch"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pytorch",
+      "title": "In PyTorch, against the reference implementation",
+      "short": "vs the reference, in PyTorch",
+      "group": "pytorch",
+      "metric": "primary",
+      "pairs": [
+        {
+          "them": [
+            "transformers-compile",
+            "transformers-eager",
+            "diffusers-compile",
+            "diffusers-eager",
+            "sentence-transformers"
+          ],
+          "us": [
+            "linnet-cudagraphs",
+            "linnet-inductor",
+            "linnet-torch"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "jax",
+      "title": "In JAX, against KerasHub",
+      "short": "vs KerasHub, in JAX",
+      "group": "jax",
+      "metric": "primary",
+      "pairs": [
+        {
+          "them": [
+            "keras-hub"
+          ],
+          "us": [
+            "linnet-jax-source",
+            "linnet-jax"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "onnx",
+      "title": "On ONNX Runtime, against the reference's own export",
+      "short": "vs torch.onnx, on ONNX Runtime",
+      "group": "onnx",
+      "metric": "primary",
+      "pairs": [
+        {
+          "them": [
+            "onnx-reference"
+          ],
+          "us": [
+            "linnet-onnx-f32"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "triton",
+      "title": "Behind Triton Inference Server, against the reference's export",
+      "short": "vs torch.onnx, behind Triton",
+      "group": "triton",
+      "metric": "primary",
+      "pairs": [
+        {
+          "them": [
+            "triton-onnx"
+          ],
+          "us": [
+            "triton-linnet-onnx"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "export",
+      "title": "In other engines, Linnet's export against the original checkpoint",
+      "short": "exported to vLLM, SGLang, TGI",
+      "group": "engines",
+      "metric": "decode_tok_s",
+      "parity": true,
+      "pairs": [
+        {
+          "them": [
+            "vllm"
+          ],
+          "us": [
+            "linnet-vllm"
+          ]
+        },
+        {
+          "them": [
+            "sglang"
+          ],
+          "us": [
+            "linnet-sglang"
+          ]
+        },
+        {
+          "them": [
+            "tgi"
+          ],
+          "us": [
+            "linnet-tgi"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tp",
+      "title": "On two GPUs, against vLLM's tensor parallelism",
+      "short": "vs vLLM, two GPUs",
+      "group": "multi",
+      "metric": "decode_tok_s",
+      "pairs": [
+        {
+          "them": [
+            "vllm-tp"
+          ],
+          "us": [
+            "linnet-tp-torch",
+            "linnet-tp-jax"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "serve",
+      "title": "Serving 256 requests, against vLLM",
+      "short": "vs vLLM, serving",
+      "group": "serving",
+      "metric": "serve_tok_s",
+      "pairs": [
+        {
+          "them": [
+            "serve-vllm"
+          ],
+          "us": [
+            "serve-linnet-torch",
+            "serve-linnet-jax",
+            "serve-linnet-onnx"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "serve-export",
+      "title": "Serving in other engines, Linnet's export against the original checkpoint",
+      "short": "exported, serving",
+      "group": "serving",
+      "metric": "serve_tok_s",
+      "parity": true,
+      "pairs": [
+        {
+          "them": [
+            "serve-vllm"
+          ],
+          "us": [
+            "serve-linnet-vllm"
+          ]
+        },
+        {
+          "them": [
+            "serve-sglang"
+          ],
+          "us": [
+            "serve-linnet-sglang"
+          ]
+        },
+        {
+          "them": [
+            "serve-tgi"
+          ],
+          "us": [
+            "serve-linnet-tgi"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "serve-triton",
+      "title": "Serving behind Triton, against its vLLM backend",
+      "short": "vs vLLM, behind Triton",
+      "group": "serving",
+      "metric": "serve_tok_s",
+      "pairs": [
+        {
+          "them": [
+            "serve-triton-vllm"
+          ],
+          "us": [
+            "serve-triton-linnet"
+          ]
+        }
+      ]
+    }
+  ],
+  "runtimes": [
+    {
+      "id": "pytorch",
+      "title": "PyTorch",
+      "keys": [
+        "linnet-torch",
+        "linnet-inductor",
+        "linnet-cudagraphs"
+      ]
+    },
+    {
+      "id": "xla",
+      "title": "XLA",
+      "keys": [
+        "linnet-jax",
+        "linnet-jax-source"
+      ]
+    },
+    {
+      "id": "onnx",
+      "title": "ONNX Runtime",
+      "keys": [
+        "linnet-onnx-f32",
+        "linnet-onnx-f16",
+        "linnet-onnx-bf16"
+      ]
+    },
+    {
+      "id": "tensorrt",
+      "title": "TensorRT",
+      "keys": [
+        "linnet-onnx-f32-trt",
+        "linnet-onnx-f16-trt",
+        "linnet-onnx-bf16-trt"
+      ]
+    },
+    {
+      "id": "triton",
+      "title": "Triton",
+      "keys": [
+        "triton-linnet-onnx",
+        "triton-linnet-python",
+        "serve-triton-linnet"
+      ]
+    },
+    {
+      "id": "serve",
+      "title": "linnet.serve",
+      "keys": [
+        "serve-linnet-torch",
+        "serve-linnet-jax",
+        "serve-linnet-onnx"
+      ]
+    },
+    {
+      "id": "vllm",
+      "title": "vLLM",
+      "keys": [
+        "linnet-vllm",
+        "serve-linnet-vllm"
+      ]
+    },
+    {
+      "id": "sglang",
+      "title": "SGLang",
+      "keys": [
+        "linnet-sglang",
+        "serve-linnet-sglang"
+      ]
+    },
+    {
+      "id": "tgi",
+      "title": "TGI",
+      "keys": [
+        "linnet-tgi",
+        "serve-linnet-tgi"
+      ]
+    },
+    {
+      "id": "llamacpp",
+      "title": "llama.cpp",
+      "keys": [
+        "linnet-llamacpp"
+      ]
+    }
+  ],
+  "labels": {
+    "transformers-eager": "transformers",
+    "transformers-compile": "transformers, compiled",
+    "diffusers-eager": "diffusers",
+    "diffusers-compile": "diffusers, compiled",
+    "sentence-transformers": "sentence-transformers",
+    "linnet-torch": "Linnet, generated PyTorch",
+    "linnet-inductor": "Linnet, inductor",
+    "linnet-cudagraphs": "Linnet, CUDA graphs",
+    "keras-hub": "KerasHub",
+    "linnet-jax": "Linnet, XLA (StableHLO)",
+    "linnet-jax-source": "Linnet, XLA (generated JAX)",
+    "onnx-reference": "torch.onnx export",
+    "linnet-onnx-f32": "Linnet, ONNX Runtime f32",
+    "linnet-onnx-f16": "Linnet, ONNX Runtime f16",
+    "linnet-onnx-bf16": "Linnet, ONNX Runtime bf16",
+    "linnet-onnx-f32-trt": "Linnet, TensorRT f32",
+    "linnet-onnx-f16-trt": "Linnet, TensorRT f16",
+    "linnet-onnx-bf16-trt": "Linnet, TensorRT bf16",
+    "vllm": "vLLM",
+    "linnet-vllm": "vLLM on Linnet's export",
+    "sglang": "SGLang",
+    "linnet-sglang": "SGLang on Linnet's export",
+    "tgi": "TGI",
+    "linnet-tgi": "TGI on Linnet's export",
+    "linnet-llamacpp": "llama.cpp on Linnet's GGUF",
+    "triton-onnx": "Triton, torch.onnx export",
+    "triton-linnet-onnx": "Triton, Linnet's ONNX",
+    "triton-linnet-python": "Triton, Linnet Python backend",
+    "vllm-tp": "vLLM, tensor parallel",
+    "linnet-tp-torch": "Linnet, tensor parallel (PyTorch)",
+    "linnet-tp-jax": "Linnet, tensor parallel (XLA)",
+    "linnet-gpus": "Linnet, layers on two GPUs",
+    "linnet-offload": "Linnet, offloaded to host",
+    "serve-vllm": "vLLM",
+    "serve-linnet-torch": "linnet.serve, CUDA graphs",
+    "serve-linnet-jax": "linnet.serve, XLA",
+    "serve-linnet-onnx": "linnet.serve, ONNX Runtime",
+    "serve-linnet-vllm": "vLLM on Linnet's export",
+    "serve-sglang": "SGLang",
+    "serve-linnet-sglang": "SGLang on Linnet's export",
+    "serve-tgi": "TGI",
+    "serve-linnet-tgi": "TGI on Linnet's export",
+    "serve-triton-vllm": "Triton, vLLM backend",
+    "serve-triton-linnet": "Triton, linnet.serve backend",
+    "serve-transformers": "transformers, batched",
+    "serve-keras-hub": "KerasHub, static batches"
+  }
+}

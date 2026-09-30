@@ -1,10 +1,15 @@
 <script setup lang="ts">
-// The benchmarks tab: `models/<name>/bench.json` from `bench/run.py`, one
-// horizontal bar chart per metric. Speed is drawn as speed-up over the
-// reference method, peak GPU memory in absolute GiB; Linnet rows are dark
-// gray, reference rows light gray, the best bar of each chart carries the
-// accent, and a table below holds every raw number.
+// The benchmarks tab: `models/<name>/bench.json` from `bench/run.py`. First
+// what the model's numbers show -- Linnet against the stack it replaces on
+// each runtime (`bench/compare.json`) -- then one horizontal bar chart per
+// metric, rows grouped by where they run, each runtime's stacks above
+// Linnet's. Linnet rows are dark gray, the others light gray, the best bar of
+// each chart carries the accent, and a table below holds every raw number.
+import comparison from "@nest/compare.json";
 import { computed, onBeforeUnmount, onMounted, ref, useId } from "vue";
+import { type Compare, against, evaluate, grouped, label as shortLabel, percent, primary, times as speed } from "./compare";
+
+const compare = comparison as unknown as Compare;
 
 interface Method {
   method: string;
@@ -135,6 +140,7 @@ interface Row {
   extra: string; // the tooltip's second fact
   hatched: boolean;
   best?: boolean; // the chart's best value, drawn in the accent
+  head: string | null; // the runtime this row opens, above it
 }
 interface Chart {
   key: string;
@@ -144,18 +150,51 @@ interface Chart {
   rows: Row[];
 }
 
+// Every row's place: its runtime (in `compare.json`'s order) and its place
+// within it, so each chart reads runtime by runtime, the stacks first.
+const order = computed(() => {
+  const place = new Map<string, { group: string; rank: number }>();
+  let rank = 0;
+  for (const g of grouped(compare, methods.value)) for (const m of g.rows) place.set(m.key, { group: g.group.title, rank: rank++ });
+  return place;
+});
+function arrange(items: { m: Method; index: number }[]): { m: Method; index: number; head: string | null }[] {
+  const place = order.value;
+  const sorted = [...items].sort((a, b) => (place.get(a.m.key)?.rank ?? 1e9) - (place.get(b.m.key)?.rank ?? 1e9));
+  return sorted.map((item, i) => {
+    const group = place.get(item.m.key)?.group ?? "Other";
+    const before = i ? place.get(sorted[i - 1].m.key)?.group ?? "Other" : null;
+    return { ...item, head: group !== before ? group : null };
+  });
+}
+// What a row is measured against: for a Linnet row, the stack it replaces on
+// its runtime; otherwise, or where that stack has no number, the reference.
+function comparedWith(m: Method, index: number, metric: Metric, base: number | null): string {
+  const v = value(m, metric.key);
+  if (index === referenceIndex.value) return "the reference";
+  const vs = against(compare, methods.value, m, metric.key);
+  if (vs) {
+    const them = shortLabel(compare, vs.them);
+    return vs.parity ? `${percent(vs.speedup)} from ${them}` : `${speed(vs.speedup)} the speed of ${them}`;
+  }
+  if (v != null && v > 0 && base != null && base > 0) return `${times(metric.lower ? base / v : v / base)} the reference's speed`;
+  return "";
+}
+
 const charts = computed<Chart[]>(() => {
   const out: Chart[] = [];
   const rows = methods.value;
   const ref = rows[referenceIndex.value];
   for (const metric of METRICS) {
     if (!rows.some((m) => value(m, metric.key) != null)) continue;
-    const shown = rows
-      .map((m, index) => ({ m, index }))
-      .filter(({ m }) => value(m, metric.key) != null || (m.error != null && serving(m.key) === serving(metric.key) && metric.key !== "load_s"));
+    const shown = arrange(
+      rows
+        .map((m, index) => ({ m, index }))
+        .filter(({ m }) => value(m, metric.key) != null || (m.error != null && serving(m.key) === serving(metric.key) && metric.key !== "load_s")),
+    );
     // Raw values, so a bar's length is the number itself and the red bar is
     // the shortest where lower is better and the longest where higher is;
-    // the ratio to the reference is in the tooltip.
+    // how a row compares is in the tooltip.
     const base = ref ? value(ref, metric.key) : null;
     const direction = metric.lower ? "lower is better" : "higher is better";
     out.push({
@@ -163,22 +202,17 @@ const charts = computed<Chart[]>(() => {
       title: metric.label,
       subtitle: `${metric.unit}, ${direction}; the best bar is red.`,
       ratio: false,
-      rows: shown.map(({ m, index }) => {
+      rows: shown.map(({ m, index, head }) => {
         const v = value(m, metric.key);
-        let extra = "";
-        if (v != null && v > 0 && base != null && base > 0 && index !== referenceIndex.value) {
-          extra = `${times(metric.lower ? base / v : v / base)} the reference's speed`;
-        } else if (index === referenceIndex.value) {
-          extra = "the reference";
-        }
         return {
           index,
           method: m,
           bar: v,
           label: v == null ? (m.error ? "failed" : "not measured") : raw(v, metric.unit),
           raw: raw(v, metric.unit),
-          extra,
+          extra: comparedWith(m, index, metric, base),
           hatched: false,
+          head,
         };
       }),
     });
@@ -188,7 +222,7 @@ const charts = computed<Chart[]>(() => {
   // under a cap on purpose. They stay in the table, out of the chart.
   const unlike = (m: Method) => reserved(m) || capped(m);
   if (rows.some((m) => value(m, MEMORY) != null && !unlike(m))) {
-    const left = rows.filter((m) => value(m, MEMORY) != null && unlike(m)).map((m) => m.method);
+    const left = rows.filter((m) => value(m, MEMORY) != null && unlike(m)).map((m) => shortLabel(compare, m));
     out.push({
       key: MEMORY,
       title: "Peak GPU memory",
@@ -196,23 +230,23 @@ const charts = computed<Chart[]>(() => {
         "What the driver reports the process holding at its peak, in GiB; lower is better; the best bar is red." +
         (left.length ? ` Not drawn, since theirs is a setting rather than a need: ${left.join(", ")} (in the table).` : ""),
       ratio: false,
-      rows: rows
-        .map((m, index) => ({ m, index }))
-        .filter(({ m }) => value(m, MEMORY) != null && !unlike(m))
-        .map(({ m, index }) => {
-          const mib = value(m, MEMORY);
-          const gib = mib == null ? null : mib / 1024;
-          const pool = gib != null && reserved(m);
-          return {
-            index,
-            method: m,
-            bar: gib,
-            label: gib == null ? (m.error ? "failed" : "not measured") : raw(gib, "GiB"),
-            raw: gib == null ? "not measured" : `${raw(gib, "GiB")} (${num(mib!)} MiB)`,
-            extra: pool ? "a reserved pool: this is a setting, not what the model needs" : "",
-            hatched: pool,
-          };
-        }),
+      rows: arrange(
+        rows.map((m, index) => ({ m, index })).filter(({ m }) => value(m, MEMORY) != null && !unlike(m)),
+      ).map(({ m, index, head }) => {
+        const mib = value(m, MEMORY);
+        const gib = mib == null ? null : mib / 1024;
+        const pool = gib != null && reserved(m);
+        return {
+          index,
+          method: m,
+          bar: gib,
+          label: gib == null ? (m.error ? "failed" : "not measured") : raw(gib, "GiB"),
+          raw: gib == null ? "not measured" : `${raw(gib, "GiB")} (${num(mib!)} MiB)`,
+          extra: pool ? "a reserved pool: this is a setting, not what the model needs" : "",
+          hatched: pool,
+          head,
+        };
+      }),
     });
   }
   // The best bar of each chart in the accent: a speed-up is always higher
@@ -298,17 +332,26 @@ interface Layout {
   x: (v: number) => number;
   ticks: number[];
   plotBottom: number;
+  heads: { title: string; y: number }[]; // each runtime's title, above its rows
 }
 
+const HEAD = 26;
+
 function layout(chart: Chart): Layout {
-  const lines = chart.rows.map((r) => wrap(r.method.method));
+  const lines = chart.rows.map((r) => wrap(shortLabel(compare, r.method)));
   const pitches = lines.map((l) => (narrow.value ? l.length * LINE + 4 + BAR + GAP + 2 : Math.max(BAR, l.length * LINE) + GAP));
   const tops: number[] = [];
+  const heads: { title: string; y: number }[] = [];
   let y = 4;
-  for (const p of pitches) {
+  pitches.forEach((p, i) => {
+    const head = chart.rows[i].head;
+    if (head) {
+      heads.push({ title: head, y });
+      y += HEAD;
+    }
     tops.push(y);
     y += p;
-  }
+  });
   const plotBottom = y;
   const max = Math.max(chart.ratio ? 1 : 0, ...chart.rows.map((r) => r.bar ?? 0)) || 1;
   const step = niceStep(max);
@@ -326,6 +369,7 @@ function layout(chart: Chart): Layout {
     x: (v) => left + (v / domain) * span,
     ticks,
     plotBottom,
+    heads,
   };
 }
 const layouts = computed(() => charts.value.map(layout));
@@ -412,6 +456,38 @@ const software = computed(() => {
   return parts.join(", ");
 });
 
+// ---- what the numbers show: Linnet against the stack it replaces, on each
+// runtime and in each engine the model takes part in
+
+const verdicts = computed(() =>
+  compare.matchups.flatMap((matchup) => {
+    const r = evaluate(matchup, methods.value);
+    if (!r) return [];
+    const s = r.lead.speedup;
+    const metric = METRICS.find((m) => m.key === r.metric);
+    const unit = metric?.unit ?? "";
+    const parity = !!matchup.parity;
+    return [
+      {
+        id: matchup.id,
+        title: matchup.short,
+        number: parity ? percent(s) : speed(s),
+        word: parity ? (Math.abs(s - 1) < 0.03 ? "the same speed" : s > 1 ? "faster" : "slower") : s >= 1 ? "faster" : "slower",
+        // An accent where Linnet is ahead, gray where it is behind, and
+        // Linnet's own gray where the two are even.
+        outcome: parity || Math.abs(s - 1) < 0.03 ? "even" : s > 1 ? "ahead" : "behind",
+        measure: (metric?.label ?? r.metric).toLowerCase(),
+        lines: r.pairs.map((pair) => ({
+          us: shortLabel(compare, pair.us),
+          usValue: raw(pair.usValue, unit),
+          them: shortLabel(compare, pair.them),
+          themValue: raw(pair.themValue, unit),
+        })),
+      },
+    ];
+  }),
+);
+
 // ---- the table: every method, every metric, raw
 
 const tableMetrics = computed(() => {
@@ -425,6 +501,17 @@ const tableMetrics = computed(() => {
     return { key, label: metric?.label ?? key, unit: metric?.unit ?? "" };
   });
 });
+// The table's rows by runtime, and each Linnet row against the stack it
+// replaces, on the model's own measure (serving rows on theirs).
+const tableGroups = computed(() => grouped(compare, methods.value.map((m, index) => ({ ...m, index }))));
+const mainMetric = computed(() => primary(methods.value));
+function versus(m: Method): string {
+  const metric = serving(m.key) ? "serve_tok_s" : mainMetric.value;
+  const vs = metric ? against(compare, methods.value, m, metric) : null;
+  if (!vs) return "";
+  const them = shortLabel(compare, vs.them);
+  return vs.parity ? `${percent(vs.speedup)} from ${them}` : `${speed(vs.speedup)} ${them}`;
+}
 function cell(m: Method, key: string, unit: string): string {
   const v = value(m, key);
   if (v == null) return "–";
@@ -441,6 +528,25 @@ function cell(m: Method, key: string, unit: string): string {
     <template v-else>
       <p class="nest-bench-context">{{ context }}</p>
       <p v-if="software" class="nest-bench-software">{{ software }}</p>
+
+      <h3 v-if="verdicts.length" class="nest-verdicts-title">Linnet against the stack it replaces</h3>
+      <p v-if="verdicts.length" class="nest-bench-sub">
+        Each side in its fastest configuration, on the same GPU and checkpoint. A speed-up is how many times the other's speed; an export is measured
+        against the original checkpoint in the same engine.
+      </p>
+      <section v-if="verdicts.length" class="nest-verdicts" aria-label="Linnet against the stack it replaces">
+        <div v-for="v in verdicts" :key="v.id" class="nest-verdict" :class="`is-${v.outcome}`">
+          <span class="nest-verdict-title">{{ v.title }}</span>
+          <span class="nest-verdict-number"><strong>{{ v.number }}</strong> {{ v.word }}</span>
+          <span class="nest-verdict-measure">{{ v.measure }}</span>
+          <ul>
+            <li v-for="(l, i) in v.lines" :key="i">
+              <span class="is-linnet"><span>{{ l.us }}</span><span>{{ l.usValue }}</span></span>
+              <span class="is-them"><span>{{ l.them }}</span><span>{{ l.themValue }}</span></span>
+            </li>
+          </ul>
+        </div>
+      </section>
 
       <div class="nest-bench-legend" aria-hidden="true">
         <span><i class="nest-swatch is-best"></i>Best in the chart</span>
@@ -472,6 +578,10 @@ function cell(m: Method, key: string, unit: string): string {
             <g class="nest-bench-grid">
               <line v-for="t in layouts[ci].ticks" :key="t" :x1="layouts[ci].x(t)" :x2="layouts[ci].x(t)" y1="0" :y2="layouts[ci].plotBottom" />
               <line class="nest-bench-baseline" :x1="layouts[ci].x(0)" :x2="layouts[ci].x(0)" y1="0" :y2="layouts[ci].plotBottom" />
+            </g>
+            <g v-for="h in layouts[ci].heads" :key="h.title" class="nest-bench-head">
+              <line x1="0" :x2="width" :y1="h.y + 4" :y2="h.y + 4" />
+              <text x="0" :y="h.y + 18">{{ h.title }}</text>
             </g>
             <g class="nest-bench-axis">
               <text v-for="t in layouts[ci].ticks" :key="t" :x="layouts[ci].x(t)" :y="layouts[ci].plotBottom + 15" text-anchor="middle">{{ tickLabel(chart, t) }}</text>
@@ -530,8 +640,7 @@ function cell(m: Method, key: string, unit: string): string {
             <span v-if="row.method.error" class="nest-bench-tip-error">Failed: {{ row.method.error }}</span>
             <template v-else>
               <span>{{ row.raw }}</span>
-              <span v-if="chart.ratio && row.extra">{{ row.extra }}</span>
-              <span v-if="!chart.ratio && row.extra" class="nest-bench-tip-flag">{{ row.extra }}</span>
+              <span v-if="row.extra" :class="{ 'nest-bench-tip-flag': row.hatched }">{{ row.extra }}</span>
               <span>Distance from reference: {{ distance(row.method, row.index) }}</span>
               <span v-if="row.method.notes" class="nest-bench-tip-notes">{{ row.method.notes }}</span>
             </template>
@@ -546,15 +655,20 @@ function cell(m: Method, key: string, unit: string): string {
             <tr>
               <th>Method</th>
               <th v-for="m in tableMetrics" :key="m.key">{{ m.label }}</th>
+              <th>Against the stack it replaces</th>
               <th>Distance from reference</th>
               <th>Notes</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="(m, i) in methods" :key="i" :class="{ 'is-error': m.error }">
-              <th scope="row"><i class="nest-swatch" :class="`is-${m.kind}`"></i>{{ m.method }}</th>
+          <tbody v-for="g in tableGroups" :key="g.group.id">
+            <tr class="nest-bench-group">
+              <th :colspan="tableMetrics.length + 4" scope="rowgroup">{{ g.group.title }}</th>
+            </tr>
+            <tr v-for="m in g.rows" :key="m.index" :class="{ 'is-error': m.error }">
+              <th scope="row" :title="m.method"><i class="nest-swatch" :class="`is-${m.kind}`"></i>{{ shortLabel(compare, m) }}</th>
               <td v-for="t in tableMetrics" :key="t.key" class="num">{{ cell(m, t.key, t.unit) }}</td>
-              <td class="num">{{ m.error ? "–" : distance(m, i) }}</td>
+              <td class="num">{{ m.error ? "–" : versus(m) }}</td>
+              <td class="num">{{ m.error ? "–" : distance(m, m.index) }}</td>
               <td class="notes">
                 <span v-if="m.error" class="nest-bench-error">Failed: {{ m.error }}</span>
                 <span v-else>{{ m.notes }}</span>
