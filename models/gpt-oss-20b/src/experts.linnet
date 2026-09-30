@@ -14,6 +14,7 @@ module gpt_oss.experts
 use crate.mxfp4::{dequantize_mxfp4}
 use std.nn.activations::{sigmoid}
 use std.nn.linear::{linear, Linear}
+use std.nn.moe::{linear_experts}
 use std.nn.softmax::{softmax}
 
 // `swiglu_limit` in config.json, and the gate's sigmoid slope.
@@ -89,13 +90,14 @@ where
         return mixed + linear(scores, permute(down_bias, [1, 0]))
     }
 
-    // One token per row through its `TopK` experts only: the chosen experts'
-    // weights are gathered from the dequantized whole and only they are
-    // multiplied, `TopK / Experts` of the dense form's work (an eighth here).
-    // The dequantization reads nothing but weights, so a runtime that
-    // prepares weight-only work (`linnet torch --prepare`) does it once at
-    // load; each step then reads four experts. In a large batch every expert
-    // is chosen by someone, and the dense form reads each once.
+    // One token per row through its `TopK` experts only: each row's chosen
+    // experts multiply it (`linear_experts`), `TopK / Experts` of the dense
+    // form's work (an eighth here). The dequantization reads nothing but
+    // weights, so a runtime that prepares weight-only work (`linnet torch
+    // --prepare`) does it once at load; each step then reads four experts,
+    // on CUDA with one grouped matrix product that reads them where they
+    // lie. In a large batch every expert is chosen by someone, and the dense
+    // form reads each once.
     pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
         let logits = router.forward(x)
         let scores = route<B, 1>(logits)
@@ -112,18 +114,16 @@ where
             gate_up_blocks,
             gate_up_scales,
         )
-        let up_weight[b, k, o, h] = gate_up_all[expert[b, k], o, h]
+        let inputs = broadcast_to(x, [B, TopK, H])
         let up_bias[b, k, o] = gate_up_bias[expert[b, k], o]
-        let gate_up[b, k, o] = sum<f32>[h] cast<f32>(x[b, 0, h]) * cast<f32>(up_weight[b, k, o, h])
-        let biased = cast<T>(gate_up) + up_bias
+        let biased = linear_experts(inputs, gate_up_all, expert) + up_bias
         let gate = min(biased[..., 0::2], cast<T>(LIMIT))
         let up = min(max(biased[..., 1::2], cast<T>(-LIMIT)), cast<T>(LIMIT))
         let activated = (up + 1.0) * (gate * sigmoid(gate * cast<T>(ALPHA)))
         let weighted[b, k, i] = activated[b, k, i] * weight[b, k]
         let down_all = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
-        let down_weight[b, k, h, i] = down_all[expert[b, k], h, i]
-        let mixed[b, h] =
-            sum<f32>[k, i] cast<f32>(weighted[b, k, i]) * cast<f32>(down_weight[b, k, h, i])
+        let down = linear_experts(weighted, down_all, expert)
+        let mixed[b, h] = sum<f32>[k] cast<f32>(down[b, k, h])
         let bias[b, h] = sum[k] weight[b, k] * down_bias[expert[b, k], h]
         return reshape(cast<T>(mixed) + bias, [B, 1, H])
     }
