@@ -11,10 +11,10 @@
 // and is the honest way to say it with fixed shapes.
 module gpt_oss.experts
 
-use crate.mxfp4::{dequantize_mxfp4}
 use std.nn.activations::{sigmoid}
 use std.nn.linear::{linear, Linear}
-use std.nn.moe::{combine_experts, linear_experts, linear_experts_shared}
+use std.nn.moe::{combine_experts, linear_experts_shared}
+use std.quant::{dequantize_mxfp4, mxfp4_experts, mxfp4_experts_shared}
 use std.nn.softmax::{softmax}
 
 // `swiglu_limit` in config.json, and the gate's sigmoid slope.
@@ -91,29 +91,32 @@ where
     }
 
     // One token per row through its `TopK` experts only, `TopK / Experts` of
-    // the dense form's work (an eighth here). The dequantization reads
-    // nothing but weights, so a runtime that prepares weight-only work
-    // (`linnet torch --prepare`) does it once at load; each step then reads
-    // four experts. The gate and up projections take the one input all four
-    // share, written as a contraction over the gathered weights, which XLA
-    // and inductor each fuse into one pass over them; the down projection's
-    // inputs differ per expert, so it is `linear_experts`, on CUDA one
-    // grouped matrix product that reads the experts where they lie. In a
-    // large batch every expert is chosen by someone, and the dense form reads
-    // each once.
+    // the dense form's work (an eighth here), the experts read in MXFP4 as
+    // the checkpoint has them: `std.quant::mxfp4_experts_shared` for the gate
+    // and up projections, whose four experts share the token's input, and
+    // `std.quant::mxfp4_experts` for the down projection, whose inputs
+    // differ per expert. Their bodies dequantize and gather, which XLA and
+    // ONNX Runtime run as before (the dequantization, weight-only, once at
+    // load); on CUDA, PyTorch reads the four experts' four-bit bytes in place,
+    // a quarter of what their 16-bit weights would be. In a large batch every
+    // expert is chosen by someone, and the dense form reads each once.
     pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
         let expert = experts_of<B>(x)
         let weight = weights_of<B>(x)
-        let gate_up_all = dequantize_mxfp4<Experts, 2 * Inner, Blocks, T>(
+        let gate_up = mxfp4_experts_shared<B, TopK, Experts, 2 * Inner, Blocks, T>(
+            x,
             gate_up_blocks,
             gate_up_scales,
+            expert,
         )
-        let up_weight[b, k, o, h] = gate_up_all[expert[b, k], o, h]
-        let gate_up[b, k, o] = sum<f32>[h] cast<f32>(x[b, 0, h]) * cast<f32>(up_weight[b, k, o, h])
-        let activated = activate<B>(cast<T>(gate_up), expert)
+        let activated = activate<B>(gate_up, expert)
         let weighted[b, k, i] = activated[b, k, i] * weight[b, k]
-        let down_all = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
-        let down = linear_experts(weighted, down_all, expert)
+        let down = mxfp4_experts<B, TopK, Experts, H, InnerBlocks, T>(
+            weighted,
+            down_blocks,
+            down_scales,
+            expert,
+        )
         let mixed[b, h] = sum<f32>[k] cast<f32>(down[b, k, h])
         return reshape(cast<T>(mixed) + down_bias_of<B>(weight, expert), [B, 1, H])
     }

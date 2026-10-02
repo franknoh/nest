@@ -18,7 +18,7 @@ its own in `src/`:
   `gpt_oss.attention::sink_attention` is a model-local `op` that does, by
   putting the sink's term in the denominator instead of concatenating a column
   and slicing it off again -- the same numbers without a `K + 1` axis.
-- **MXFP4 expert weights** (`src/mxfp4.linnet`). See below.
+- **MXFP4 expert weights** (`std.quant`). See below.
 - **YaRN rope and alternating windows** (`src/rope.linnet`, `src/lib.linnet`).
   `layer_types` in config.json alternates a 128-position sliding window with
   full causal attention, starting with sliding. A `sub` array holds one block
@@ -52,15 +52,16 @@ the odd one -- plus one byte of E8M0 scale, an exponent biased by 127. A
 weight is its FP4 value times `2 ** (scale - 127)`: 4.25 bits per weight, and
 `90 * 32 = 2880`, the width of the projection's input.
 
-`std.quant` cannot express this. Its `unpack_int4` splits bytes into nibbles
+`std.quant`'s integer formats cannot express this. Its `unpack_int4` splits bytes into nibbles
 with exactly this interleaving, but reads each nibble as a two's-complement
 integer in `-8..7`, where MXFP4's nibble is a sign, two exponent bits, and one
 mantissa bit selecting one of `0, 0.5, 1, 1.5, 2, 3, 4, 6` and their negatives.
 And `dequantize_int8`'s scale is one factor per row (`Tensor[*S; f32]`), where
 MXFP4 has one per 32-element block, as a power-of-two exponent byte.
-`gpt_oss.mxfp4::dequantize_mxfp4` is the model-local op that covers both
-differences. It computes the FP4 values arithmetically rather than from a
-lookup table, because the language has no tensor data in source: twice each
+`std.quant::dequantize_mxfp4` covers both differences (it began in this card
+and moved to the standard library with the ops that read MXFP4 directly). It
+computes the FP4 values arithmetically rather than from a lookup table,
+because the language has no tensor data in source: twice each
 value is an integer in `0..12`, so the unpacking stays in one byte per weight
 and the only float arithmetic is the final scaling. The block scale is built
 from integer shifts rather than `exp`, so it is exact; the shifts saturate at
@@ -152,16 +153,17 @@ token of a 512-token prompt takes 30.6 ms with CUDA graphs, down from 45.7.
 
 A decoded token reads the experts differently again. `decode` routes
 through `MixtureOfExperts.forward_topk`: only each token's four chosen
-experts multiply it, an eighth of the dense form's work. The dequantization
-reads nothing but weights, so PyTorch does it once at load (`--prepare`).
-The gate and up projections share the token's one input and are written as
-a contraction over the gathered weights, which XLA and inductor fuse into
-one pass; the down projection's inputs differ per expert, so it is
-`std.nn.moe::linear_experts`, on CUDA one grouped matrix product that reads
-the chosen experts where they lie. `decode_rows` keeps the dense form, since
-in a batch of rows every expert is chosen by someone and the dense form
-reads each once. Reading the experts as MXFP4 rather than dequantized would
-take a fused kernel.
+experts multiply it, an eighth of the dense form's work, and they are read
+in MXFP4 as the checkpoint has them, through `std.quant::mxfp4_experts_shared`
+(the gate and up projections, whose four experts share the token's input)
+and `std.quant::mxfp4_experts` (the down projection, whose inputs differ per
+expert). Their bodies dequantize, gather and multiply: XLA and ONNX Runtime
+dequantize once at load and fuse the rest as before. PyTorch on CUDA runs a
+Triton kernel that reads each chosen expert's four-bit bytes in place, a
+quarter of what their 16-bit weights would be: on an H100 it decodes at 270
+tokens per second with CUDA graphs, where reading the dequantized experts it
+decoded at 202. `decode_rows` keeps the dense form, since in a batch of rows
+every expert is chosen by someone and the dense form reads each once.
 
 ## Validation
 
@@ -176,7 +178,7 @@ mask differently:
 | mean abs logit difference | 1.47e-06 |
 | argmax agreement | 160 / 160 positions |
 
-`gpt_oss.mxfp4::dequantize_mxfp4` is separately bitwise equal to
+`std.quant::dequantize_mxfp4` is separately bitwise equal to
 `transformers.integrations.mxfp4.convert_moe_packed_tensors` over random
 blocks and scales, for every one of the sixteen FP4 codes.
 
