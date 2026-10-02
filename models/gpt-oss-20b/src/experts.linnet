@@ -194,7 +194,11 @@ where
         weight: Tensor[R, TopK; T],
         expert: Tensor[R, TopK; i64],
     ) -> Tensor[R, H; T] {
-        let bias[r, h] = sum[k] weight[r, k] * down_bias[expert[r, k], h]
+        // Each chosen expert's bias row, then weighed and summed: indexing
+        // `down_bias` inside the sum over `k` builds an `[R, H, TopK]` grid of
+        // indices first, many times the size of the hidden states.
+        let taken[r, k, h] = down_bias[expert[r, k], h]
+        let bias[r, h] = sum[k] weight[r, k] * taken[r, k, h]
         return bias
     }
 
