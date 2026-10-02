@@ -1,8 +1,9 @@
 """One process of Linnet torch's tensor-parallel row: `torchrun
 --nproc-per-node N -m bench.tp_torch <model> <workload json>`. Every process
-loads the card split across the GPUs (`tensor_parallel=`), runs the same
-prompt and decoding steps, and the first prints the result line the harness
-reads."""
+loads the card split across the GPUs (`tensor_parallel=`): a card with a
+`Shards` generic as one shard per process on its part of the weights, any
+other as DTensors. Each runs the same prompt and decoding steps, and the
+first prints the result line the harness reads."""
 
 from __future__ import annotations
 
@@ -39,8 +40,8 @@ def main() -> None:
         device=f"cuda:{rank}",
         numerics="fast",
         # Each step captured as one CUDA graph, its all-reduces inside:
-        # eager generated code would run every op through DTensor's Python
-        # dispatch, and inductor alone launches each kernel from the host.
+        # inductor alone launches each kernel from the host (and DTensor's
+        # Python dispatch runs every op of a card split from the outside).
         compile="reduce-overhead",
         generics=cache_generics(data, max_seq(workload)),
         cast_dtype=True,
@@ -75,9 +76,10 @@ def main() -> None:
             generate()
         ttft = median_ms(lambda: prefill().argmax(-1).item(), sync, 0, int(workload["iters"]))
         rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
+    sharded = getattr(model, "shard_group", None) is not None
     if rank == 0:
         result = Result(
-            f"Linnet torch (tensor parallel on {world} GPUs, DTensor)",
+            f"Linnet torch (tensor parallel on {world} GPUs, {'shards' if sharded else 'DTensor'})",
             "linnet",
             {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
             notes=f"one process per GPU under torchrun, NCCL, CUDA graphs; KV cache compiled for "
