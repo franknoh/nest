@@ -95,6 +95,26 @@ where
             x + attention.prefill_packed(attention_norm.forward(x), rows, positions, segments)
         return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
+
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        step_positions: Tensor[Batch; i32],
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        let attended =
+            x +
+            attention.step_packed(
+                attention_norm.forward(x),
+                rows,
+                positions,
+                segments,
+                step_positions,
+            )
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
+    }
 }
 
 pub block Model<
@@ -226,6 +246,30 @@ where
         }
         let ends[m, h] = x[0, cast<i64>(last[m]), h]
         return logits(ends)
+    }
+
+    // `prefill_packed`'s prompts and a step for every row in one pass, as
+    // `decode_rows` takes it (`step_tokens[b]` at `step_positions[b]`): the
+    // weights are read once for both. A row the prompts fill steps along,
+    // written where no request reads (the engine uses `MaxSeq - 1`). Returns
+    // the logits after each prompt, as `prefill_packed`, then each row's step.
+    pub entry step_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        last: Tensor[Batch; i32],
+        step_tokens: Tensor[Batch, 1; i32],
+        step_positions: Tensor[Batch; i32],
+    ) -> Tensor[2 * Batch, Vocab; T]
+    where P > 0 {
+        let every = concat(tokens, reshape(step_tokens, [Batch]), axis = 0)
+        var x = embedding.forward(reshape(every, [1, P + Batch]))
+        static for layer in layers {
+            x = layer.step_packed(x, rows, positions, segments, step_positions)
+        }
+        let ends[m, h] = x[0, cast<i64>(last[m]), h]
+        return logits(concat(ends, x[0, P:P + Batch, :], axis = 0))
     }
 
     // Greedy generation inside the graph: `Steps` tokens after `token` at
