@@ -6,8 +6,8 @@
 // modules beside this one:
 //
 //   - `gpt_oss.experts`  32 experts per layer, 4 active per token, their
-//                        weights stored in MXFP4 and dequantized here rather
-//                        than bound as floats (`gpt_oss.mxfp4`).
+//                        weights stored in MXFP4 and read through
+//                        `std.quant` rather than bound as floats.
 //   - `gpt_oss.attention` attention sinks -- a learned logit per head that
 //                        joins the softmax and is then dropped -- and layers
 //                        alternating between a 128-position sliding window

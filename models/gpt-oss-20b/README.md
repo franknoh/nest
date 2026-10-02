@@ -18,7 +18,7 @@ its own in `src/`:
   `gpt_oss.attention::sink_attention` is a model-local `op` that does, by
   putting the sink's term in the denominator instead of concatenating a column
   and slicing it off again -- the same numbers without a `K + 1` axis.
-- **MXFP4 expert weights** (`src/mxfp4.linnet`). See below.
+- **MXFP4 expert weights** (`std.quant`). See below.
 - **YaRN rope and alternating windows** (`src/rope.linnet`, `src/lib.linnet`).
   `layer_types` in config.json alternates a 128-position sliding window with
   full causal attention, starting with sliding. A `sub` array holds one block
@@ -52,15 +52,16 @@ the odd one -- plus one byte of E8M0 scale, an exponent biased by 127. A
 weight is its FP4 value times `2 ** (scale - 127)`: 4.25 bits per weight, and
 `90 * 32 = 2880`, the width of the projection's input.
 
-`std.quant` cannot express this. Its `unpack_int4` splits bytes into nibbles
+`std.quant`'s integer formats cannot express this. Its `unpack_int4` splits bytes into nibbles
 with exactly this interleaving, but reads each nibble as a two's-complement
 integer in `-8..7`, where MXFP4's nibble is a sign, two exponent bits, and one
 mantissa bit selecting one of `0, 0.5, 1, 1.5, 2, 3, 4, 6` and their negatives.
 And `dequantize_int8`'s scale is one factor per row (`Tensor[*S; f32]`), where
 MXFP4 has one per 32-element block, as a power-of-two exponent byte.
-`gpt_oss.mxfp4::dequantize_mxfp4` is the model-local op that covers both
-differences. It computes the FP4 values arithmetically rather than from a
-lookup table, because the language has no tensor data in source: twice each
+`std.quant::dequantize_mxfp4` covers both differences (it began in this card
+and moved to the standard library with the ops that read MXFP4 directly). It
+computes the FP4 values arithmetically rather than from a lookup table,
+because the language has no tensor data in source: twice each
 value is an integer in `0..12`, so the unpacking stays in one byte per weight
 and the only float arithmetic is the final scaling. The block scale is built
 from integer shifts rather than `exp`, so it is exact; the shifts saturate at
@@ -176,7 +177,7 @@ mask differently:
 | mean abs logit difference | 1.47e-06 |
 | argmax agreement | 160 / 160 positions |
 
-`gpt_oss.mxfp4::dequantize_mxfp4` is separately bitwise equal to
+`std.quant::dequantize_mxfp4` is separately bitwise equal to
 `transformers.integrations.mxfp4.convert_moe_packed_tensors` over random
 blocks and scales, for every one of the sixteen FP4 codes.
 
