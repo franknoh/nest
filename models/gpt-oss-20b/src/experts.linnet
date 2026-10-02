@@ -98,8 +98,8 @@ where
     // differ per expert. Their bodies dequantize and gather, which XLA and
     // ONNX Runtime run as before (the dequantization, weight-only, once at
     // load); on CUDA, PyTorch reads the four experts' four-bit bytes in place,
-    // a quarter of what their 16-bit weights would be. In a large batch every
-    // expert is chosen by someone, and the dense form reads each once.
+    // a quarter of what their 16-bit weights would be. A server's batch of
+    // rows takes `forward_routed` instead, as a prompt does.
     pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T] {
         let expert = experts_of<B>(x)
         let weight = weights_of<B>(x)

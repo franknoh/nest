@@ -17,7 +17,8 @@
 //
 // Only 3.6B of the 20.9B parameters are read per token, but every expert's
 // weight is part of the graph: see `gpt_oss.experts` for why the routing is
-// written densely.
+// written densely in `forward`, and how the other entries route each token
+// to its own experts.
 module gpt_oss
 
 use crate.attention::{SinkAttention}
@@ -83,7 +84,7 @@ where
         window: i32,
     ) -> Tensor[Batch, 1, H; T] {
         let attended = x + self_attn.decode_rows(input_layernorm.forward(x), positions, window)
-        return attended + mlp.forward(post_attention_layernorm.forward(attended))
+        return attended + mlp.forward_routed<Batch, 1>(post_attention_layernorm.forward(attended))
     }
 
     pub fn prefill_slots<M: Dim, S: Dim>(
