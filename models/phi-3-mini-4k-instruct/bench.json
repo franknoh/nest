@@ -90,12 +90,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 7.058809511363506,
-        "decode_tok_s": 273.92957081087195,
-        "load_s": 1.8519546817988157,
-        "peak_vram_mib": 8510.0
+        "ttft_ms": 7.048172876238823,
+        "decode_tok_s": 264.45888355622213,
+        "load_s": 1.507862500846386,
+        "peak_vram_mib": 8508.9
       },
-      "max_abs_diff": 0.15625,
+      "max_abs_diff": 0.140625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -104,12 +104,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 7.803531363606453,
-        "decode_tok_s": 220.92026897560328,
-        "load_s": 1.9084133710712194,
-        "peak_vram_mib": 8394.0
+        "ttft_ms": 7.904881611466408,
+        "decode_tok_s": 211.15610923373725,
+        "load_s": 1.5232672169804573,
+        "peak_vram_mib": 8388.9
       },
-      "max_abs_diff": 0.1171875,
+      "max_abs_diff": 0.140625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-inductor"
@@ -118,11 +118,11 @@
       "method": "Linnet JAX (XLA, StableHLO)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 10.903618298470974,
-        "decode_tok_s": 297.695410483272,
-        "load_s": 5.077196713536978,
+        "ttft_ms": 9.758176282048225,
+        "decode_tok_s": 292.0402633518271,
+        "load_s": 4.986512377858162,
         "peak_vram_mib": 8468.5,
-        "driver_vram_mib": 17010.0
+        "driver_vram_mib": 17018.9
       },
       "max_abs_diff": 0.125,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -133,11 +133,11 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 9.11670085042715,
-        "decode_tok_s": 298.3056700610794,
-        "load_s": 5.151918210089207,
+        "ttft_ms": 9.269213303923607,
+        "decode_tok_s": 291.748279996101,
+        "load_s": 4.9374614879488945,
         "peak_vram_mib": 8468.5,
-        "driver_vram_mib": 17010.0
+        "driver_vram_mib": 17018.9
       },
       "max_abs_diff": 0.3125,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -275,11 +275,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 5151.764517737928,
-        "serve_s": 6.3605391681194305,
-        "load_s": 6.0530636152252555,
-        "serve_ttft_ms": 2772.984645329416,
-        "peak_vram_mib": 24326.0
+        "serve_tok_s": 6667.727671793196,
+        "serve_s": 4.914417866617441,
+        "load_s": 4.80376348271966,
+        "serve_ttft_ms": 2131.3224397599697,
+        "peak_vram_mib": 24598.9
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",

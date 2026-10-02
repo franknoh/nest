@@ -90,12 +90,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 1.873834989964962,
-        "decode_tok_s": 915.912877983742,
-        "load_s": 0.8440422592684627,
-        "peak_vram_mib": 2330.0
+        "ttft_ms": 1.8201842904090881,
+        "decode_tok_s": 907.8411096446137,
+        "load_s": 0.6808824874460697,
+        "peak_vram_mib": 2364.9
       },
-      "max_abs_diff": 0.1796875,
+      "max_abs_diff": 0.140625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -104,12 +104,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 3.4319814294576645,
-        "decode_tok_s": 311.6331443818421,
-        "load_s": 0.8076183795928955,
-        "peak_vram_mib": 2016.0
+        "ttft_ms": 3.136279061436653,
+        "decode_tok_s": 322.1860061734868,
+        "load_s": 0.7987894974648952,
+        "peak_vram_mib": 2648.4
       },
-      "max_abs_diff": 0.1796875,
+      "max_abs_diff": 0.140625,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-inductor"
@@ -118,11 +118,11 @@
       "method": "Linnet JAX (XLA, StableHLO)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 4.291398450732231,
-        "decode_tok_s": 571.4388498564007,
-        "load_s": 0.851706137880683,
-        "peak_vram_mib": 1574.6,
-        "driver_vram_mib": 2672.0
+        "ttft_ms": 3.2251980155706406,
+        "decode_tok_s": 1046.6275446982527,
+        "load_s": 0.7698775976896286,
+        "peak_vram_mib": 1572.0,
+        "driver_vram_mib": 2680.9
       },
       "max_abs_diff": 0.3125,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -133,13 +133,13 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 3.3798683434724808,
-        "decode_tok_s": 457.05901489648426,
-        "load_s": 0.7203451972454786,
+        "ttft_ms": 3.0059758573770523,
+        "decode_tok_s": 1055.1375392106033,
+        "load_s": 0.7733310349285603,
         "peak_vram_mib": 1572.0,
-        "driver_vram_mib": 2672.0
+        "driver_vram_mib": 2680.9
       },
-      "max_abs_diff": 0.234375,
+      "max_abs_diff": 0.2734375,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax-source"
@@ -305,11 +305,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 26638.89237840404,
-        "serve_s": 1.2300811735913157,
-        "load_s": 4.992904777638614,
-        "serve_ttft_ms": 614.063904620707,
-        "peak_vram_mib": 3128.0
+        "serve_tok_s": 34643.12222022949,
+        "serve_s": 0.94587317481637,
+        "load_s": 3.9006778970360756,
+        "serve_ttft_ms": 403.3740255981684,
+        "peak_vram_mib": 3064.9
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -351,11 +351,11 @@
       "method": "Triton Inference Server (Python backend, linnet.serve)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 12755.34316290078,
-        "serve_s": 2.5689626364037395,
-        "load_s": 25.050482819788158,
-        "serve_ttft_ms": 1416.4857468567789,
-        "peak_vram_mib": 3784.4
+        "serve_tok_s": 24210.569277050294,
+        "serve_s": 1.3534584678709507,
+        "load_s": 621.3704823330045,
+        "serve_ttft_ms": 558.7800936773419,
+        "peak_vram_mib": 4092.4
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",

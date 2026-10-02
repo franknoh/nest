@@ -246,12 +246,12 @@
       "method": "Triton Inference Server (ONNX Runtime backend, torch.onnx export)",
       "kind": "reference",
       "metrics": {
-        "latency_ms": 4.707088693976402,
-        "throughput_per_s": 1084.921411946106,
-        "load_s": 8.036492496728897,
-        "peak_vram_mib": 2430.9
+        "latency_ms": 3.8709361106157303,
+        "throughput_per_s": 1391.0205485783922,
+        "load_s": 10.033394604921341,
+        "peak_vram_mib": 2434.9
       },
-      "max_abs_diff": 0.03959846496582031,
+      "max_abs_diff": 0.041262149810791016,
       "notes": "over HTTP; f32; throughput with 4 requests of batch 32 in flight",
       "error": null,
       "key": "triton-onnx"
@@ -260,12 +260,12 @@
       "method": "Triton Inference Server (ONNX Runtime backend, Linnet ONNX)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 7.601110264658928,
-        "throughput_per_s": 1112.468059114406,
-        "load_s": 14.10025836341083,
-        "peak_vram_mib": 1893.9
+        "latency_ms": 3.8067661225795746,
+        "throughput_per_s": 1240.818531749991,
+        "load_s": 16.073480188846588,
+        "peak_vram_mib": 2428.9
       },
-      "max_abs_diff": 0.03966021537780762,
+      "max_abs_diff": 0.041286468505859375,
       "notes": "over HTTP; f32; throughput with 4 requests of batch 32 in flight",
       "error": null,
       "key": "triton-linnet-onnx"
@@ -274,12 +274,12 @@
       "method": "Triton Inference Server (Python backend, Linnet torch)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 3.884359262883663,
-        "throughput_per_s": 1004.99947664166,
-        "load_s": 10.054745938628912,
-        "peak_vram_mib": 2750.0
+        "latency_ms": 3.2134372740983963,
+        "throughput_per_s": 1272.080124627779,
+        "load_s": 6.024786960333586,
+        "peak_vram_mib": 2880.1
       },
-      "max_abs_diff": 0.01953125,
+      "max_abs_diff": 0.03125,
       "notes": "over HTTP; bf16, CUDA graphs; throughput with 4 requests of batch 32 in flight",
       "error": null,
       "key": "triton-linnet-python"
