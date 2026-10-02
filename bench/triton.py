@@ -30,8 +30,10 @@ def available() -> bool:
 
 
 @contextmanager
-def server(repository: Path, python_path: str | None = None, timeout: float = 900.0) -> Any:
-    """A running server over `repository`, ready when this yields."""
+def server(repository: Path, python_path: str | None = None, timeout: float = 3600.0) -> Any:
+    """A running server over `repository`, ready when this yields. A model
+    that compiles its passes while it loads (Linnet's, packed prompts and all)
+    can take many minutes, which the row's load time reports."""
     if not available():
         raise RuntimeError("no tritonserver here (the benchmark pod's image provides it)")
     env = dict(os.environ)
