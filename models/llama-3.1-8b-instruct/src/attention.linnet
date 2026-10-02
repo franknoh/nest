@@ -15,11 +15,25 @@ module llama.attention
 use crate.rope::{THETA, tables}
 use std.nn.attention::{causal_mask, grouped_attention, grouped_attention_rows}
 use std.nn.cache::{write_at, write_rows, write_slots, write_span, write_tokens}
+use std.nn.parallel::{all_reduce}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
 
-pub block GroupedQueryAttention<H: Dim, Heads: Dim, KvHeads: Dim, Batch: Dim, MaxSeq: Dim, T: Float>
+pub block GroupedQueryAttention<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float,
+    Shards: Dim = 1,
+>
 where
+    Shards > 0,
+    Heads % Shards == 0,
+    KvHeads % Shards == 0,
+    KvHeads / Shards > 0,
+    (Heads / Shards) % (KvHeads / Shards) == 0,
     Heads > 0,
     KvHeads > 0,
     H % Heads == 0,
@@ -27,27 +41,27 @@ where
     (H / Heads) % 2 == 0,
     MaxSeq > 0
 {
-    sub q_proj: Linear<H, H, T>
-    sub k_proj: Linear<H, KvHeads * (H / Heads), T>
-    sub v_proj: Linear<H, KvHeads * (H / Heads), T>
-    sub o_proj: Linear<H, H, T>
+    sub q_proj: Linear<H, Heads / Shards * (H / Heads), T>
+    sub k_proj: Linear<H, KvHeads / Shards * (H / Heads), T>
+    sub v_proj: Linear<H, KvHeads / Shards * (H / Heads), T>
+    sub o_proj: Linear<Heads / Shards * (H / Heads), H, T>
 
-    state cache_k: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]
-    state cache_v: Tensor[Batch, KvHeads, MaxSeq, H / Heads; T]
+    state cache_k: Tensor[Batch, KvHeads / Shards, MaxSeq, H / Heads; T]
+    state cache_v: Tensor[Batch, KvHeads / Shards, MaxSeq, H / Heads; T]
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
         let (cos_table, sin_table) = tables<S, H / Heads, T>(THETA)
         let q = rope(
-            split_heads<B, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            split_heads<B, S, Heads / Shards, H / Heads, T>(q_proj.forward(x)),
             cos_table,
             sin_table,
         )
         let k = rope(
-            split_heads<B, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            split_heads<B, S, KvHeads / Shards, H / Heads, T>(k_proj.forward(x)),
             cos_table,
             sin_table,
         )
-        let v = split_heads<B, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let v = split_heads<B, S, KvHeads / Shards, H / Heads, T>(v_proj.forward(x))
         let mixed = grouped_attention(
             q,
             k,
@@ -55,7 +69,7 @@ where
             rsqrt(cast<f32>(H / Heads)),
             some(causal_mask<S, S>()),
         )
-        return o_proj.forward(merge_heads<B, S, Heads, H / Heads, T>(mixed))
+        return all_reduce(o_proj.forward(merge_heads<B, S, Heads / Shards, H / Heads, T>(mixed)))
     }
 
     // One new position `pos`: its key and value are written into the caches
@@ -68,16 +82,16 @@ where
         let cos_row = reshape(cos_at, [1, H / Heads])
         let sin_row = reshape(sin_at, [1, H / Heads])
         let q = rope(
-            split_heads<Batch, 1, Heads, H / Heads, T>(q_proj.forward(x)),
+            split_heads<Batch, 1, Heads / Shards, H / Heads, T>(q_proj.forward(x)),
             cos_row,
             sin_row,
         )
         let k = rope(
-            split_heads<Batch, 1, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            split_heads<Batch, 1, KvHeads / Shards, H / Heads, T>(k_proj.forward(x)),
             cos_row,
             sin_row,
         )
-        let v = split_heads<Batch, 1, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let v = split_heads<Batch, 1, KvHeads / Shards, H / Heads, T>(v_proj.forward(x))
         cache_k = write_at(cache_k, k, pos)
         cache_v = write_at(cache_v, v, pos)
         let positions = iota<i32>(MaxSeq)
@@ -89,7 +103,9 @@ where
             rsqrt(cast<f32>(H / Heads)),
             some(reshape(seen, [1, MaxSeq])),
         )
-        return o_proj.forward(merge_heads<Batch, 1, Heads, H / Heads, T>(mixed))
+        return all_reduce(
+            o_proj.forward(merge_heads<Batch, 1, Heads / Shards, H / Heads, T>(mixed)),
+        )
     }
 
     // `S` new positions starting at `pos`, as a prompt arrives: their keys
@@ -105,23 +121,25 @@ where
         let cos_rows[i, d] = cos_table[rows[i], d]
         let sin_rows[i, d] = sin_table[rows[i], d]
         let q = rope(
-            split_heads<Batch, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            split_heads<Batch, S, Heads / Shards, H / Heads, T>(q_proj.forward(x)),
             cos_rows,
             sin_rows,
         )
         let k = rope(
-            split_heads<Batch, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            split_heads<Batch, S, KvHeads / Shards, H / Heads, T>(k_proj.forward(x)),
             cos_rows,
             sin_rows,
         )
-        let v = split_heads<Batch, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let v = split_heads<Batch, S, KvHeads / Shards, H / Heads, T>(v_proj.forward(x))
         cache_k = write_span(cache_k, k, pos)
         cache_v = write_span(cache_v, v, pos)
         let positions = iota<i32>(MaxSeq)
         let queries = iota<i32>(S)
         let seen[i, s] = positions[s] <= pos + queries[i]
         let mixed = grouped_attention(q, cache_k, cache_v, rsqrt(cast<f32>(H / Heads)), some(seen))
-        return o_proj.forward(merge_heads<Batch, S, Heads, H / Heads, T>(mixed))
+        return all_reduce(
+            o_proj.forward(merge_heads<Batch, S, Heads / Shards, H / Heads, T>(mixed)),
+        )
     }
 
     // One new position per sequence, each at its own `positions[b]`: the
@@ -138,16 +156,16 @@ where
         let cos_rows = reshape(cos_at, [Batch, 1, H / Heads])
         let sin_rows = reshape(sin_at, [Batch, 1, H / Heads])
         let q = rope_rows(
-            split_heads<Batch, 1, Heads, H / Heads, T>(q_proj.forward(x)),
+            split_heads<Batch, 1, Heads / Shards, H / Heads, T>(q_proj.forward(x)),
             cos_rows,
             sin_rows,
         )
         let k = rope_rows(
-            split_heads<Batch, 1, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            split_heads<Batch, 1, KvHeads / Shards, H / Heads, T>(k_proj.forward(x)),
             cos_rows,
             sin_rows,
         )
-        let v = split_heads<Batch, 1, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let v = split_heads<Batch, 1, KvHeads / Shards, H / Heads, T>(v_proj.forward(x))
         cache_k = write_rows(cache_k, k, positions)
         cache_v = write_rows(cache_v, v, positions)
         let slots = iota<i32>(MaxSeq)
@@ -159,7 +177,9 @@ where
             rsqrt(cast<f32>(H / Heads)),
             reshape(seen, [Batch, 1, MaxSeq]),
         )
-        return o_proj.forward(merge_heads<Batch, 1, Heads, H / Heads, T>(mixed))
+        return all_reduce(
+            o_proj.forward(merge_heads<Batch, 1, Heads / Shards, H / Heads, T>(mixed)),
+        )
     }
 
     // `M` requests' prompts of `S` tokens, from their first positions, into
@@ -177,16 +197,16 @@ where
     {
         let (cos_table, sin_table) = tables<S, H / Heads, T>(THETA)
         let q = rope(
-            split_heads<M, S, Heads, H / Heads, T>(q_proj.forward(x)),
+            split_heads<M, S, Heads / Shards, H / Heads, T>(q_proj.forward(x)),
             cos_table,
             sin_table,
         )
         let k = rope(
-            split_heads<M, S, KvHeads, H / Heads, T>(k_proj.forward(x)),
+            split_heads<M, S, KvHeads / Shards, H / Heads, T>(k_proj.forward(x)),
             cos_table,
             sin_table,
         )
-        let v = split_heads<M, S, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let v = split_heads<M, S, KvHeads / Shards, H / Heads, T>(v_proj.forward(x))
         cache_k = write_slots(cache_k, k, slots, 0)
         cache_v = write_slots(cache_v, v, slots, 0)
         let mixed = grouped_attention(
@@ -196,7 +216,7 @@ where
             rsqrt(cast<f32>(H / Heads)),
             some(causal_mask<S, S>()),
         )
-        return o_proj.forward(merge_heads<M, S, Heads, H / Heads, T>(mixed))
+        return all_reduce(o_proj.forward(merge_heads<M, S, Heads / Shards, H / Heads, T>(mixed)))
     }
 
     // Prompts packed end to end, `P` tokens in all: token `p` is position
@@ -214,14 +234,22 @@ where
         let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
         let cos_at[p, d] = cos_table[cast<i64>(positions[p]), d]
         let sin_at[p, d] = sin_table[cast<i64>(positions[p]), d]
-        let q = rope(split_heads<1, P, Heads, H / Heads, T>(q_proj.forward(x)), cos_at, sin_at)
-        let k = rope(split_heads<1, P, KvHeads, H / Heads, T>(k_proj.forward(x)), cos_at, sin_at)
-        let v = split_heads<1, P, KvHeads, H / Heads, T>(v_proj.forward(x))
+        let q = rope(
+            split_heads<1, P, Heads / Shards, H / Heads, T>(q_proj.forward(x)),
+            cos_at,
+            sin_at,
+        )
+        let k = rope(
+            split_heads<1, P, KvHeads / Shards, H / Heads, T>(k_proj.forward(x)),
+            cos_at,
+            sin_at,
+        )
+        let v = split_heads<1, P, KvHeads / Shards, H / Heads, T>(v_proj.forward(x))
         cache_k = write_tokens(cache_k, k, rows, positions)
         cache_v = write_tokens(cache_v, v, rows, positions)
         let own[i, j] = segments[i] == segments[j] && positions[j] <= positions[i]
         let mixed = grouped_attention(q, k, v, rsqrt(cast<f32>(H / Heads)), some(own))
-        return o_proj.forward(merge_heads<1, P, Heads, H / Heads, T>(mixed))
+        return all_reduce(o_proj.forward(merge_heads<1, P, Heads / Shards, H / Heads, T>(mixed)))
     }
 }
 

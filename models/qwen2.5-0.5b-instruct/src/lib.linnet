@@ -11,6 +11,7 @@ use crate.attention::{GroupedQueryAttention}
 use std.nn.decoding::{argmax}
 use std.random::{categorical, split}
 use std.nn.embedding::{Embedding}
+use std.nn.parallel::{all_reduce}
 use std.nn.linear::{Linear}
 use std.nn.mlp::{SwiGlu}
 use std.nn.norm::{rms_norm}
@@ -34,8 +35,15 @@ pub block DecoderLayer<
     Batch: Dim,
     MaxSeq: Dim,
     T: Float,
+    Shards: Dim = 1,
 >
 where
+    Shards > 0,
+    Heads % Shards == 0,
+    KvHeads % Shards == 0,
+    KvHeads / Shards > 0,
+    (Heads / Shards) % (KvHeads / Shards) == 0,
+    Inner % Shards == 0,
     Heads > 0,
     KvHeads > 0,
     H % Heads == 0,
@@ -44,24 +52,24 @@ where
     MaxSeq > 0
 {
     sub attention_norm: RmsNorm<H, T>
-    sub attention: GroupedQueryAttention<H, Heads, KvHeads, Batch, MaxSeq, T>
+    sub attention: GroupedQueryAttention<H, Heads, KvHeads, Batch, MaxSeq, T, Shards>
     sub mlp_norm: RmsNorm<H, T>
-    sub mlp: SwiGlu<H, Inner, T>
+    sub mlp: SwiGlu<H, Inner / Shards, T>
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
         let attended = x + attention.forward(attention_norm.forward(x))
-        return attended + mlp.forward(mlp_norm.forward(attended))
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
     pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
         let attended = x + attention.decode(attention_norm.forward(x), pos)
-        return attended + mlp.forward(mlp_norm.forward(attended))
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
     pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
     where S > 0 {
         let attended = x + attention.prefill(attention_norm.forward(x), pos)
-        return attended + mlp.forward(mlp_norm.forward(attended))
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
     pub fn decode_rows(
@@ -69,7 +77,7 @@ where
         positions: Tensor[Batch; i32],
     ) -> Tensor[Batch, 1, H; T] {
         let attended = x + attention.decode_rows(attention_norm.forward(x), positions)
-        return attended + mlp.forward(mlp_norm.forward(attended))
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
     pub fn prefill_slots<M: Dim, S: Dim>(
@@ -81,7 +89,7 @@ where
         S > 0
     {
         let attended = x + attention.prefill_slots(attention_norm.forward(x), slots)
-        return attended + mlp.forward(mlp_norm.forward(attended))
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
     pub fn prefill_packed<P: Dim>(
@@ -93,7 +101,7 @@ where
     where P > 0 {
         let attended =
             x + attention.prefill_packed(attention_norm.forward(x), rows, positions, segments)
-        return attended + mlp.forward(mlp_norm.forward(attended))
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 }
 
@@ -107,8 +115,15 @@ pub block Model<
     Batch: Dim,
     MaxSeq: Dim,
     T: Float = bf16,
+    Shards: Dim = 1,
 >
 where
+    Shards > 0,
+    Heads % Shards == 0,
+    KvHeads % Shards == 0,
+    KvHeads / Shards > 0,
+    (Heads / Shards) % (KvHeads / Shards) == 0,
+    Inner % Shards == 0,
     Heads > 0,
     KvHeads > 0,
     H % Heads == 0,
@@ -117,7 +132,7 @@ where
     MaxSeq > 0
 {
     sub embedding: Embedding<Vocab, H, T>
-    sub layers: [DecoderLayer<H, Heads, KvHeads, Inner, Batch, MaxSeq, T>; Layers]
+    sub layers: [DecoderLayer<H, Heads, KvHeads, Inner, Batch, MaxSeq, T, Shards>; Layers]
     sub norm: RmsNorm<H, T>
     // Qwen2.5-0.5B ties the output head to the token embedding
     // (`tie_word_embeddings` in config.json); the checkpoint has no separate

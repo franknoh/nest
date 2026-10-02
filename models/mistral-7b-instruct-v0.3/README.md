@@ -43,6 +43,17 @@ Every name, shape, and dtype is checked before anything runs.
 | `sample<Steps>(token, pos, key, temperature)` | sampling with `std.random` |
 | `generate_until<MaxNew>(token, pos, eos)` | decoding until an end token |
 
+## Shards
+
+`Shards` (1 unless bound) splits the model across devices: one shard holds
+`Heads / Shards` query heads, `KvHeads / Shards` key and value heads and
+`Inner / Shards` hidden units, with the KV caches to match, and the
+attention's and the MLP's output projections end in
+`std.nn.parallel::all_reduce`, the sum over the shards. On one device the
+sum is the value itself. `linnet.torch.load(..., tensor_parallel=mesh)`
+binds `Shards` to the mesh size and gives each process its part of the
+checkpoint.
+
 ## Provenance
 
 - Weights: [mistralai/Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3), Apache-2.0.
