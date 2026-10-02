@@ -13,8 +13,13 @@ module gpt_oss.experts
 
 use std.nn.activations::{sigmoid}
 use std.nn.linear::{linear, Linear}
-use std.nn.moe::{combine_experts, linear_experts_shared}
-use std.quant::{dequantize_mxfp4, mxfp4_experts, mxfp4_experts_shared}
+use std.quant::{
+    dequantize_mxfp4,
+    mxfp4_combine_experts,
+    mxfp4_experts,
+    mxfp4_experts_shared,
+    mxfp4_linear_experts_shared,
+}
 use std.nn.softmax::{softmax}
 
 // `swiglu_limit` in config.json, and the gate's sigmoid slope.
@@ -122,23 +127,31 @@ where
     }
 
     // A prompt's tokens through their `TopK` experts only, every token a row
-    // of its own: the gate and up projections `linear_experts_shared`, the
-    // down projection with the router's weights `combine_experts`. Their
-    // bodies are the dense form's work, which any backend runs; one with a
-    // grouped matrix product multiplies each expert by the tokens that chose
-    // it instead, an eighth of the work.
+    // of its own: the gate and up projections
+    // `std.quant::mxfp4_linear_experts_shared`, the down projection with the
+    // router's weights `mxfp4_combine_experts`. Their bodies dequantize the
+    // experts and do the dense form's work, which any backend runs (the
+    // dequantization once at load); PyTorch on a Hopper GPU multiplies each
+    // expert by the tokens that chose it instead, an eighth of the work, with
+    // `triton_kernels`' MXFP4 product where it is installed.
     pub fn forward_routed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
         let rows = reshape(x, [B * S, 1, H])
         let expert = experts_of<B * S>(rows)
         let weight = weights_of<B * S>(rows)
-        let gate_up_all = dequantize_mxfp4<Experts, 2 * Inner, Blocks, T>(
+        let gate_up = mxfp4_linear_experts_shared<B * S, TopK, Experts, 2 * Inner, Blocks, T>(
+            reshape(x, [B * S, H]),
             gate_up_blocks,
             gate_up_scales,
+            expert,
         )
-        let gate_up = linear_experts_shared(reshape(x, [B * S, H]), gate_up_all, expert)
         let activated = activate<B * S>(gate_up, expert)
-        let down_all = dequantize_mxfp4<Experts, H, InnerBlocks, T>(down_blocks, down_scales)
-        let mixed = combine_experts(activated, down_all, expert, weight)
+        let mixed = mxfp4_combine_experts<B * S, TopK, Experts, H, InnerBlocks, T>(
+            activated,
+            down_blocks,
+            down_scales,
+            expert,
+            weight,
+        )
         return reshape(mixed + down_bias_of<B * S>(weight, expert), [B, S, H])
     }
 
