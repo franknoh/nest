@@ -6,9 +6,9 @@
 // probabilities over real keys sum to less than one, and the head can decline
 // to attend anywhere by putting its mass on the sink. That changes the
 // normalization, so it is not a mask, a bias, or anything
-// `std.nn.attention::attention` can be handed -- hence the op below, which is
-// otherwise the same scaled dot-product attention with grouped key/value
-// heads.
+// `std.nn.attention::attention` can be handed -- hence
+// `std.nn.attention::sink_attention`, which is otherwise the same scaled
+// dot-product attention with grouped key/value heads.
 //
 // The layers alternate between a 128-position sliding window and full causal
 // attention (`layer_types` in config.json). `window_mask` covers both: the
@@ -22,6 +22,7 @@
 module gpt_oss.attention
 
 use crate.rope::{tables}
+use std.nn.attention::{sink_attention}
 use std.nn.cache::{write_at, write_rows, write_slots, write_span}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
@@ -35,53 +36,6 @@ pub fn window_mask<Q: Dim, K: Dim>(window: i32) -> Tensor[Q, K; bool] {
     let offset = cast<i32>(K - Q)
     let mask[q, k] = keys[k] <= queries[q] + offset && keys[k] > queries[q] + offset - window
     return mask
-}
-
-// Scaled dot-product attention over `Hk` key/value heads shared by `Hq` query
-// heads, with one sink logit per query head. The mask is per sequence
-// (`[B, Q, K]`): rows of a batch being served sit at different positions.
-//
-// The softmax runs over the `K` masked scores and the sink together -- the
-// maximum subtracted for stability is the maximum of both -- and the sink's
-// share of the total is discarded, leaving `sum(weights) < 1`. Writing the
-// sink into the denominator rather than concatenating a column and slicing it
-// off again gives the same numbers without a `K + 1` axis.
-pub op sink_attention<
-    B: Dim,
-    Hq: Dim,
-    Hk: Dim,
-    Q: Dim,
-    K: Dim,
-    D: Dim,
-    T: Float,
->(
-    query: Tensor[B, Hq, Q, D; T],
-    key: Tensor[B, Hk, K, D; T],
-    value: Tensor[B, Hk, K, D; T],
-    sinks: Tensor[Hq; T],
-    scale: f32,
-    mask: Tensor[B, Q, K; bool],
-) -> Tensor[B, Hq, Q, D; T]
-where
-    Hk > 0,
-    Hq % Hk == 0
-{
-    // Query heads grouped by the key/value head they share, so the cached
-    // keys and values are read once per group, never copied to every head.
-    let grouped = reshape(query, [B, Hk, Hq / Hk, Q, D])
-    let score[b, g, r, q, k] =
-        sum<f32>[d] cast<f32>(grouped[b, g, r, q, d]) * cast<f32>(key[b, g, k, d])
-    let scaled = score * scale
-    let masked[b, g, r, q, k] = select(mask[b, q, k], scaled[b, g, r, q, k], -1e30)
-    let sink = reshape(cast<f32>(sinks), [Hk, Hq / Hk])
-    let key_peak[b, g, r, q] = max[k] masked[b, g, r, q, k]
-    let peak[b, g, r, q] = max(key_peak[b, g, r, q], sink[g, r])
-    let shifted[b, g, r, q, k] = exp(masked[b, g, r, q, k] - peak[b, g, r, q])
-    let key_total[b, g, r, q] = sum[k] shifted[b, g, r, q, k]
-    let total[b, g, r, q] = key_total[b, g, r, q] + exp(sink[g, r] - peak[b, g, r, q])
-    let weights[b, g, r, q, k] = shifted[b, g, r, q, k] / total[b, g, r, q]
-    let mixed[b, g, r, q, d] = sum[k] weights[b, g, r, q, k] * cast<f32>(value[b, g, k, d])
-    return reshape(cast<T>(mixed), [B, Hq, Q, D])
 }
 
 // gpt-oss puts a bias on all four projections (`attention_bias` is true) and
