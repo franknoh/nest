@@ -14,10 +14,11 @@ its own in `src/`:
   key, takes part in the softmax, and is then discarded. The probabilities over
   real keys therefore sum to less than one, and a head can decline to attend
   anywhere. That is a change to the softmax's normalization, not a mask or a
-  bias, so no stdlib attention op can express it;
-  `gpt_oss.attention::sink_attention` is a model-local `op` that does, by
-  putting the sink's term in the denominator instead of concatenating a column
-  and slicing it off again -- the same numbers without a `K + 1` axis.
+  bias, so none of the plain attention ops can express it;
+  `std.nn.attention::sink_attention` does, by putting the sink's term in the
+  denominator instead of concatenating a column and slicing it off again --
+  the same numbers without a `K + 1` axis. PyTorch on CUDA runs it as
+  FlexAttention, the sink folded in from its log-sum-exp.
 - **MXFP4 expert weights** (`std.quant`). See below.
 - **YaRN rope and alternating windows** (`src/rope.linnet`, `src/lib.linnet`).
   `layer_types` in config.json alternates a 128-position sliding window with
@@ -176,6 +177,13 @@ first, which for a batch of 64 rows was eight copies of every cache on every
 step. Together, serving 256 requests with 64 in flight went from 918 to 2129
 tokens per second on an H100 (with CUDA graphs), the first tokens unchanged;
 a single request decodes at 274 rather than 268, and XLA is unchanged.
+
+With the op in the standard library, PyTorch's fast numerics run it as
+FlexAttention (or, where FlexAttention does not fit, as bf16 products with
+the softmax in f32) rather than as the f32 index notation: on one H100 a
+512-token prompt takes 26.5 ms rather than 33.9, a decoding step 3.37 ms
+rather than 3.85 (297 tokens per second), and serving goes from 1999 to
+2327 tokens per second. JAX and ONNX run the same body as before.
 
 ## Validation
 
