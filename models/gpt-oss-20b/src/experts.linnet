@@ -104,7 +104,7 @@ where
         let expert = experts_of<B>(x)
         let weight = weights_of<B>(x)
         let gate_up = mxfp4_experts_shared<B, TopK, Experts, 2 * Inner, Blocks, T>(
-            reshape(x, [B, H]),
+            x,
             gate_up_blocks,
             gate_up_scales,
             expert,
