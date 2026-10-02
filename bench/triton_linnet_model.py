@@ -12,6 +12,7 @@ in `CARD` and `GENERICS`. Inputs: `prompt` (INT32 token ids) and
 
 import queue
 import threading
+import traceback
 
 import numpy as np
 import triton_python_backend_utils as pb_utils
@@ -79,7 +80,20 @@ class TritonPythonModel:
                 pass
             if not self.engine.busy:
                 continue
-            finished = {id(c) for c in self.engine.step()}
+            try:
+                finished = {id(c) for c in self.engine.step()}
+            except Exception as error:  # noqa: BLE001 - reported to every client waiting
+                # A failed step fails the requests it held, at once and with
+                # its reason, rather than leaving them to time out.
+                traceback.print_exc()
+                for sender, _, _ in open_requests:
+                    sender.send(
+                        pb_utils.InferenceResponse(error=pb_utils.TritonError(str(error))),
+                        flags=pb_utils.TRITONSERVER_RESPONSE_COMPLETE_FINAL,
+                    )
+                open_requests = []
+                self.engine.reset()
+                continue
             still_open = []
             for entry in open_requests:
                 sender, completion, first_sent = entry
