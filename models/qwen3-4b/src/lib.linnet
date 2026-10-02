@@ -15,7 +15,7 @@ use crate.norm::{RmsNorm}
 use std.nn.decoding::{argmax}
 use std.random::{categorical, split}
 use std.nn.embedding::{Embedding}
-use std.nn.parallel::{all_reduce}
+use std.nn.parallel::{all_gather, all_reduce}
 use std.nn.linear::{Linear}
 use std.nn.mlp::{SwiGlu}
 
@@ -117,6 +117,7 @@ where
     KvHeads / Shards > 0,
     (Heads / Shards) % (KvHeads / Shards) == 0,
     Inner % Shards == 0,
+    Vocab % Shards == 0,
     Heads > 0,
     KvHeads > 0,
     Heads % KvHeads == 0,
@@ -130,11 +131,13 @@ where
     // (`tie_word_embeddings` is true in config.json); the checkpoint has no
     // separate `lm_head` tensor, so `bindings.json` points this at the same
     // `model.embed_tokens.weight` the embedding uses.
-    sub lm_head: Linear<H, Vocab, T>
+    sub lm_head: Linear<H, Vocab / Shards, T>
 
     // Logits for every position.
     pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T] {
-        return lm_head.forward(hidden(tokens))
+        let rows = reshape(hidden(tokens), [B * S, H])
+        let gathered = all_gather<B * S, Vocab / Shards, Shards, T>(lm_head.forward(rows))
+        return reshape(gathered, [B, S, Vocab])
     }
 
     // Logits for the last position only, as decoding needs: the final norm
@@ -142,7 +145,7 @@ where
     pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]
     where S > 0 {
         let last = hidden_states(tokens)[:, S - 1, :]
-        return lm_head.forward(norm.forward(last))
+        return logits(last)
     }
 
     // Logits for one new token per sequence at position `pos`, attending
@@ -161,7 +164,7 @@ where
         static for layer in layers {
             x = layer.prefill(x, pos)
         }
-        return lm_head.forward(norm.forward(x[:, S - 1, :]))
+        return logits(x[:, S - 1, :])
     }
 
     // Logits for one new token per sequence, each at its own position
@@ -176,7 +179,7 @@ where
         static for layer in layers {
             x = layer.decode_rows(x, positions)
         }
-        return lm_head.forward(norm.forward(x[:, 0, :]))
+        return logits(x[:, 0, :])
     }
 
     // `M` requests' prompts into rows `slots` of the caches, as they join a
@@ -199,7 +202,7 @@ where
             x = layer.prefill_slots(x, slots)
         }
         let last[b, h] = x[b, cast<i64>(lengths[b]) - 1, h]
-        return lm_head.forward(norm.forward(last))
+        return logits(last)
     }
 
     // Prompts of several requests packed end to end into one pass of `P`
@@ -223,7 +226,7 @@ where
             x = layer.prefill_packed(x, rows, positions, segments)
         }
         let ends[m, h] = x[0, cast<i64>(last[m]), h]
-        return lm_head.forward(norm.forward(ends))
+        return logits(ends)
     }
 
     // Greedy generation inside the graph: `Steps` tokens after `token` at
@@ -304,7 +307,13 @@ where
         static for layer in layers {
             x = layer.decode(x, pos)
         }
-        return lm_head.forward(norm.forward(x[:, 0, :]))
+        return logits(x[:, 0, :])
+    }
+
+    // Rows' logits from their final hidden states: each shard's slice of the
+    // vocabulary, the slices side by side.
+    fn logits<R: Dim>(x: Tensor[R, H; T]) -> Tensor[R, Vocab; T] {
+        return all_gather<R, Vocab / Shards, Shards, T>(lm_head.forward(norm.forward(x)))
     }
 
     fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T] {
