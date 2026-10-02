@@ -153,16 +153,17 @@ token of a 512-token prompt takes 30.6 ms with CUDA graphs, down from 45.7.
 
 A decoded token reads the experts differently again. `decode` routes
 through `MixtureOfExperts.forward_topk`: only each token's four chosen
-experts multiply it, an eighth of the dense form's work. The dequantization
-reads nothing but weights, so PyTorch does it once at load (`--prepare`).
-The gate and up projections share the token's one input and are written as
-a contraction over the gathered weights, which XLA and inductor fuse into
-one pass; the down projection's inputs differ per expert, so it is
-`std.nn.moe::linear_experts`, on CUDA one grouped matrix product that reads
-the chosen experts where they lie. `decode_rows` keeps the dense form, since
-in a batch of rows every expert is chosen by someone and the dense form
-reads each once. Reading the experts as MXFP4 rather than dequantized would
-take a fused kernel.
+experts multiply it, an eighth of the dense form's work, and they are read
+in MXFP4 as the checkpoint has them, through `std.quant::mxfp4_experts_shared`
+(the gate and up projections, whose four experts share the token's input)
+and `std.quant::mxfp4_experts` (the down projection, whose inputs differ per
+expert). Their bodies dequantize, gather and multiply: XLA and ONNX Runtime
+dequantize once at load and fuse the rest as before. PyTorch on CUDA runs a
+Triton kernel that reads each chosen expert's four-bit bytes in place, a
+quarter of what their 16-bit weights would be: on an H100 it decodes at 270
+tokens per second with CUDA graphs, where reading the dequantized experts it
+decoded at 202. `decode_rows` keeps the dense form, since in a batch of rows
+every expert is chosen by someone and the dense form reads each once.
 
 ## Validation
 
