@@ -147,13 +147,19 @@ packed, as with JAX and ONNX Runtime).
 
 A prompt's tokens take the same route. `prefill` and `prefill_slots` go
 through `MixtureOfExperts.forward_routed`, where every token is a row of its
-own: `std.nn.moe::linear_experts_shared` for the gate and up projections,
-which read the token's one input, and `std.nn.moe::combine_experts` for the
-down projection with the router's weights. The ops' bodies are the dense
-form's work, which XLA and ONNX Runtime run as before; on CUDA, PyTorch runs
-each as one grouped matrix product over the tokens sorted by expert, each
-expert multiplying only the tokens that chose it. On an H100, the first
-token of a 512-token prompt takes 30.6 ms with CUDA graphs, down from 45.7.
+own: `std.quant::mxfp4_linear_experts_shared` for the gate and up
+projections, which read the token's one input, and
+`std.quant::mxfp4_combine_experts` for the down projection with the router's
+weights. The ops' bodies dequantize the experts and do the dense form's
+work, which XLA and ONNX Runtime run as before (the dequantization once at
+load); on a Hopper GPU, PyTorch runs each as one grouped matrix product over
+the tokens sorted by expert, each expert multiplying only the tokens that
+chose it, straight from MXFP4 with OpenAI's `triton_kernels` installed (see
+Linnet's `docs/quantization.md`) and from bf16 copies of the experts
+otherwise. On an H100 with `triton_kernels`, the first token of a 512-token
+prompt takes 20.5 ms with CUDA graphs (25.0 from bf16 experts), a 64-row
+serving step 8.3 ms (11.5), and serving 256 requests reaches 4702 tokens per
+second.
 
 A decoded token reads the experts differently again. `decode` routes
 through `MixtureOfExperts.forward_topk`: only each token's four chosen
