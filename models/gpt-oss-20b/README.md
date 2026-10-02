@@ -162,8 +162,20 @@ dequantize once at load and fuse the rest as before. PyTorch on CUDA runs a
 Triton kernel that reads each chosen expert's four-bit bytes in place, a
 quarter of what their 16-bit weights would be: on an H100 it decodes at 270
 tokens per second with CUDA graphs, where reading the dequantized experts it
-decoded at 202. `decode_rows` keeps the dense form, since in a batch of rows
-every expert is chosen by someone and the dense form reads each once.
+decoded at 202.
+
+A server's batch of rows, `decode_rows`, routes through `forward_routed` as a
+prompt does. In 64 rows nearly every expert is chosen by someone, so the
+weights read are the same as the dense form's, but each expert multiplies
+only the rows that chose it, an eighth of the arithmetic.
+
+`sink_attention` groups the 64 query heads by the key/value head they share
+(`[B, 8, 8, Q, D]`) and contracts them with the cached keys and values as
+they are, rather than copying the keys and values out to every query head
+first, which for a batch of 64 rows was eight copies of every cache on every
+step. Together, serving 256 requests with 64 in flight went from 918 to 2129
+tokens per second on an H100 (with CUDA graphs), the first tokens unchanged;
+a single request decodes at 274 rather than 268, and XLA is unchanged.
 
 ## Validation
 
