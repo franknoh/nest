@@ -135,12 +135,15 @@ before anything runs.
 | `decode(token, pos)` | one token per row through the KV caches |
 | `prefill_slots<M, S>(tokens, slots, lengths)` | `M` requests' prompts into rows `slots` of the caches, in one pass |
 | `decode_rows(tokens, positions)` | one token per row, each row at its own position |
+| `prefill_packed<P>(tokens, rows, positions, segments, last)` | prompts packed end to end into one pass of `P` tokens, each seeing its own prompt within the window |
+| `step_packed<P>(tokens, rows, positions, segments, last, step_tokens, step_positions)` | `prefill_packed`'s pass with `decode_rows`'s step for every row in it |
 
 The caches are `state` members of the attention blocks, `Batch` rows of
 `MaxSeq` positions (the card binds 1 and 4096). A sliding-window layer still
 caches every position and masks all but the last 128 of them; the full layers'
-window is the whole cache. `prefill_slots` and `decode_rows` are what
-`linnet.serve` batches continuously.
+window is the whole cache. `decode_rows` and the packed entries are what
+`linnet.serve` batches continuously (`prefill_slots` where prompts are not
+packed, as with JAX and ONNX Runtime).
 
 A prompt's tokens take the same route. `prefill` and `prefill_slots` go
 through `MixtureOfExperts.forward_routed`, where every token is a row of its
@@ -184,6 +187,13 @@ the softmax in f32) rather than as the f32 index notation: on one H100 a
 512-token prompt takes 26.5 ms rather than 33.9, a decoding step 3.37 ms
 rather than 3.85 (297 tokens per second), and serving goes from 1999 to
 2327 tokens per second. JAX and ONNX run the same body as before.
+
+`prefill_packed` packs the prompts end to end, each token seeing its own
+prompt within the layer's window: one mask for the whole pass, which
+FlexAttention takes, where `prefill_slots` pads each prompt and gives each
+its own mask. A pass of 2048 prompt tokens then takes 62.7 ms rather than
+148 as four padded prompts of 512, and serving reaches 3144 tokens per
+second (with the engine capturing each pass size during warmup).
 
 ## Validation
 

@@ -23,7 +23,7 @@ module gpt_oss.attention
 
 use crate.rope::{tables}
 use std.nn.attention::{sink_attention}
-use std.nn.cache::{write_at, write_rows, write_slots, write_span}
+use std.nn.cache::{write_at, write_rows, write_slots, write_span, write_tokens}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
 
@@ -231,6 +231,99 @@ where
             broadcast_to(reshape(window_mask<S, S>(window), [1, S, S]), [M, S, S]),
         )
         return o_proj.forward(merge_heads<M, S, Heads, HeadDim, T>(mixed))
+    }
+
+    // Prompts packed end to end, `P` tokens in all: token `p` is position
+    // `positions[p]` of prompt `segments[p]`, whose row of the caches is
+    // `rows[p]`. Each token's key and value go to its row at its position,
+    // and its query attends to the tokens of its own prompt up to itself,
+    // within the window.
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        window: i32,
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim, T>()
+        let cos_at[p, d] = cos_table[cast<i64>(positions[p]), d]
+        let sin_at[p, d] = sin_table[cast<i64>(positions[p]), d]
+        let q = rope(split_heads<1, P, Heads, HeadDim, T>(q_proj.forward(x)), cos_at, sin_at)
+        let k = rope(split_heads<1, P, KvHeads, HeadDim, T>(k_proj.forward(x)), cos_at, sin_at)
+        let v = split_heads<1, P, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_tokens(cache_k, k, rows, positions)
+        cache_v = write_tokens(cache_v, v, rows, positions)
+        let own[i, j] =
+            segments[i] == segments[j] &&
+            positions[j] <= positions[i] &&
+            positions[j] > positions[i] - window
+        let mixed = sink_attention(
+            q,
+            k,
+            v,
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            reshape(own, [1, P, P]),
+        )
+        return o_proj.forward(merge_heads<1, P, Heads, HeadDim, T>(mixed))
+    }
+
+    // `prefill_packed`'s prompts, `P` tokens, then one step for each of the
+    // `Batch` rows, at `step_positions[b]`: every token's key and value go to
+    // its row at its position, the prompts attend among themselves as in
+    // `prefill_packed`, and each step over its row as in `decode_rows`.
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        step_positions: Tensor[Batch; i32],
+        window: i32,
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        let every_at = concat(positions, step_positions, axis = 0)
+        let every_row = concat(rows, iota<i32>(Batch), axis = 0)
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim, T>()
+        let cos_at[p, d] = cos_table[cast<i64>(every_at[p]), d]
+        let sin_at[p, d] = sin_table[cast<i64>(every_at[p]), d]
+        let q = rope(
+            split_heads<1, P + Batch, Heads, HeadDim, T>(q_proj.forward(x)),
+            cos_at,
+            sin_at,
+        )
+        let k = rope(
+            split_heads<1, P + Batch, KvHeads, HeadDim, T>(k_proj.forward(x)),
+            cos_at,
+            sin_at,
+        )
+        let v = split_heads<1, P + Batch, KvHeads, HeadDim, T>(v_proj.forward(x))
+        cache_k = write_tokens(cache_k, k, every_row, every_at)
+        cache_v = write_tokens(cache_v, v, every_row, every_at)
+        let own[i, j] =
+            segments[i] == segments[j] &&
+            positions[j] <= positions[i] &&
+            positions[j] > positions[i] - window
+        let prompts = sink_attention(
+            q[:, :, 0:P, :],
+            k[:, :, 0:P, :],
+            v[:, :, 0:P, :],
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            reshape(own, [1, P, P]),
+        )
+        let slots = iota<i32>(MaxSeq)
+        let seen[b, s] = slots[s] <= step_positions[b] && slots[s] > step_positions[b] - window
+        let steps = sink_attention(
+            permute(q[:, :, P:P + Batch, :], [2, 1, 0, 3]),
+            cache_k,
+            cache_v,
+            sinks,
+            rsqrt(cast<f32>(HeadDim)),
+            reshape(seen, [Batch, 1, MaxSeq]),
+        )
+        let mixed = concat(prompts, permute(steps, [2, 1, 0, 3]), axis = 2)
+        return o_proj.forward(merge_heads<1, P + Batch, Heads, HeadDim, T>(mixed))
     }
 }
 
