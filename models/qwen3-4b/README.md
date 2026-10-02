@@ -84,10 +84,12 @@ Every name, shape, and dtype is checked before anything runs.
 `Heads / Shards` query heads, `KvHeads / Shards` key and value heads and
 `Inner / Shards` hidden units, with the KV caches to match, and the
 attention's and the MLP's output projections end in
-`std.nn.parallel::all_reduce`, the sum over the shards. On one device the
-sum is the value itself. `linnet.torch.load(..., tensor_parallel=mesh)`
-binds `Shards` to the mesh size and gives each process its part of the
-checkpoint.
+`std.nn.parallel::all_reduce`, the sum over the shards. `lm_head` holds
+`Vocab / Shards` rows of the vocabulary, and `std.nn.parallel::all_gather`
+sets the shards' slices of the logits side by side. On one device the sum
+and the gather are the value itself.
+`linnet.torch.load(..., tensor_parallel=mesh)` binds `Shards` to the mesh
+size and gives each process its part of the checkpoint.
 
 ## Provenance
 
