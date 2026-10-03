@@ -60,6 +60,11 @@ python -m pip install --quiet nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \
 # Its TensorRT provider links TensorRT 10; the image's own is 11, under
 # another soname. `run-all.sh` puts these on the library path.
 python -m pip install --quiet "tensorrt-cu13-libs>=10,<11"
+# OpenAI's triton_kernels, which Linnet's PyTorch runs routed MXFP4 experts
+# with (gpt-oss): not on PyPI, so the one matching the installed Triton.
+triton_version=$(python -c "import triton; print(triton.__version__)")
+python -m pip install --quiet \
+    "triton_kernels @ git+https://github.com/triton-lang/triton.git@v${triton_version}#subdirectory=python/triton_kernels"
 python - <<'EOF'
 import jax, torch, onnxruntime
 print("torch", torch.__version__, "cuda", torch.cuda.is_available(), torch.cuda.device_count(), "GPUs")
