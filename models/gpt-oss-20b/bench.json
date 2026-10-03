@@ -90,12 +90,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 14.379072934389114,
-        "decode_tok_s": 366.9689631041826,
-        "load_s": 2.76044038310647,
+        "ttft_ms": 14.10851813852787,
+        "decode_tok_s": 367.66697068942375,
+        "load_s": 3.20823784917593,
         "peak_vram_mib": 29442.9
       },
-      "max_abs_diff": null,
+      "max_abs_diff": 0.1875,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -104,12 +104,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 34.87825393676758,
-        "decode_tok_s": 185.5439291717992,
-        "load_s": 2.8591817803680897,
+        "ttft_ms": 34.81742553412914,
+        "decode_tok_s": 199.93736969305772,
+        "load_s": 3.114900317043066,
         "peak_vram_mib": 29392.9
       },
-      "max_abs_diff": null,
+      "max_abs_diff": 0.1875,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-inductor"
