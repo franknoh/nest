@@ -244,10 +244,10 @@
       "method": "vLLM (offline, continuous batching)",
       "kind": "reference",
       "metrics": {
-        "serve_tok_s": 5657.843359610022,
-        "serve_s": 5.791606079787016,
-        "load_s": 34.004740450531244,
-        "peak_vram_mib": 70284.8
+        "serve_tok_s": 5449.406424204707,
+        "serve_s": 6.013131972402334,
+        "load_s": 134.7541569545865,
+        "peak_vram_mib": 70326.2
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.85",
@@ -302,11 +302,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 5593.792834826783,
-        "serve_s": 5.857921622693539,
-        "load_s": 6.523065276443958,
-        "serve_ttft_ms": 2668.6650086194277,
-        "peak_vram_mib": 29348.9
+        "serve_tok_s": 5599.671676188662,
+        "serve_s": 5.851771656423807,
+        "load_s": 6.9916987195611,
+        "serve_ttft_ms": 2508.469292894006,
+        "peak_vram_mib": 28440.2
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -436,10 +436,10 @@
       "method": "Linnet torch (tensor parallel on 2 GPUs, shards)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 10.139065503608435,
-        "decode_tok_s": 236.35742214624963,
-        "load_s": 4.117902795027476,
-        "peak_vram_mib": 26701.9
+        "ttft_ms": 10.849429294466972,
+        "decode_tok_s": 238.08858552870754,
+        "load_s": 4.768562152981758,
+        "peak_vram_mib": 27757.0
       },
       "max_abs_diff": null,
       "notes": "one process per GPU under torchrun, NCCL, CUDA graphs; KV cache compiled for 768 positions",
@@ -450,11 +450,11 @@
       "method": "Linnet JAX (XLA, tensor parallel on 2 GPUs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 17.58936094120145,
-        "decode_tok_s": 88.81126778200277,
-        "load_s": 13.257573359645903,
+        "ttft_ms": 16.219401732087135,
+        "decode_tok_s": 180.8528170455239,
+        "load_s": 16.072626769542694,
         "peak_vram_mib": 18801.2,
-        "driver_vram_mib": 38684.0
+        "driver_vram_mib": 38733.8
       },
       "max_abs_diff": 0.125,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -465,10 +465,11 @@
       "method": "vLLM (tensor parallel on 2 GPUs)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 11.92089170217514,
-        "decode_tok_s": 245.77907273990917,
-        "load_s": 320.734523056075,
-        "first_token": 198.0
+        "ttft_ms": 11.868055909872055,
+        "decode_tok_s": 232.93155993715257,
+        "load_s": 285.9878695830703,
+        "first_token": 198.0,
+        "peak_vram_mib": 142713.8
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",

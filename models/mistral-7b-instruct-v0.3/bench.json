@@ -247,10 +247,10 @@
       "method": "vLLM (offline, continuous batching)",
       "kind": "reference",
       "metrics": {
-        "serve_tok_s": 5807.726084472515,
-        "serve_s": 5.642139371484518,
-        "load_s": 32.575192948803306,
-        "peak_vram_mib": 70440.8
+        "serve_tok_s": 5545.832737676782,
+        "serve_s": 5.908580649644136,
+        "load_s": 78.80427030473948,
+        "peak_vram_mib": 70410.2
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.85",
@@ -305,11 +305,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 5780.700369190159,
-        "serve_s": 5.668517291545868,
-        "load_s": 6.245873939245939,
-        "serve_ttft_ms": 2598.7297240644693,
-        "peak_vram_mib": 27858.9
+        "serve_tok_s": 5764.448327956281,
+        "serve_s": 5.684498868882656,
+        "load_s": 8.005591470748186,
+        "serve_ttft_ms": 2447.2957085818052,
+        "peak_vram_mib": 27929.3
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
