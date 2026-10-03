@@ -180,6 +180,10 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         max_model_len=max_seq(workload),
         gpu_memory_utilization=float(workload.get("vllm_memory", 0.85)),
         tensor_parallel_size=int(workload.get("tensor_parallel", 1)),
+        # Every timed call sends the same prompt: with its prefix cache on, vLLM
+        # would take it from the cache rather than compute it, which no other
+        # stack measured here does.
+        enable_prefix_caching=False,
     )
     load_s = time.perf_counter() - start
     prompt = {"prompt_token_ids": prompt_ids(data, workload)}

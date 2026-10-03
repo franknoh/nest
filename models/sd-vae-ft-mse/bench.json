@@ -75,12 +75,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 13.21388129144907,
-        "load_s": 0.8499057833105326,
-        "throughput_per_s": 91.18842503280393,
-        "peak_vram_mib": 6572.0
+        "latency_ms": 10.350195690989494,
+        "load_s": 0.4500459395349026,
+        "throughput_per_s": 111.97379433482328,
+        "peak_vram_mib": 5666.9
       },
-      "max_abs_diff": 0.0283203125,
+      "max_abs_diff": 0.033203125,
       "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -89,12 +89,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 13.582626357674599,
-        "load_s": 0.8524162657558918,
-        "throughput_per_s": 90.80497577000352,
-        "peak_vram_mib": 6374.0
+        "latency_ms": 10.899035260081291,
+        "load_s": 0.47398795187473297,
+        "throughput_per_s": 110.82022884254782,
+        "peak_vram_mib": 4938.9
       },
-      "max_abs_diff": 0.0283203125,
+      "max_abs_diff": 0.033203125,
       "notes": "64x64 latent (512-pixel image), bf16; throughput at batch 8",
       "error": null,
       "key": "linnet-inductor"

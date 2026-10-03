@@ -246,10 +246,10 @@
       "method": "Triton Inference Server (ONNX Runtime backend, torch.onnx export)",
       "kind": "reference",
       "metrics": {
-        "latency_ms": 5.147529765963554,
-        "throughput_per_s": 587.676539135015,
-        "load_s": 9.114632183685899,
-        "peak_vram_mib": 2442.8
+        "latency_ms": 3.6560427397489548,
+        "throughput_per_s": 578.6878095224938,
+        "load_s": 9.10310436040163,
+        "peak_vram_mib": 2428.9
       },
       "max_abs_diff": 0.11434412002563477,
       "notes": "over HTTP; f32; throughput with 4 requests of batch 64 in flight",
@@ -260,10 +260,10 @@
       "method": "Triton Inference Server (ONNX Runtime backend, Linnet ONNX)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 5.758359096944332,
-        "throughput_per_s": 687.171320730951,
-        "load_s": 15.0301313996315,
-        "peak_vram_mib": 2430.8
+        "latency_ms": 3.2435525208711624,
+        "throughput_per_s": 594.4761908508923,
+        "load_s": 16.062782548367977,
+        "peak_vram_mib": 2424.9
       },
       "max_abs_diff": 0.1145319938659668,
       "notes": "over HTTP; f32; throughput with 4 requests of batch 64 in flight",
@@ -274,10 +274,10 @@
       "method": "Triton Inference Server (Python backend, Linnet torch)",
       "kind": "linnet",
       "metrics": {
-        "latency_ms": 4.83488105237484,
-        "throughput_per_s": 515.8712784085948,
-        "load_s": 7.049142021685839,
-        "peak_vram_mib": 2788.0
+        "latency_ms": 2.7097295969724655,
+        "throughput_per_s": 557.9240686320418,
+        "load_s": 6.024971269071102,
+        "peak_vram_mib": 2880.1
       },
       "max_abs_diff": 0.140625,
       "notes": "over HTTP; bf16, CUDA graphs; throughput with 4 requests of batch 64 in flight",

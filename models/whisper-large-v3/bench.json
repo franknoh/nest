@@ -103,11 +103,11 @@
       "method": "Linnet JAX (XLA, StableHLO)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 13.293105643242598,
-        "transcribe_ms": 158.18366827443242,
-        "load_s": 2.5020762206986547,
-        "peak_vram_mib": 3697.1,
-        "driver_vram_mib": 4740.0
+        "encode_ms": 11.697333306074142,
+        "transcribe_ms": 96.54302895069122,
+        "load_s": 2.2979840338230133,
+        "peak_vram_mib": 3698.5,
+        "driver_vram_mib": 4748.9
       },
       "max_abs_diff": 3.2890625,
       "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -118,11 +118,11 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "encode_ms": 9.26947221159935,
-        "transcribe_ms": 155.57878138497472,
-        "load_s": 2.674152670428157,
-        "peak_vram_mib": 3614.2,
-        "driver_vram_mib": 4736.0
+        "encode_ms": 7.322512567043304,
+        "transcribe_ms": 107.80552588403225,
+        "load_s": 2.1348913572728634,
+        "peak_vram_mib": 3615.7,
+        "driver_vram_mib": 4744.9
       },
       "max_abs_diff": 16.263671875,
       "notes": "transcribed with the card's KV caches: `listen` encodes and fills the cross-attention caches, `prefill` feeds the prompt, `step` one token each; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",

@@ -61,11 +61,11 @@
       "method": "vLLM",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 7.699211128056049,
-        "decode_tok_s": 839.7203252448252,
-        "load_s": 23.942172346636653,
+        "ttft_ms": 5.9449076652526855,
+        "decode_tok_s": 696.2508439753117,
+        "load_s": 46.960085187107325,
         "first_token": 2213.0,
-        "peak_vram_mib": 69720.8
+        "peak_vram_mib": 69720.9
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
@@ -90,12 +90,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 0.8322414942085743,
-        "decode_tok_s": 1964.5418311051585,
-        "load_s": 0.5948316417634487,
-        "peak_vram_mib": 1126.0
+        "ttft_ms": 0.7712710648775101,
+        "decode_tok_s": 1896.8173529286903,
+        "load_s": 0.4614080637693405,
+        "peak_vram_mib": 1144.9
       },
-      "max_abs_diff": 1.0,
+      "max_abs_diff": 1.25,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -104,12 +104,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 1.6453340649604797,
-        "decode_tok_s": 700.288599943751,
-        "load_s": 1.1308154910802841,
-        "peak_vram_mib": 1024.0
+        "ttft_ms": 1.5868023037910461,
+        "decode_tok_s": 552.821169559486,
+        "load_s": 0.4720837324857712,
+        "peak_vram_mib": 1022.9
       },
-      "max_abs_diff": 1.0,
+      "max_abs_diff": 1.25,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-inductor"
@@ -118,11 +118,11 @@
       "method": "Linnet JAX (XLA, StableHLO)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 1.9035041332244873,
-        "decode_tok_s": 1429.6611741091338,
-        "load_s": 0.6171287652105093,
-        "peak_vram_mib": 512.0,
-        "driver_vram_mib": 1132.0
+        "ttft_ms": 1.2286584824323654,
+        "decode_tok_s": 1847.56881982313,
+        "load_s": 0.5153531208634377,
+        "peak_vram_mib": 514.0,
+        "driver_vram_mib": 1140.9
       },
       "max_abs_diff": 0.75,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
@@ -133,13 +133,13 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 1.9801454618573189,
-        "decode_tok_s": 911.4300905632533,
-        "load_s": 0.61879588291049,
-        "peak_vram_mib": 642.0,
-        "driver_vram_mib": 1646.0
+        "ttft_ms": 1.313304528594017,
+        "decode_tok_s": 1714.8556513928784,
+        "load_s": 0.47653499245643616,
+        "peak_vram_mib": 514.0,
+        "driver_vram_mib": 1140.9
       },
-      "max_abs_diff": 1.0,
+      "max_abs_diff": 1.25,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax-source"
