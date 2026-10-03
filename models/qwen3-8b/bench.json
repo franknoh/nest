@@ -61,11 +61,11 @@
       "method": "vLLM",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 13.244586996734142,
-        "decode_tok_s": 153.33897848091354,
-        "load_s": 66.04739614296705,
+        "ttft_ms": 16.308249905705452,
+        "decode_tok_s": 146.7107114149884,
+        "load_s": 88.96389130875468,
         "first_token": 198.0,
-        "peak_vram_mib": 69534.8
+        "peak_vram_mib": 69534.9
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
@@ -420,11 +420,10 @@
       "method": "vLLM (tensor parallel on 2 GPUs)",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 11.188698932528496,
-        "decode_tok_s": 229.4540016658572,
-        "load_s": 55.336952831596136,
-        "first_token": 198.0,
-        "peak_vram_mib": 143659.8
+        "ttft_ms": 12.307418510317802,
+        "decode_tok_s": 233.3368602561821,
+        "load_s": 31.622739737853408,
+        "first_token": 198.0
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",

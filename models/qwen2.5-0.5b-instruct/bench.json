@@ -61,11 +61,11 @@
       "method": "vLLM",
       "kind": "reference",
       "metrics": {
-        "ttft_ms": 9.322373196482658,
-        "decode_tok_s": 510.9727021599524,
-        "load_s": 21.666182440705597,
+        "ttft_ms": 7.576551288366318,
+        "decode_tok_s": 707.2256795467996,
+        "load_s": 57.82546177133918,
         "first_token": 13.0,
-        "peak_vram_mib": 70818.8
+        "peak_vram_mib": 70740.9
       },
       "max_abs_diff": null,
       "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.85), so its memory is a setting, not a need",
