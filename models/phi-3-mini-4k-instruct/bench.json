@@ -321,11 +321,11 @@
       "method": "Triton Inference Server (Python backend, linnet.serve)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 4645.335182694451,
-        "serve_s": 7.053958156146109,
-        "load_s": 29.054672651924193,
-        "serve_ttft_ms": 3149.5480271987617,
-        "peak_vram_mib": 24916.4
+        "serve_tok_s": 6328.143729444483,
+        "serve_s": 5.178137760609388,
+        "load_s": 290.22266763448715,
+        "serve_ttft_ms": 2123.587576672435,
+        "peak_vram_mib": 25540.4
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",

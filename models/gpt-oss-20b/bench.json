@@ -90,12 +90,12 @@
       "method": "Linnet torch (CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 26.22522972524166,
-        "decode_tok_s": 297.39290526157794,
-        "load_s": 2.6393604930490255,
-        "peak_vram_mib": 54582.9
+        "ttft_ms": 14.379072934389114,
+        "decode_tok_s": 366.9689631041826,
+        "load_s": 2.76044038310647,
+        "peak_vram_mib": 29442.9
       },
-      "max_abs_diff": 0.21875,
+      "max_abs_diff": null,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-cudagraphs"
@@ -104,12 +104,12 @@
       "method": "Linnet torch (torch.compile, inductor)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 27.864673174917698,
-        "decode_tok_s": 197.82599635064736,
-        "load_s": 2.5392147954553366,
-        "peak_vram_mib": 54582.9
+        "ttft_ms": 34.87825393676758,
+        "decode_tok_s": 185.5439291717992,
+        "load_s": 2.8591817803680897,
+        "peak_vram_mib": 29392.9
       },
-      "max_abs_diff": 0.21875,
+      "max_abs_diff": null,
       "notes": "KV cache compiled for 768 positions",
       "error": null,
       "key": "linnet-inductor"
@@ -284,11 +284,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 3144.0579736912996,
-        "serve_s": 10.422199677675962,
-        "load_s": 5.724733132869005,
-        "serve_ttft_ms": 4414.542933925986,
-        "peak_vram_mib": 62258.9
+        "serve_tok_s": 5349.235864147874,
+        "serve_s": 6.125734746456146,
+        "load_s": 5.725867938250303,
+        "serve_ttft_ms": 2632.1338415145874,
+        "peak_vram_mib": 31332.9
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -326,11 +326,11 @@
       "method": "Triton Inference Server (Python backend, linnet.serve)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 769.622535528627,
-        "serve_s": 42.57671584095806,
-        "load_s": 62.08477358147502,
-        "serve_ttft_ms": 17705.71764325723,
-        "peak_vram_mib": 63224.4
+        "serve_tok_s": 5839.18617468094,
+        "serve_s": 5.611740920692682,
+        "load_s": 705.3848326392472,
+        "serve_ttft_ms": 2377.982411533594,
+        "peak_vram_mib": 31914.4
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, first tokens timed at the client",
