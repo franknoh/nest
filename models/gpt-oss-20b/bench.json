@@ -133,13 +133,13 @@
       "method": "Linnet JAX (XLA, generated source)",
       "kind": "linnet",
       "metrics": {
-        "ttft_ms": 46.54901009052992,
-        "decode_tok_s": 292.6926798898889,
-        "load_s": 8.961986193433404,
-        "peak_vram_mib": 51737.6,
-        "driver_vram_mib": 66172.9
+        "ttft_ms": 25.16063302755356,
+        "decode_tok_s": 298.20299727781423,
+        "load_s": 9.19578356295824,
+        "peak_vram_mib": 51298.3,
+        "driver_vram_mib": 66713.8
       },
-      "max_abs_diff": 0.06640625,
+      "max_abs_diff": 0.109375,
       "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
       "error": null,
       "key": "linnet-jax-source"
@@ -284,11 +284,11 @@
       "method": "Linnet torch (linnet.serve, CUDA graphs)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 5349.235864147874,
-        "serve_s": 6.125734746456146,
-        "load_s": 5.725867938250303,
-        "serve_ttft_ms": 2632.1338415145874,
-        "peak_vram_mib": 31332.9
+        "serve_tok_s": 6030.689685359162,
+        "serve_s": 5.433541055768728,
+        "load_s": 7.278862033039331,
+        "serve_ttft_ms": 2302.384303882718,
+        "peak_vram_mib": 31330.2
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
@@ -299,12 +299,12 @@
       "method": "Linnet jax (linnet.serve, XLA)",
       "kind": "linnet",
       "metrics": {
-        "serve_tok_s": 1676.0086831178544,
-        "serve_s": 19.5512113571167,
-        "load_s": 10.152795495465398,
-        "serve_ttft_ms": 8486.624089069664,
-        "peak_vram_mib": 56091.6,
-        "driver_vram_mib": 66306.9
+        "serve_tok_s": 3117.03775450011,
+        "serve_s": 10.512545108795166,
+        "load_s": 11.517576947808266,
+        "serve_ttft_ms": 4653.521720319986,
+        "peak_vram_mib": 53388.5,
+        "driver_vram_mib": 67890.9
       },
       "max_abs_diff": null,
       "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
