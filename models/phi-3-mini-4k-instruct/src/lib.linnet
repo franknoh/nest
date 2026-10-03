@@ -229,6 +229,17 @@ where
         return linear_token_log_probs(states, lm_head.weight, targets)
     }
 
+    // Each packed position's final hidden state, after the last norm: what
+    // the output head (or a value or reward head) reads.
+    pub entry hidden_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[P, H; T]
+    where P > 0 {
+        return packed_states(tokens, positions, segments)
+    }
+
     fn packed_states<P: Dim>(
         tokens: Tensor[P; i32],
         positions: Tensor[P; i32],
