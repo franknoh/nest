@@ -14,6 +14,7 @@ use std.nn.decoding::{argmax}
 use std.random::{categorical, split}
 use std.nn.embedding::{Embedding}
 use std.nn.linear::{Linear}
+use std.nn.loss::{linear_cross_entropy, linear_token_log_probs}
 use std.nn.norm::{RmsNorm}
 
 pub block DecoderLayer<H: Dim, Heads: Dim, Inner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>
@@ -73,6 +74,16 @@ where
     where P > 0 {
         let attended =
             x + attention.prefill_packed(attention_norm.forward(x), rows, positions, segments)
+        return attended + mlp.forward(mlp_norm.forward(attended))
+    }
+
+    pub fn packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let attended = x + attention.packed(attention_norm.forward(x), positions, segments)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
 
@@ -186,6 +197,49 @@ where
         }
         let last[b, h] = x[b, cast<i64>(lengths[b]) - 1, h]
         return lm_head.forward(norm.forward(last))
+    }
+
+    // Training over sequences packed into one row, as `prefill_packed`
+    // packs prompts: `sum_p weights[p] * -log p(targets[p])` for the token
+    // after each position (`std.nn.loss::linear_cross_entropy` with the
+    // output head). A weight of 0 leaves a position out; `mask / count`
+    // gives the mean.
+    pub entry loss_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        targets: Tensor[P; i64],
+        weights: Tensor[P; f32],
+    ) -> f32
+    where P > 0 {
+        let states = packed_states(tokens, positions, segments)
+        return linear_cross_entropy(states, lm_head.weight, targets, weights)
+    }
+
+    // Each packed position's log-probability of `targets[p]`, as a
+    // policy-gradient update weighs them.
+    pub entry log_probs_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        targets: Tensor[P; i64],
+    ) -> Tensor[P; f32]
+    where P > 0 {
+        let states = packed_states(tokens, positions, segments)
+        return linear_token_log_probs(states, lm_head.weight, targets)
+    }
+
+    fn packed_states<P: Dim>(
+        tokens: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[P, H; T]
+    where P > 0 {
+        var x = embedding.forward(reshape(tokens, [1, P]))
+        static for layer in layers {
+            x = layer.packed(x, positions, segments)
+        }
+        return reshape(norm.forward(x), [P, H])
     }
 
     // Prompts of several requests packed end to end into one pass of `P`
