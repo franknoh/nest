@@ -1,0 +1,41 @@
+name: hub
+
+# Uploads model directories to the Hugging Face org linnet-lang, where
+# `linnet.nest.load("linnet-lang/<name>")` finds them and the Hub lists them
+# as Linnet models. Run by hand; the `huggingface` environment holds the
+# token and asks for approval.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: Model names, separated by spaces (empty for every model)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  push:
+    name: Push to linnet-lang
+    runs-on: ubuntu-24.04
+    environment: huggingface
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: franknoh/Linnet
+          path: linnet
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra nest
+        working-directory: linnet/python/linnet
+      - name: Push
+        run: |
+          models="$MODELS"
+          [ -n "$models" ] || models=$(ls models)
+          for model in $models; do
+            uv run --project linnet/python/linnet python -m linnet.nest push "models/$model" "linnet-lang/$model"
+          done
+        env:
+          MODELS: ${{ inputs.models }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
