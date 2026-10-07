@@ -11,9 +11,9 @@ use crate.attention::{GroupedQueryAttention}
 use std.nn.decoding::{argmax}
 use std.random::{categorical, split}
 use std.nn.embedding::{Embedding}
-use std.nn.parallel::{all_gather, all_reduce}
+use std.nn.parallel::{all_gather, all_reduce, shared}
 use std.nn.linear::{Linear}
-use std.nn.loss::{linear_cross_entropy, linear_token_log_probs}
+use std.nn.loss::{split_cross_entropy, split_token_log_probs}
 use std.nn.mlp::{SwiGlu}
 use std.nn.norm::{rms_norm}
 
@@ -37,6 +37,7 @@ pub block DecoderLayer<
     MaxSeq: Dim,
     T: Float,
     Shards: Dim = 1,
+    PageSize: Dim = 64,
 >
 where
     Shards > 0,
@@ -50,16 +51,18 @@ where
     H % Heads == 0,
     Heads % KvHeads == 0,
     (H / Heads) % 2 == 0,
-    MaxSeq > 0
+    MaxSeq > 0,
+    Batch > 0,
+    PageSize > 0
 {
     sub attention_norm: RmsNorm<H, T>
-    sub attention: GroupedQueryAttention<H, Heads, KvHeads, Batch, MaxSeq, T, Shards>
+    sub attention: GroupedQueryAttention<H, Heads, KvHeads, Batch, MaxSeq, T, Shards, PageSize>
     sub mlp_norm: RmsNorm<H, T>
     sub mlp: SwiGlu<H, Inner / Shards, T>
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
-        let attended = x + attention.forward(attention_norm.forward(x))
-        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
+        let attended = x + attention.forward(shared(attention_norm.forward(x)))
+        return attended + all_reduce(mlp.forward(shared(mlp_norm.forward(attended))))
     }
 
     pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
@@ -111,8 +114,8 @@ where
         segments: Tensor[P; i32],
     ) -> Tensor[1, P, H; T]
     where P > 0 {
-        let attended = x + attention.packed(attention_norm.forward(x), positions, segments)
-        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
+        let attended = x + attention.packed(shared(attention_norm.forward(x)), positions, segments)
+        return attended + all_reduce(mlp.forward(shared(mlp_norm.forward(attended))))
     }
 
     pub fn step_packed<P: Dim>(
@@ -134,6 +137,53 @@ where
             )
         return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
+
+    pub fn decode_paged<Rows: Dim, Pages: Dim>(
+        x: Tensor[Rows, 1, H; T],
+        positions: Tensor[Rows; i32],
+        table: Tensor[Rows, Pages; i32],
+    ) -> Tensor[Rows, 1, H; T]
+    where Rows > 0 {
+        let attended = x + attention.decode_paged(attention_norm.forward(x), positions, table)
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
+    }
+
+    pub fn prefill_paged<P: Dim>(
+        x: Tensor[1, P, H; T],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        slots: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let attended =
+            x + attention.prefill_paged(attention_norm.forward(x), positions, segments, slots)
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
+    }
+
+    pub fn step_paged<P: Dim, Rows: Dim, Pages: Dim>(
+        x: Tensor[1, P + Rows, H; T],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        slots: Tensor[P; i32],
+        step_positions: Tensor[Rows; i32],
+        table: Tensor[Rows, Pages; i32],
+    ) -> Tensor[1, P + Rows, H; T]
+    where
+        P > 0,
+        Rows > 0
+    {
+        let attended =
+            x +
+            attention.step_paged(
+                attention_norm.forward(x),
+                positions,
+                segments,
+                slots,
+                step_positions,
+                table,
+            )
+        return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
+    }
 }
 
 pub block Model<
@@ -147,6 +197,7 @@ pub block Model<
     MaxSeq: Dim,
     T: Float = bf16,
     Shards: Dim = 1,
+    PageSize: Dim = 64,
 >
 where
     Shards > 0,
@@ -161,10 +212,12 @@ where
     H % Heads == 0,
     Heads % KvHeads == 0,
     (H / Heads) % 2 == 0,
-    MaxSeq > 0
+    MaxSeq > 0,
+    Batch > 0,
+    PageSize > 0
 {
     sub embedding: Embedding<Vocab, H, T>
-    sub layers: [DecoderLayer<H, Heads, KvHeads, Inner, Batch, MaxSeq, T, Shards>; Layers]
+    sub layers: [DecoderLayer<H, Heads, KvHeads, Inner, Batch, MaxSeq, T, Shards, PageSize>; Layers]
     sub norm: RmsNorm<H, T>
     // Qwen2.5-0.5B ties the output head to the token embedding
     // (`tie_word_embeddings` in config.json); the checkpoint has no separate
@@ -175,7 +228,7 @@ where
     // Logits for every position.
     pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T] {
         let rows = reshape(hidden(tokens), [B * S, H])
-        let gathered = all_gather<B * S, Vocab / Shards, Shards, T>(lm_head.forward(rows))
+        let gathered = all_gather<B * S, Vocab / Shards, Shards, T>(lm_head.forward(shared(rows)))
         return reshape(gathered, [B, S, Vocab])
     }
 
@@ -248,7 +301,8 @@ where
     // packs prompts: `sum_p weights[p] * -log p(targets[p])` for the token
     // after each position (`std.nn.loss::linear_cross_entropy` with the
     // output head). A weight of 0 leaves a position out; `mask / count`
-    // gives the mean. One shard only.
+    // gives the mean. With the model
+    // split across processes, each holds its rows of the output head.
     pub entry loss_packed<P: Dim>(
         tokens: Tensor[P; i32],
         positions: Tensor[P; i32],
@@ -256,41 +310,41 @@ where
         targets: Tensor[P; i64],
         weights: Tensor[P; f32],
     ) -> f32
-    where
-        P > 0,
-        Shards == 1
-    {
+    where P > 0 {
         let states = packed_states(tokens, positions, segments)
-        return linear_cross_entropy(states, lm_head.weight, targets, weights)
+        return split_cross_entropy<P, H, Vocab / Shards, Shards, T>(
+            shared(states),
+            lm_head.weight,
+            targets,
+            weights,
+        )
     }
 
     // Each packed position's log-probability of `targets[p]`, as a
-    // policy-gradient update weighs them. One shard only.
+    // policy-gradient update weighs them.
     pub entry log_probs_packed<P: Dim>(
         tokens: Tensor[P; i32],
         positions: Tensor[P; i32],
         segments: Tensor[P; i32],
         targets: Tensor[P; i64],
     ) -> Tensor[P; f32]
-    where
-        P > 0,
-        Shards == 1
-    {
+    where P > 0 {
         let states = packed_states(tokens, positions, segments)
-        return linear_token_log_probs(states, lm_head.weight, targets)
+        return split_token_log_probs<P, H, Vocab / Shards, Shards, T>(
+            shared(states),
+            lm_head.weight,
+            targets,
+        )
     }
 
     // Each packed position's final hidden state, after the last norm: what
-    // the output head (or a value or reward head) reads. One shard only.
+    // the output head (or a value or reward head) reads.
     pub entry hidden_packed<P: Dim>(
         tokens: Tensor[P; i32],
         positions: Tensor[P; i32],
         segments: Tensor[P; i32],
     ) -> Tensor[P, H; T]
-    where
-        P > 0,
-        Shards == 1
-    {
+    where P > 0 {
         return packed_states(tokens, positions, segments)
     }
 
@@ -353,6 +407,69 @@ where
         }
         let ends[m, h] = x[0, cast<i64>(last[m]), h]
         return logits(concat(ends, x[0, P:P + Batch, :], axis = 0))
+    }
+
+    // Paged serving (`linnet.serve`): loaded with `Batch` 1, the caches'
+    // one row is a pool of `MaxSeq` positions in pages of `PageSize`, and
+    // each of `Rows` requests takes pages as it grows. `decode_paged` is
+    // `decode_rows` for those rows, row `b`'s positions lying in the pages
+    // `table[b]` lists; a row with no request lists the first page, where
+    // nobody reads.
+    pub entry decode_paged<Rows: Dim, Pages: Dim>(
+        tokens: Tensor[Rows, 1; i32],
+        positions: Tensor[Rows; i32],
+        table: Tensor[Rows, Pages; i32],
+    ) -> Tensor[Rows, Vocab; T]
+    where Rows > 0 {
+        var x = embedding.forward(tokens)
+        static for layer in layers {
+            x = layer.decode_paged(x, positions, table)
+        }
+        return logits(x[:, 0, :])
+    }
+
+    // `prefill_packed` with each token's place in the pool (`slots`) in
+    // place of its row: padding writes at the first page's start, which
+    // nobody reads. Returns the logits after up to `Rows` prompts.
+    pub entry prefill_paged<P: Dim, Rows: Dim>(
+        tokens: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        slots: Tensor[P; i32],
+        last: Tensor[Rows; i32],
+    ) -> Tensor[Rows, Vocab; T]
+    where P > 0 {
+        var x = embedding.forward(reshape(tokens, [1, P]))
+        static for layer in layers {
+            x = layer.prefill_paged(x, positions, segments, slots)
+        }
+        let ends[m, h] = x[0, cast<i64>(last[m]), h]
+        return logits(ends)
+    }
+
+    // `step_packed` the same way: `prefill_paged`'s prompts and a step for
+    // every row as `decode_paged` takes it, in one pass.
+    pub entry step_paged<P: Dim, Rows: Dim, Pages: Dim>(
+        tokens: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        slots: Tensor[P; i32],
+        last: Tensor[Rows; i32],
+        step_tokens: Tensor[Rows, 1; i32],
+        step_positions: Tensor[Rows; i32],
+        table: Tensor[Rows, Pages; i32],
+    ) -> Tensor[2 * Rows, Vocab; T]
+    where
+        P > 0,
+        Rows > 0
+    {
+        let every = concat(tokens, reshape(step_tokens, [Rows]), axis = 0)
+        var x = embedding.forward(reshape(every, [1, P + Rows]))
+        static for layer in layers {
+            x = layer.step_paged(x, positions, segments, slots, step_positions, table)
+        }
+        let ends[m, h] = x[0, cast<i64>(last[m]), h]
+        return logits(concat(ends, x[0, P:P + Rows, :], axis = 0))
     }
 
     // Greedy generation inside the graph: `Steps` tokens after `token` at
@@ -439,7 +556,7 @@ where
     // Rows' logits from their final hidden states: each shard's slice of the
     // vocabulary, the slices side by side.
     fn logits<R: Dim>(x: Tensor[R, H; T]) -> Tensor[R, Vocab; T] {
-        return all_gather<R, Vocab / Shards, Shards, T>(lm_head.forward(norm.forward(x)))
+        return all_gather<R, Vocab / Shards, Shards, T>(lm_head.forward(shared(norm.forward(x))))
     }
 
     fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T] {

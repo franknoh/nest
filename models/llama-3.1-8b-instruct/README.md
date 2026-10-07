@@ -70,6 +70,9 @@ directly.
 | `prefill_slots<M, S>(tokens, slots, lengths)` | `M` requests' prompts into rows `slots` of the caches in one pass (each padded to `S`, its first `lengths[m]` tokens real), as they join a batch being served |
 | `prefill_packed<P>(tokens, rows, positions, segments, last)` | several requests' prompts packed end to end into one pass of `P` tokens, each token given its cache row, its position, and its prompt: no padding between prompts, and each prompt sees only itself |
 | `decode_rows(tokens, positions)` | one token for every row of the caches, each at its own position: the step `linnet.serve` takes for continuous batching |
+| `prefill_paged<P, Rows>(tokens, positions, segments, slots, last)` | `prefill_packed` for serving from pages: each token's place in the pool instead of its row |
+| `decode_paged<Rows, Pages>(tokens, positions, table)` | `decode_rows` for serving from pages: loaded with `Batch = 1`, the caches' one row is a pool of `MaxSeq` positions in pages of `PageSize` (64), and row `b`'s positions lie in the pages `table[b]` lists |
+| `step_paged<P, Rows, Pages>(...)` | `step_packed` for serving from pages |
 | `generate<Steps>(token, pos)` | greedy decoding in the graph |
 | `sample<Steps>(token, pos, key, temperature)` | sampling with `std.random` |
 | `generate_until<MaxNew>(token, pos, eos)` | decoding until an end token |
@@ -86,6 +89,11 @@ sets the shards' slices of the logits side by side. On one device the sum
 and the gather are the value itself.
 `linnet.torch.load(..., tensor_parallel=mesh)` binds `Shards` to the mesh
 size and gives each process its part of the checkpoint.
+The training entries train split as well: each split computation reads its
+input through `std.nn.parallel::shared`, and `loss_packed` and
+`log_probs_packed` run over the vocabulary's parts
+(`std.nn.loss::split_cross_entropy`, `split_token_log_probs`).
+
 
 ## Provenance
 
