@@ -13,7 +13,13 @@
 module llama.attention
 
 use crate.rope::{THETA, tables}
-use std.nn.attention::{causal_mask, grouped_attention, grouped_attention_rows, paged_attention}
+use std.nn.attention::{
+    causal_mask,
+    grouped_attention,
+    grouped_attention_rows,
+    paged_attention,
+    paged_prefill_attention,
+}
 use std.nn.cache::{page_slots, write_at, write_rows, write_slots, write_span, write_tokens}
 use std.nn.parallel::{all_reduce}
 use std.nn.linear::{Linear}
@@ -391,13 +397,16 @@ where
         )
     }
 
-    // `prefill_packed` with each token's place in the pool (`slots`) for
-    // its row and position.
-    pub fn prefill_paged<P: Dim>(
+    // Prompts packed end to end over the pool: each token, written at its
+    // place (`slots`), attends over its row's pages (`table[rows[p]]`) up
+    // to its position, so a prompt can pass in chunks or start after pages
+    // it shares.
+    pub fn prefill_paged<P: Dim, Rows: Dim, Pages: Dim>(
         x: Tensor[1, P, H; T],
         positions: Tensor[P; i32],
-        segments: Tensor[P; i32],
+        rows: Tensor[P; i32],
         slots: Tensor[P; i32],
+        table: Tensor[Rows, Pages; i32],
     ) -> Tensor[1, P, H; T]
     where P > 0 {
         let (cos_table, sin_table) = tables<MaxSeq, H / Heads, T>(THETA)
@@ -417,23 +426,24 @@ where
         let pool = fill<i32>([P], 0)
         cache_k = write_tokens(cache_k, k, pool, slots)
         cache_v = write_tokens(cache_v, v, pool, slots)
-        let own[i, j] = segments[i] == segments[j] && positions[j] <= positions[i]
-        let mixed = grouped_attention(
+        let mixed = paged_prefill_attention<P, Heads / Shards, KvHeads /
+            Shards, MaxSeq, Rows, Pages, PageSize, H / Heads, T>(
             q,
-            k,
-            v,
+            cache_k[0:1, :, :, :],
+            cache_v[0:1, :, :, :],
+            table,
+            rows,
+            positions,
             rsqrt(cast<f32>(H / Heads)),
-            some(own),
         )
         return all_reduce(o_proj.forward(merge_heads<1, P, Heads / Shards, H / Heads, T>(mixed)))
     }
 
-    // `step_packed` the same way: its prompts as `prefill_paged`, its
-    // steps as `decode_paged`.
+    // `prefill_paged`'s prompts and `decode_paged`'s steps in one pass.
     pub fn step_paged<P: Dim, Rows: Dim, Pages: Dim>(
         x: Tensor[1, P + Rows, H; T],
         positions: Tensor[P; i32],
-        segments: Tensor[P; i32],
+        rows: Tensor[P; i32],
         slots: Tensor[P; i32],
         step_positions: Tensor[Rows; i32],
         table: Tensor[Rows, Pages; i32],
@@ -465,13 +475,15 @@ where
         let pool = fill<i32>([P + Rows], 0)
         cache_k = write_tokens(cache_k, k, pool, every_slot)
         cache_v = write_tokens(cache_v, v, pool, every_slot)
-        let own[i, j] = segments[i] == segments[j] && positions[j] <= positions[i]
-        let prompts = grouped_attention(
+        let prompts = paged_prefill_attention<P, Heads / Shards, KvHeads /
+            Shards, MaxSeq, Rows, Pages, PageSize, H / Heads, T>(
             q[:, :, 0:P, :],
-            k[:, :, 0:P, :],
-            v[:, :, 0:P, :],
+            cache_k[0:1, :, :, :],
+            cache_v[0:1, :, :, :],
+            table,
+            rows,
+            positions,
             rsqrt(cast<f32>(H / Heads)),
-            some(own),
         )
         let steps = paged_attention<Rows, Heads / Shards, KvHeads /
             Shards, MaxSeq, Pages, PageSize, H / Heads, T>(
