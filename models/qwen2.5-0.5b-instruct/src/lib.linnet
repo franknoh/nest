@@ -148,22 +148,23 @@ where
         return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
-    pub fn prefill_paged<P: Dim>(
+    pub fn prefill_paged<P: Dim, Rows: Dim, Pages: Dim>(
         x: Tensor[1, P, H; T],
         positions: Tensor[P; i32],
-        segments: Tensor[P; i32],
+        rows: Tensor[P; i32],
         slots: Tensor[P; i32],
+        table: Tensor[Rows, Pages; i32],
     ) -> Tensor[1, P, H; T]
     where P > 0 {
         let attended =
-            x + attention.prefill_paged(attention_norm.forward(x), positions, segments, slots)
+            x + attention.prefill_paged(attention_norm.forward(x), positions, rows, slots, table)
         return attended + all_reduce(mlp.forward(mlp_norm.forward(attended)))
     }
 
     pub fn step_paged<P: Dim, Rows: Dim, Pages: Dim>(
         x: Tensor[1, P + Rows, H; T],
         positions: Tensor[P; i32],
-        segments: Tensor[P; i32],
+        rows: Tensor[P; i32],
         slots: Tensor[P; i32],
         step_positions: Tensor[Rows; i32],
         table: Tensor[Rows, Pages; i32],
@@ -177,7 +178,7 @@ where
             attention.step_paged(
                 attention_norm.forward(x),
                 positions,
-                segments,
+                rows,
                 slots,
                 step_positions,
                 table,
@@ -428,31 +429,35 @@ where
         return logits(x[:, 0, :])
     }
 
-    // `prefill_packed` with each token's place in the pool (`slots`) in
-    // place of its row: padding writes at the first page's start, which
-    // nobody reads. Returns the logits after up to `Rows` prompts.
-    pub entry prefill_paged<P: Dim, Rows: Dim>(
+    // Prompts packed end to end over the pool: token `p`, position
+    // `positions[p]` of row `rows[p]`, is written at `slots[p]` and attends
+    // over its row's pages (`table[rows[p]]`) up to its position, so a
+    // prompt can pass in chunks or start after pages it shares. Padding
+    // writes at the first page's start, which nobody reads. Returns the
+    // logits after up to `Rows` prompts.
+    pub entry prefill_paged<P: Dim, Rows: Dim, Pages: Dim>(
         tokens: Tensor[P; i32],
         positions: Tensor[P; i32],
-        segments: Tensor[P; i32],
+        rows: Tensor[P; i32],
         slots: Tensor[P; i32],
         last: Tensor[Rows; i32],
+        table: Tensor[Rows, Pages; i32],
     ) -> Tensor[Rows, Vocab; T]
     where P > 0 {
         var x = embedding.forward(reshape(tokens, [1, P]))
         static for layer in layers {
-            x = layer.prefill_paged(x, positions, segments, slots)
+            x = layer.prefill_paged(x, positions, rows, slots, table)
         }
         let ends[m, h] = x[0, cast<i64>(last[m]), h]
         return logits(ends)
     }
 
-    // `step_packed` the same way: `prefill_paged`'s prompts and a step for
-    // every row as `decode_paged` takes it, in one pass.
+    // `prefill_paged`'s prompts and a step for every row as `decode_paged`
+    // takes it, in one pass.
     pub entry step_paged<P: Dim, Rows: Dim, Pages: Dim>(
         tokens: Tensor[P; i32],
         positions: Tensor[P; i32],
-        segments: Tensor[P; i32],
+        rows: Tensor[P; i32],
         slots: Tensor[P; i32],
         last: Tensor[Rows; i32],
         step_tokens: Tensor[Rows, 1; i32],
@@ -466,7 +471,7 @@ where
         let every = concat(tokens, reshape(step_tokens, [Rows]), axis = 0)
         var x = embedding.forward(reshape(every, [1, P + Rows]))
         static for layer in layers {
-            x = layer.step_paged(x, positions, segments, slots, step_positions, table)
+            x = layer.step_paged(x, positions, rows, slots, step_positions, table)
         }
         let ends[m, h] = x[0, cast<i64>(last[m]), h]
         return logits(concat(ends, x[0, P:P + Rows, :], axis = 0))
