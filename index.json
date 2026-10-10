@@ -1799,11 +1799,13 @@
       },
       "files": [
         "README.md",
+        "bench.json",
         "bindings.json",
         "linnet.toml",
         "nest.toml",
         "preview-dark.svg",
         "preview.svg",
+        "samples.json",
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
