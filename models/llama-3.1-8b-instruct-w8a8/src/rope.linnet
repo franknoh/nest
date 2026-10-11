@@ -1,0 +1,68 @@
+// Rotary position tables computed from the compile-time sequence length:
+// the positions and frequencies come from `iota`, so a model needs no
+// precomputed inputs and the tables have exactly the length of the sequence.
+//
+// Llama 3.1 adds `rope_scaling` (`config.json`, type `llama3`) on top of
+// Llama 3's base frequency: a piecewise rescaling of each frequency's
+// wavelength that stretches the 8192-token pretraining context out to
+// 131072 without retraining. Per frequency `i` (independent of position),
+// with wavelength `wavelen[i] = 2 * pi / inv_freq[i]`:
+//   - a wavelength longer than `original_max_position_embeddings /
+//     low_freq_factor` is "low frequency": divide it by `factor`;
+//   - a wavelength shorter than `original_max_position_embeddings /
+//     high_freq_factor` is "high frequency": leave it alone;
+//   - in between, linearly blend the unscaled and the divided-by-`factor`
+//     frequency by how far `original_max_position_embeddings / wavelen[i]`
+//     sits between `low_freq_factor` and `high_freq_factor`.
+// The three bands are two nested `select`s on those comparisons, mirroring
+// `transformers`' `torch.where` chain (`_compute_llama3_parameters`). This
+// is ordinary elementwise scalar arithmetic on the `[D / 2]` frequency
+// table, the same shape `inv_freq` already had, so it needed nothing beyond
+// the arithmetic and `select` the rest of the standard library uses -- no
+// index expression does arithmetic, since `i` only ever subscripts plainly.
+module llama.rope
+
+// Llama 3 stretched the base frequency from 10000 to 500000.
+pub const THETA: f32 = 500000.0
+
+// `rope_scaling` in `config.json`: `{"factor": 8.0, "low_freq_factor": 1.0,
+// "high_freq_factor": 4.0, "original_max_position_embeddings": 8192,
+// "rope_type": "llama3"}`.
+pub const FACTOR: f32 = 8.0
+pub const LOW_FREQ_FACTOR: f32 = 1.0
+pub const HIGH_FREQ_FACTOR: f32 = 4.0
+pub const ORIGINAL_MAX_POSITION_EMBEDDINGS: f32 = 8192.0
+pub const PI: f32 = 3.14159265
+
+// `(cos, sin)` tables of shape `[S, D]`, each frequency repeated for both
+// halves of the head dimension as `rope` expects.
+pub fn tables<S: Dim, D: Dim, T: Float>(theta: f32) -> (Tensor[S, D; T], Tensor[S, D; T])
+where D % 2 == 0 {
+    let base_inv_freq[i] = exp(-(cast<f32>(iota<i64>(D / 2)[i]) * 2.0 / cast<f32>(D)) * log(theta))
+
+    let wavelen[i] = (2.0 * PI) / base_inv_freq[i]
+    let low_freq_wavelen = ORIGINAL_MAX_POSITION_EMBEDDINGS / LOW_FREQ_FACTOR
+    let high_freq_wavelen = ORIGINAL_MAX_POSITION_EMBEDDINGS / HIGH_FREQ_FACTOR
+
+    // The blend used in the medium band; only meaningful there, since the
+    // `select` chain below only reads it when neither the low- nor the
+    // high-frequency case applies. `smooth == 1` sits at the
+    // `high_freq_wavelen` boundary (continuous with the unscaled band just
+    // beyond it) and `smooth == 0` sits at the `low_freq_wavelen` boundary
+    // (continuous with the divided-by-`FACTOR` band just beyond that), so
+    // `(1 - smooth)` -- not `smooth` -- weights the scaled term.
+    let smooth[i] =
+        (ORIGINAL_MAX_POSITION_EMBEDDINGS / wavelen[i] - LOW_FREQ_FACTOR) /
+        (HIGH_FREQ_FACTOR - LOW_FREQ_FACTOR)
+    let smoothed[i] = (1.0 - smooth[i]) * (base_inv_freq[i] / FACTOR) + smooth[i] * base_inv_freq[i]
+
+    let inv_freq[i] = select(
+        wavelen[i] > low_freq_wavelen,
+        base_inv_freq[i] / FACTOR,
+        select(wavelen[i] < high_freq_wavelen, base_inv_freq[i], smoothed[i]),
+    )
+
+    let angles[s, i] = cast<f32>(iota<i64>(S)[s]) * inv_freq[i]
+    let full = concat(angles, angles, axis = -1)
+    return (cast<T>(cos(full)), cast<T>(sin(full)))
+}
