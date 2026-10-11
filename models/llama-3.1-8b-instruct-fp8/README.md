@@ -18,10 +18,11 @@ from linnet import nest
 model = nest.load("llama-3.1-8b-instruct-fp8", backend="torch", numerics="fast")
 ```
 
-On a GPU with compute capability 9 or later, `numerics="fast"` multiplies
-one sequence's decoding step by the FP8 weights directly and rounds longer
-inputs to FP8 a row at a time (`torch._scaled_mm`). Elsewhere the weights
-are decoded to bf16 for each product.
+On a GPU with compute capability 9 or later, the projections multiply the
+FP8 weights as they are: one row in a kernel that reads each byte once, up
+to 32 rows on tensor cores, and longer inputs rounded to FP8 a row at a
+time (`torch._scaled_mm`). Elsewhere the weights are decoded to bf16 for
+each product.
 
 ## Against bf16
 
@@ -30,5 +31,5 @@ eagerly:
 
 | | Perplexity, WikiText-2 | Time to first token | Decoding | Peak memory |
 | --- | ---: | ---: | ---: | ---: |
-| bf16 (`llama-3.1-8b-instruct`) | 9.55 | 19.1 ms | 162 tokens/s | 16.3 GiB |
-| FP8 | 9.62 | 20.3 ms | 197 tokens/s | 9.9 GiB |
+| bf16 (`llama-3.1-8b-instruct`) | 9.55 | 18.9 ms | 163 tokens/s | 16.3 GiB |
+| FP8 | 9.62 | 18.7 ms | 275 tokens/s | 9.9 GiB |
