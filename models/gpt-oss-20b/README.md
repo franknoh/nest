@@ -38,40 +38,32 @@ a float `gate_up_proj`. Attention, the routers, the embedding, and the head
 stay bf16 (`modules_to_not_convert`).
 
 This card binds those bytes as what they are and dequantizes them in the
-source. Nothing pretends a dtype matches:
+source. The blocks are FP4 E2M1 values (`std.dtypes::f4e2m1`), two to a byte,
+so a `[..., 16]` byte tensor is a `[..., 32]` FP4 parameter:
 
 | Checkpoint tensor | Shape | Dtype | Linnet parameter |
 | --- | --- | --- | --- |
-| `...experts.gate_up_proj_blocks` | `[32, 5760, 90, 16]` | `u8` | `mlp.gate_up_blocks: Tensor[Experts, 2 * Inner, H / 32, 16; u8]` |
+| `...experts.gate_up_proj_blocks` | `[32, 5760, 90, 16]` | `u8` | `mlp.gate_up_blocks: Tensor[Experts, 2 * Inner, H / 32, 32; f4e2m1]` |
 | `...experts.gate_up_proj_scales` | `[32, 5760, 90]` | `u8` | `mlp.gate_up_scales: Tensor[Experts, 2 * Inner, H / 32; u8]` |
-| `...experts.down_proj_blocks` | `[32, 2880, 90, 16]` | `u8` | `mlp.down_blocks: Tensor[Experts, H, Inner / 32, 16; u8]` |
+| `...experts.down_proj_blocks` | `[32, 2880, 90, 16]` | `u8` | `mlp.down_blocks: Tensor[Experts, H, Inner / 32, 32; f4e2m1]` |
 | `...experts.down_proj_scales` | `[32, 2880, 90]` | `u8` | `mlp.down_scales: Tensor[Experts, H, Inner / 32; u8]` |
 
 A row of `N` weights is cut into `N / 32` blocks of 32. Each block is 16 bytes
-holding two FP4 (E2M1) values each -- low nibble the even element, high nibble
-the odd one -- plus one byte of E8M0 scale, an exponent biased by 127. A
-weight is its FP4 value times `2 ** (scale - 127)`: 4.25 bits per weight, and
+holding two FP4 values each -- low nibble the even element, high nibble the
+odd one -- plus one byte of E8M0 scale, an exponent biased by 127. A weight
+is its FP4 value times `2 ** (scale - 127)`: 4.25 bits per weight, and
 `90 * 32 = 2880`, the width of the projection's input.
 
-`std.quant`'s integer formats cannot express this. Its `unpack_int4` splits bytes into nibbles
-with exactly this interleaving, but reads each nibble as a two's-complement
-integer in `-8..7`, where MXFP4's nibble is a sign, two exponent bits, and one
-mantissa bit selecting one of `0, 0.5, 1, 1.5, 2, 3, 4, 6` and their negatives.
-And `dequantize_int8`'s scale is one factor per row (`Tensor[*S; f32]`), where
-MXFP4 has one per 32-element block, as a power-of-two exponent byte.
-`std.quant::dequantize_mxfp4` covers both differences (it began in this card
-and moved to the standard library with the ops that read MXFP4 directly). It
-computes the FP4 values arithmetically rather than from a lookup table,
-because the language has no tensor data in source: twice each
-value is an integer in `0..12`, so the unpacking stays in one byte per weight
-and the only float arithmetic is the final scaling. The block scale is built
-from integer shifts rather than `exp`, so it is exact; the shifts saturate at
-`2 ** 62` either way, and every scale byte in this checkpoint's 96 expert
-scale tensors lies in 115..136, that is `2 ** -12` to `2 ** 9`, so the
-saturation is never reached. It returns `[Experts, Rows, N]`, the
-checkpoint's own layout -- `Rows` the projection's output width -- and
-`src/experts.linnet` reads that layout rather than transposing it, as the
-reference implementation does to suit its own parameter.
+`std.quant::dequantize_mxfp4` casts the blocks to `f32` and scales each block
+(it began in this card and moved to the standard library with the ops that
+read MXFP4 directly). The block scale is built from integer shifts rather
+than `exp`, so it is exact; the shifts saturate at `2 ** 62` either way, and
+every scale byte in this checkpoint's 96 expert scale tensors lies in
+115..136, that is `2 ** -12` to `2 ** 9`, so the saturation is never
+reached. It returns `[Experts, Rows, N]`, the checkpoint's own layout --
+`Rows` the projection's output width -- and `src/experts.linnet` reads that
+layout rather than transposing it, as the reference implementation does to
+suit its own parameter.
 
 The dequantization is arithmetic in the graph, so it runs on every forward
 pass and a full-depth pass materializes each layer's 530M-element gate/up
