@@ -11,6 +11,7 @@
 // and is the honest way to say it with fixed shapes.
 module gpt_oss.experts
 
+use std.dtypes::{f4e2m1}
 use std.nn.activations::{sigmoid}
 use std.nn.linear::{linear, Linear}
 use std.quant::{
@@ -46,11 +47,11 @@ where
     // The gate and the up projection share one weight, interleaved along the
     // output axis: even columns gate, odd columns multiply. Both halves are
     // `Inner` wide, so the stored width is `2 * Inner`.
-    param gate_up_blocks: Tensor[Experts, 2 * Inner, Blocks, 16; u8]
+    param gate_up_blocks: Tensor[Experts, 2 * Inner, Blocks, 32; f4e2m1]
     param gate_up_scales: Tensor[Experts, 2 * Inner, Blocks; u8]
     param gate_up_bias: Tensor[Experts, 2 * Inner; T]
 
-    param down_blocks: Tensor[Experts, H, InnerBlocks, 16; u8]
+    param down_blocks: Tensor[Experts, H, InnerBlocks, 32; f4e2m1]
     param down_scales: Tensor[Experts, H, InnerBlocks; u8]
     param down_bias: Tensor[Experts, H; T]
 
