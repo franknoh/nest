@@ -41,3 +41,15 @@ files = [
     "model-00004-of-00004.safetensors",
 ]
 bindings = "bindings.json"
+
+# Planned with each backend on one H100 (`plan_for`, measured), against the
+# generated source alone replayed as a CUDA graph.
+[[backends]]
+name = "flashinfer"
+package = "built in (needs flashinfer-python)"
+entry = "decode_rows"
+device = "H100"
+inputs = "16 rows, bf16"
+before = 1717
+after = 1858
+unit = "tokens/s"

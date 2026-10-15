@@ -28,6 +28,24 @@ export interface Model {
   blocks: Record<string, string>;
   weights: { repo: string; files: string[]; revision: string | null; bindings: string | null } | null;
   files: string[];
+  // What backends did for the model: an entry timed alone and planned with each.
+  backends?: Backend[];
+}
+
+export interface Backend {
+  name: string;
+  package: string;
+  entry: string;
+  device: string;
+  inputs: string;
+  before: number;
+  after: number;
+  unit: string;
+}
+
+// How many times faster: a rate (per second) grows, a time shrinks.
+export function speedup(b: Backend): number {
+  return b.unit.includes("/s") ? b.after / b.before : b.before / b.after;
 }
 
 export const models: Model[] = (registry as { models: Model[] }).models;

@@ -40,3 +40,15 @@ files = [
     "model-00002-of-00002.safetensors",
 ]
 bindings = "bindings.json"
+
+# Planned with each backend on one H100 (`plan_for`, measured), against the
+# generated source alone.
+[[backends]]
+name = "deepgemm"
+package = "linnet-deepgemm (Linnet's examples/09-backends/deepgemm)"
+entry = "prefill"
+device = "H100"
+inputs = "2,048 tokens, numerics fast"
+before = 45.8
+after = 35.1
+unit = "ms"
