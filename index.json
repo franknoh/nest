@@ -103,7 +103,8 @@
         "preview.svg",
         "samples.json",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "bert-base-uncased",
@@ -207,7 +208,8 @@
         "preview.svg",
         "samples.json",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "dinov2-base",
@@ -290,7 +292,8 @@
         "samples/input.png",
         "samples/output.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "gpt-oss-20b",
@@ -595,7 +598,8 @@
         "src/experts.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "gpt2",
@@ -763,7 +767,8 @@
         "preview-dark.svg",
         "preview.svg",
         "samples.json"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "llama-3.1-8b-instruct",
@@ -1286,6 +1291,18 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
+      ],
+      "backends": [
+        {
+          "name": "flashinfer",
+          "package": "built in (needs flashinfer-python)",
+          "entry": "decode_rows",
+          "device": "H100",
+          "inputs": "16 rows, bf16",
+          "before": 1717.0,
+          "after": 1858.0,
+          "unit": "tokens/s"
+        }
       ]
     },
     {
@@ -1815,7 +1832,8 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "llama-3.1-8b-instruct-w8a8",
@@ -2342,7 +2360,8 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "mistral-7b-instruct-v0.3",
@@ -2864,7 +2883,8 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "modernbert-base",
@@ -2951,7 +2971,8 @@
         "preview.svg",
         "samples.json",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "phi-3-mini-4k-instruct",
@@ -3363,7 +3384,8 @@
         "src/lib.linnet",
         "src/mlp.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "qwen2.5-0.5b-instruct",
@@ -3883,7 +3905,8 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "qwen3-4b",
@@ -4407,7 +4430,8 @@
         "src/lib.linnet",
         "src/norm.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "qwen3-8b",
@@ -4933,7 +4957,8 @@
         "src/lib.linnet",
         "src/norm.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "qwen3-8b-fp8",
@@ -5462,6 +5487,18 @@
         "src/lib.linnet",
         "src/norm.linnet",
         "src/rope.linnet"
+      ],
+      "backends": [
+        {
+          "name": "deepgemm",
+          "package": "linnet-deepgemm (Linnet's examples/09-backends/deepgemm)",
+          "entry": "prefill",
+          "device": "H100",
+          "inputs": "2,048 tokens, numerics fast",
+          "before": 45.8,
+          "after": 35.1,
+          "unit": "ms"
+        }
       ]
     },
     {
@@ -5541,7 +5578,8 @@
         "samples.json",
         "samples/input.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "resnet-50",
@@ -5620,7 +5658,8 @@
         "samples.json",
         "samples/input.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "roberta-base",
@@ -5705,7 +5744,8 @@
         "preview.svg",
         "samples.json",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "sam-vit-base",
@@ -5840,7 +5880,8 @@
         "samples/input.png",
         "samples/masks.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "sd-vae-ft-mse",
@@ -5925,7 +5966,8 @@
         "samples/input.png",
         "samples/output.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "sdxl-base-unet",
@@ -6026,7 +6068,8 @@
         "samples/diffusers.png",
         "samples/linnet.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "siglip-base-patch16-224",
@@ -6151,7 +6194,8 @@
         "samples.json",
         "samples/input.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "smollm2-1.7b-instruct",
@@ -6670,7 +6714,8 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "tinyllama-1.1b-chat",
@@ -7190,7 +7235,8 @@
         "src/attention.linnet",
         "src/lib.linnet",
         "src/rope.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "vit-base-patch16-224",
@@ -7271,7 +7317,8 @@
         "samples.json",
         "samples/input.png",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "whisper-large-v3",
@@ -7433,7 +7480,8 @@
         "preview.svg",
         "samples.json",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     },
     {
       "name": "whisper-tiny",
@@ -7595,7 +7643,8 @@
         "preview.svg",
         "samples.json",
         "src/lib.linnet"
-      ]
+      ],
+      "backends": []
     }
   ]
 }

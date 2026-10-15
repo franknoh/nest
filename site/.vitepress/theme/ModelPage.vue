@@ -3,7 +3,7 @@ import { useData } from "vitepress";
 import { computed } from "vue";
 import BenchCharts from "./BenchCharts.vue";
 import SampleView from "./SampleView.vue";
-import { byName, linkNames, parameters } from "./registry";
+import { byName, linkNames, parameters, speedup } from "./registry";
 
 const { frontmatter, page } = useData();
 const model = computed(() => byName(String(frontmatter.value.model)));
@@ -63,6 +63,17 @@ model = nest.load(<span class="s">"{{ model.name }}"</span>)</code></pre>
           <a :href="`https://huggingface.co/${model.weights.repo}`" target="_blank" rel="noreferrer">{{ model.weights.repo }}</a>
           <br /><span class="nest-muted">{{ model.weights.files.join(", ") }}</span>
         </p>
+        <template v-if="model.backends?.length">
+          <h3>Backends</h3>
+          <ul class="nest-side-list">
+            <li v-for="b in model.backends" :key="b.name + b.entry">
+              <code>{{ b.name }}</code> <span class="nest-muted">({{ b.package }})</span><br />
+              <code>{{ b.entry }}</code>, {{ b.device }}, {{ b.inputs }}:
+              {{ b.before }} → {{ b.after }} {{ b.unit }}
+              ({{ speedup(b).toFixed(2) }}×)
+            </li>
+          </ul>
+        </template>
         <h3>Entries</h3>
         <ul class="nest-side-list">
           <li v-for="e in model.entries" :key="e.name"><code>{{ e.name }}</code></li>
