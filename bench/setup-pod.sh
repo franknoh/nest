@@ -6,12 +6,21 @@
 # installs Linnet and every reference stack in one environment and vLLM in a
 # second, since it pins its own PyTorch. The host driver must support CUDA 13
 # (580 or newer): on RunPod, create the pod with `--min-cuda-version 13.0`.
-# Run it from the registry checkout:
+# The image is also built for arm64, which runs it on a GB10 (DGX Spark) or a
+# Grace machine the same way, less TGI (x86 only). Run it from the registry
+# checkout:
 #
 #     git clone https://github.com/franknoh/nest.git && cd nest
 #     bash bench/setup-pod.sh              # add --engines for SGLang and TGI
 #     bash bench/run-all.sh
 set -euo pipefail
+# The arm64 image puts DALI's wheel on PYTHONPATH: pip then counts the
+# packages there as installed and leaves them out, and Triton's Python stub,
+# which does not see that path, fails to import PyTorch.
+unset PYTHONPATH
+arch=$(uname -m)
+# The GPU's compute capability as CUDA's architecture number: 90, 121, ...
+cuda_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d .)
 
 # Read the whole output first: under pipefail, `grep -q` quitting early kills
 # nvidia-smi with SIGPIPE and fails the check on a driver that passes it.
@@ -47,7 +56,12 @@ python3 -m venv /workspace/venv
 # shellcheck disable=SC1091
 source /workspace/venv/bin/activate
 python -m pip install --quiet --upgrade pip
-python -m pip install --quiet torch torchvision
+if [ "$arch" = aarch64 ]; then
+    # PyPI's arm64 PyTorch is built for older CUDA; CUDA 13's is on its index.
+    python -m pip install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu130
+else
+    python -m pip install --quiet torch torchvision
+fi
 python -m pip install --quiet -e "/workspace/Linnet/python/linnet[torch,jax,onnx,nest]"
 python -m pip install --quiet "jax[cuda13]" onnxruntime-gpu onnxscript nvidia-ml-py \
     transformers accelerate diffusers sentence-transformers datasets soundfile \
@@ -114,7 +128,8 @@ ls /opt/tritonserver/backends
         if ! command -v nvcc >/dev/null && [ ! -x /usr/local/cuda/bin/nvcc ]; then
             version=$(nvidia-smi | grep -oE "CUDA Version: [0-9]+\.[0-9]+" | grep -oE "[0-9]+\.[0-9]+")
             major=${version%%.*}
-            wget -q "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb" -O /tmp/keyring.deb \
+            repo=$([ "$arch" = aarch64 ] && echo sbsa || echo x86_64)
+            wget -q "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/$repo/cuda-keyring_1.1-1_all.deb" -O /tmp/keyring.deb \
                 && dpkg -i /tmp/keyring.deb >/dev/null && apt-get update -qq
             apt-get install -y -qq --no-install-recommends "cuda-nvcc-${major}-0" \
                 "cuda-cudart-dev-${major}-0" "libcublas-dev-${major}-0" >/dev/null
@@ -123,7 +138,7 @@ ls /opt/tritonserver/backends
         rm -rf /workspace/llama.cpp
         git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /workspace/llama.cpp
         cmake -S /workspace/llama.cpp -B /workspace/llama.cpp/build -G Ninja \
-            -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=90 -DLLAMA_CURL=OFF >/dev/null \
+            -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$cuda_arch" -DLLAMA_CURL=OFF >/dev/null \
             && cmake --build /workspace/llama.cpp/build --target llama-bench >/dev/null
     fi
     /workspace/venv/bin/python -m pip install --quiet gguf
@@ -141,6 +156,11 @@ if [ "${1:-}" = "--engines" ]; then
     /workspace/sglang/bin/python -m pip install --quiet "sglang[all]" nvidia-ml-py numpy
     /workspace/sglang/bin/python -c "import sglang; print('sglang', sglang.__version__)"
 
+    if [ "$arch" != x86_64 ]; then
+        echo "TGI ships for x86 only; its rows are left out here"
+        echo "setup done"
+        exit 0
+    fi
     TGI_REPO=huggingface/text-generation-inference
     TGI_TAG=3.3.7
     cd /workspace
