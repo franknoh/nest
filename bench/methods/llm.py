@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from bench.harness import Result, median_ms
+from bench.harness import Result, median_ms, memory_share
 from bench.methods import stacks
 from bench.methods.engines import METHODS as ENGINES
 from bench.methods.exports import EXPORTABLE
@@ -173,12 +173,13 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     from vllm import LLM, SamplingParams  # type: ignore[import-not-found]
 
     new = int(workload["new_tokens"])
+    share = memory_share(workload, "vllm_memory")
     start = time.perf_counter()
     llm = LLM(
         model=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         max_model_len=max_seq(workload),
-        gpu_memory_utilization=float(workload.get("vllm_memory", 0.85)),
+        gpu_memory_utilization=share,
         tensor_parallel_size=int(workload.get("tensor_parallel", 1)),
         # Every timed call sends the same prompt: with its prefix cache on, vLLM
         # would take it from the cache rather than compute it, which no other
@@ -210,7 +211,7 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
             "first_token": float(token),
         },
         notes="reserves a KV-cache pool up front (gpu_memory_utilization "
-        f"{workload.get('vllm_memory', 0.85)}), so its memory is a setting, not a need",
+        f"{share}), so its memory is a setting, not a need",
     )
 
 
