@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from bench.harness import Result
+from bench.harness import Result, memory_share
 
 SAFE_TOKENS = (100, 20000)
 
@@ -101,13 +101,14 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     from vllm import LLM, SamplingParams  # type: ignore[import-not-found]
 
     _, concurrency, _, _, new = settings(workload)
+    share = memory_share(workload, "vllm_memory")
     start = time.perf_counter()
     llm = LLM(
         model=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         max_model_len=serve_max_seq(workload),
         max_num_seqs=concurrency,
-        gpu_memory_utilization=float(workload.get("vllm_memory", 0.85)),
+        gpu_memory_utilization=share,
         enable_prefix_caching=False,
     )
     load_s = time.perf_counter() - start
@@ -133,8 +134,7 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         ttfts,
         load_s,
-        _describe(workload) + "; KV-cache pool at gpu_memory_utilization "
-        f"{workload.get('vllm_memory', 0.85)}",
+        _describe(workload) + f"; KV-cache pool at gpu_memory_utilization {share}",
     )
 
 
@@ -335,7 +335,7 @@ def triton_vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
                 "dtype": "bfloat16",
                 "max_model_len": serve_max_seq(workload) + 64,
                 "max_num_seqs": concurrency,
-                "gpu_memory_utilization": float(workload.get("vllm_memory", 0.85)),
+                "gpu_memory_utilization": memory_share(workload, "vllm_memory"),
                 "enable_prefix_caching": False,
             }
         ),

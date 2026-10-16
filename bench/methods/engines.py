@@ -24,13 +24,15 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from bench.harness import Result
+from bench.harness import Result, memory_share
 from bench.methods.serving import _describe, _result, prompts, serve_max_seq, settings
 
 # ------------------------------------------------------------------ SGLang
 
 
-def _sglang_engine(data: dict[str, Any], workload: dict[str, Any], length: int, rows: int) -> Any:
+def _sglang_engine(
+    data: dict[str, Any], workload: dict[str, Any], length: int, rows: int, share: float
+) -> Any:
     import sglang  # type: ignore[import-not-found]
 
     return sglang.Engine(
@@ -38,7 +40,7 @@ def _sglang_engine(data: dict[str, Any], workload: dict[str, Any], length: int, 
         dtype="bfloat16",
         context_length=length,
         max_running_requests=rows,
-        mem_fraction_static=float(workload.get("sglang_memory", 0.85)),
+        mem_fraction_static=share,
         disable_radix_cache=True,
         log_level="error",
     )
@@ -53,8 +55,9 @@ def sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     from bench.methods.llm import max_seq, prompt_ids  # llm imports this module
 
     new = int(workload["new_tokens"])
+    share = memory_share(workload, "sglang_memory")
     start = time.perf_counter()
-    engine = _sglang_engine(data, workload, max_seq(workload), 1)
+    engine = _sglang_engine(data, workload, max_seq(workload), 1, share)
     load_s = time.perf_counter() - start
     ids = prompt_ids(data, workload)
 
@@ -82,15 +85,16 @@ def sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         "SGLang",
         "reference",
         metrics,
-        notes="reserves a KV-cache pool up front (mem_fraction_static "
-        f"{workload.get('sglang_memory', 0.85)}), so its memory is a setting, not a need",
+        notes=f"reserves a KV-cache pool up front (mem_fraction_static {share}), "
+        "so its memory is a setting, not a need",
     )
 
 
 def serve_sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     _, concurrency, _, _, new = settings(workload)
+    share = memory_share(workload, "sglang_memory")
     start = time.perf_counter()
-    engine = _sglang_engine(data, workload, serve_max_seq(workload), concurrency)
+    engine = _sglang_engine(data, workload, serve_max_seq(workload), concurrency, share)
     load_s = time.perf_counter() - start
     inputs = prompts(data, workload)
     try:
@@ -108,8 +112,7 @@ def serve_sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         None,
         load_s,
-        _describe(workload) + "; KV-cache pool at mem_fraction_static "
-        f"{workload.get('sglang_memory', 0.85)}",
+        _describe(workload) + f"; KV-cache pool at mem_fraction_static {share}",
     )
 
 

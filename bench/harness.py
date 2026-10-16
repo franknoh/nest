@@ -207,6 +207,43 @@ def environment() -> dict[str, str]:
     return env
 
 
+# Left to the system, the processes beside an engine and the engine's own host
+# side (its Python, tokenizer and compile workers, which there draw on the same
+# memory) on a GPU that shares the host's memory.
+_SHARED_HEADROOM = 32 * 2**30
+
+
+def memory_share(workload: dict[str, Any], key: str, default: float = 0.85) -> float:
+    """An engine's share of GPU memory (vLLM's `gpu_memory_utilization`,
+    SGLang's `mem_fraction_static`): the workload's `key`, else `default`.
+    On a GPU that shares the host's memory (a GB10), that memory is the
+    machine's: 85% of it leaves the system too little, and the kernel kills
+    processes or the machine hangs. There it is at most what is free now,
+    less `_SHARED_HEADROOM`: free as CUDA counts it there, the page cache
+    taken (`MemFree`), which is what the engines check their share against."""
+    share = float(workload.get(key, default))
+    if not _shares_host_memory():
+        return share
+    meminfo = Path("/proc/meminfo").read_text(encoding="utf-8")
+    kib = {line.split(":")[0]: int(line.split()[1]) for line in meminfo.splitlines()}
+    free, total = kib["MemFree"] * 1024, kib["MemTotal"] * 1024
+    return round(max(0.05, min(share, (free - _SHARED_HEADROOM) / total)), 3)
+
+
+def _shares_host_memory() -> bool:
+    """Whether the GPU has no memory of its own: NVML gives it none."""
+    try:
+        listed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader"],  # noqa: S607 - the driver's tool
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return "N/A" in listed
+
+
 def card(model: str) -> dict[str, Any]:
     """The model's card, as `linnet.nest` reads it, plus its directory."""
     import tomllib
