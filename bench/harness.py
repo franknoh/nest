@@ -230,6 +230,22 @@ def memory_share(workload: dict[str, Any], key: str, default: float = 0.85) -> f
     return round(max(0.05, min(share, (free - _SHARED_HEADROOM) / total)), 3)
 
 
+def compute_capability() -> tuple[int, int]:
+    """The first GPU's compute capability, from the driver's tool (no CUDA
+    context in this process); (0, 0) without one."""
+    try:
+        listed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],  # noqa: S607 - the driver's tool
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return (0, 0)
+    major, minor = listed.splitlines()[0].strip().split(".")
+    return (int(major), int(minor))
+
+
 def _shares_host_memory() -> bool:
     """Whether the GPU has no memory of its own: NVML gives it none."""
     try:

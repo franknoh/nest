@@ -24,10 +24,22 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from bench.harness import Result, memory_share
+from bench.harness import Result, compute_capability, memory_share
 from bench.methods.serving import _describe, _result, prompts, serve_max_seq, settings
 
 # ------------------------------------------------------------------ SGLang
+
+
+def _sglang_attention() -> str | None:
+    """SGLang's attention backend: its default, but Triton's on compute
+    capability 12 (the GB10, the RTX 50s), where the default's KV-cache
+    store faults (an illegal memory access, SGLang 0.5.22)."""
+    return "triton" if compute_capability()[0] == 12 else None
+
+
+def _attention_note() -> str:
+    backend = _sglang_attention()
+    return f"; {backend} attention" if backend else ""
 
 
 def _sglang_engine(
@@ -35,7 +47,9 @@ def _sglang_engine(
 ) -> Any:
     import sglang  # type: ignore[import-not-found]
 
+    backend = _sglang_attention()
     return sglang.Engine(
+        **({"attention_backend": backend} if backend else {}),
         model_path=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         context_length=length,
@@ -86,7 +100,7 @@ def sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         "reference",
         metrics,
         notes=f"reserves a KV-cache pool up front (mem_fraction_static {share}), "
-        "so its memory is a setting, not a need",
+        "so its memory is a setting, not a need" + _attention_note(),
     )
 
 
@@ -112,7 +126,7 @@ def serve_sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         None,
         load_s,
-        _describe(workload) + f"; KV-cache pool at mem_fraction_static {share}",
+        _describe(workload) + f"; KV-cache pool at mem_fraction_static {share}" + _attention_note(),
     )
 
 
