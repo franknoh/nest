@@ -165,24 +165,35 @@ def transformers(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     model.eval()
     load_s = time.perf_counter() - start
     requests = prompts(data, workload)
+    # The paged cache: enough 32-token blocks for every request in flight.
+    paging = {
+        "max_batch_tokens": concurrency * 256,
+        "num_blocks": max(64, concurrency * serve_max_seq(workload) // 32 + 64),
+    }
     config = GenerationConfig(
         max_new_tokens=new,
         min_new_tokens=new,
         do_sample=False,
         eos_token_id=None,
         pad_token_id=0,
-        max_batch_tokens=concurrency * 256,
-        num_blocks=max(64, concurrency * serve_max_seq(workload) // 32 + 64),
-        block_size=32,
-        scheduler="fifo",
     )
+    options: dict[str, Any] = {"generation_config": config, "progress_bar": False}
+    try:
+        # transformers 5.20 takes the cache's settings in a config of their
+        # own, and without it sizes the cache to 90% of the free memory.
+        from transformers.generation.configuration_utils import ContinuousBatchingConfig
+
+        options["continuous_batching_config"] = ContinuousBatchingConfig(
+            page_size=32, scheduler_type="fifo", **paging
+        )
+    except ImportError:
+        for key, value in {**paging, "block_size": 32, "scheduler": "fifo"}.items():
+            setattr(config, key, value)
     with torch.no_grad():
-        model.generate_batch(inputs=requests[:4], generation_config=config, progress_bar=False)
+        model.generate_batch(inputs=requests[:4], **options)
         torch.cuda.synchronize()
         begin = time.perf_counter()
-        outputs = model.generate_batch(
-            inputs=requests, generation_config=config, progress_bar=False
-        )
+        outputs = model.generate_batch(inputs=requests, **options)
         torch.cuda.synchronize()
     seconds = time.perf_counter() - begin
     tokens = sum(len(o.generated_tokens) for o in outputs.values())
