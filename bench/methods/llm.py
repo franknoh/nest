@@ -13,6 +13,8 @@ answer should not look like a win.
 
 from __future__ import annotations
 
+import gc
+
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -671,7 +673,11 @@ def sample(data: dict[str, Any], workload: dict[str, Any]) -> dict[str, Any]:
     )
     with torch.no_grad():
         ours = _greedy_linnet(model, ids, eos, device)
+    # The model's weights go before the reference's arrive: a compiled
+    # model holds itself in reference cycles, which only a collection frees,
+    # and a 35B model twice does not fit beside itself.
     del model
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
