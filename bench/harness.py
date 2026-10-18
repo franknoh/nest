@@ -222,6 +222,8 @@ def environment() -> dict[str, str]:
         "transformers": "transformers",
         "vllm": "vllm",
         "diffusers": "diffusers",
+        "trl": "trl",
+        "peft": "peft",
         "onnxruntime": "onnxruntime-gpu",
         "linnet": "linnet-lang",
     }

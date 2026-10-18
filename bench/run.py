@@ -5,6 +5,7 @@
     python -m bench.run qwen3-8b --methods linnet-torch,transformers-eager
     python -m bench.run tinyllama-1.1b-chat --device cpu --prompt 16 --new 4   # a dry run
     python -m bench.run qwen3-8b --methods acc-vllm,acc-linnet-torch --merge     # accuracy
+    python -m bench.run qwen3-8b --methods train-sft-lora-linnet,train-sft-lora-trl --merge
 
 Methods run one at a time, each in its own process (see `bench.harness`).
 After all of them, every saved first-token output is compared with the
@@ -106,6 +107,14 @@ def main() -> None:
         "each metric's spread",
     )
     parser.add_argument(
+        "--train-steps", type=int, default=40, help="optimizer steps per training row"
+    )
+    parser.add_argument(
+        "--trl-compile",
+        action="store_true",
+        help="run the TRL training rows under torch.compile (Trainer's `torch_compile`)",
+    )
+    parser.add_argument(
         "--output",
         help="write bench.json here instead of beside the card (a dry run that must not "
         "replace published numbers)",
@@ -128,9 +137,11 @@ def main() -> None:
         else:
             applicable = list(family.METHODS)
         methods: list[str] = args.methods.split(",") if args.methods else applicable
-        if args.merge and family.REFERENCE not in methods:
+        trains_only = all(method.startswith("train-") for method in methods)
+        if args.merge and family.REFERENCE not in methods and not trains_only:
             # A rerun row is measured against the reference's output from the
-            # same run, so the reference runs again too.
+            # same run, so the reference runs again too. Training rows compare
+            # with each other, not with it.
             methods = [family.REFERENCE, *methods]
         if any(m.startswith("acc-") for m in methods) and "acc-reference" not in methods:
             # Every accuracy row is scored against the f32 reference's output
@@ -155,6 +166,8 @@ def main() -> None:
             "soak_minutes": args.soak_minutes,
             "acc_windows": args.acc_windows,
             "acc_length": args.acc_length,
+            "train_steps": args.train_steps,
+            "trl_compile": args.trl_compile,
         }
         results: list[Result] = []
         keys: dict[str, str] = {}
@@ -175,7 +188,11 @@ def main() -> None:
             result.key = method
             if result.kind == "unknown":  # a crash reports no kind of its own
                 bare = method.removeprefix("acc-")
-                linnet = bare.startswith("linnet") or bare == "llamacpp"
+                linnet = (
+                    bare.startswith("linnet")
+                    or bare == "llamacpp"
+                    or method.endswith(("-linnet", "grad-check"))
+                )
                 result.kind = "linnet" if linnet else "reference"
             keys[result.method] = method
             status = result.error or ", ".join(
