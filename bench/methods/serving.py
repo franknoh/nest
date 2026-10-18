@@ -274,7 +274,19 @@ def _linnet(backend: str) -> Any:
         from linnet.serve import Engine, Request
 
         _, concurrency, _, _, new = settings(workload)
-        generics = {"Batch": concurrency, "MaxSeq": serve_max_seq(workload), "T": "bf16"}
+        length = serve_max_seq(workload)
+        # PyTorch serves from pages of one pool, as `linnet serve` does by
+        # default, where the card has the entries: a step reads the rows in
+        # flight to their lengths, where fixed rows are read whole.
+        entries = {
+            entry.short_name for entry in nest.resolve(data["directory"]).program().entries()
+        }
+        paged = backend == "torch" and {"prefill_paged", "decode_paged"} <= entries
+        generics: dict[str, int | str] = (
+            {"Batch": 1, "MaxSeq": concurrency * length, "T": "bf16"}
+            if paged
+            else {"Batch": concurrency, "MaxSeq": length, "T": "bf16"}
+        )
         start = time.perf_counter()
         if backend == "onnx":
             model = nest.load(
@@ -298,7 +310,12 @@ def _linnet(backend: str) -> Any:
             model = nest.load(
                 data["directory"], backend="jax_model", generics=generics, cast_dtype=True
             )
-        engine = Engine(model)
+        # No prefix sharing, as vLLM's and SGLang's prefix caches are off.
+        engine = (
+            Engine(model, paged=True, rows=concurrency, max_len=length, share=False)
+            if paged
+            else Engine(model, share=False)
+        )
         load_s = time.perf_counter() - start
         requests = prompts(data, workload)
         engine.warmup(len(ids) for ids in requests)
@@ -311,8 +328,12 @@ def _linnet(backend: str) -> Any:
             stats.seconds,
             [c.ttft for c in done],
             load_s,
-            _describe(workload) + f"; {concurrency} fixed cache rows of {serve_max_seq(workload)} "
-            "positions",
+            _describe(workload)
+            + (
+                f"; pages of one pool of {concurrency * length} positions, {concurrency} rows"
+                if paged
+                else f"; {concurrency} fixed cache rows of {length} positions"
+            ),
         )
 
     return run
