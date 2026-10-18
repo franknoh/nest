@@ -4,6 +4,7 @@
     python -m bench.run qwen2.5-0.5b-instruct
     python -m bench.run qwen3-8b --methods linnet-torch,transformers-eager
     python -m bench.run tinyllama-1.1b-chat --device cpu --prompt 16 --new 4   # a dry run
+    python -m bench.run qwen3-8b --methods train-sft-lora-linnet,train-sft-lora-trl --merge
 
 Methods run one at a time, each in its own process (see `bench.harness`).
 After all of them, every saved first-token output is compared with the
@@ -71,6 +72,14 @@ def main() -> None:
     parser.add_argument("--serve-prompt-max", type=int, default=512)
     parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
     parser.add_argument(
+        "--train-steps", type=int, default=40, help="optimizer steps per training row"
+    )
+    parser.add_argument(
+        "--trl-compile",
+        action="store_true",
+        help="run the TRL training rows under torch.compile (Trainer's `torch_compile`)",
+    )
+    parser.add_argument(
         "--output",
         help="write bench.json here instead of beside the card (a dry run that must not "
         "replace published numbers)",
@@ -93,9 +102,11 @@ def main() -> None:
         else:
             applicable = list(family.METHODS)
         methods: list[str] = args.methods.split(",") if args.methods else applicable
-        if args.merge and family.REFERENCE not in methods:
+        trains_only = all(method.startswith("train-") for method in methods)
+        if args.merge and family.REFERENCE not in methods and not trains_only:
             # A rerun row is measured against the reference's output from the
-            # same run, so the reference runs again too.
+            # same run, so the reference runs again too. Training rows compare
+            # with each other, not with it.
             methods = [family.REFERENCE, *methods]
         workdir = Path(tempfile.mkdtemp(prefix=f"nest-bench-{model}-"))
         workload: dict[str, Any] = {
@@ -113,6 +124,8 @@ def main() -> None:
             "serve_prompt_min": args.serve_prompt_min,
             "serve_prompt_max": args.serve_prompt_max,
             "serve_new": args.serve_new,
+            "train_steps": args.train_steps,
+            "trl_compile": args.trl_compile,
         }
         results: list[Result] = []
         keys: dict[str, str] = {}
@@ -127,7 +140,8 @@ def main() -> None:
             result = run_isolated(python_for(method), model, method, workload, args.timeout)
             result.key = method
             if result.kind == "unknown":  # a crash reports no kind of its own
-                result.kind = "linnet" if method.startswith("linnet") else "reference"
+                linnet = method.startswith("linnet") or method.endswith(("-linnet", "grad-check"))
+                result.kind = "linnet" if linnet else "reference"
             keys[result.method] = method
             status = result.error or ", ".join(
                 f"{key}={value:.4g}" for key, value in result.metrics.items() if value is not None

@@ -66,7 +66,7 @@ python -m pip install --quiet -e "/workspace/Linnet/python/linnet[torch,jax,onnx
 python -m pip install --quiet "jax[cuda13]" onnxruntime-gpu onnxscript nvidia-ml-py \
     transformers accelerate diffusers sentence-transformers datasets soundfile \
     pillow safetensors huggingface_hub sentencepiece protobuf keras keras-hub \
-    "tritonclient[http]" requests
+    "tritonclient[http]" requests peft trl
 # onnxruntime-gpu is built for CUDA 12; its libraries sit beside PyTorch's
 # CUDA 13 ones under different names, and the worker preloads them.
 python -m pip install --quiet nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \

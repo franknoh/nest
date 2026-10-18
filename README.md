@@ -90,6 +90,18 @@ python -m linnet.nest index . -o index.json
    rebuild the index.
 3. Open a pull request. The checks run again there.
 
+## Benchmarks
+
+`python -m bench.run <name>` measures a model against the stacks people
+already use and writes `models/<name>/bench.json` (`bench/setup-pod.sh`
+prepares a GPU machine).
+
+Training rows run only when named (`--methods train-sft-lora-linnet,train-sft-lora-trl`,
+`--train-steps`): SFT (LoRA and full), DPO and GRPO in `linnet.train` and in
+TRL with PEFT, on the same tokenized data, batches and hyperparameters, scored
+after training by one shared held-out evaluator. `train-grad-check` compares
+every parameter's f32 gradient with transformers'.
+
 ## License
 
 The registry (cards, sources, bindings) is MIT. Each checkpoint keeps the

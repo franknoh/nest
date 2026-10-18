@@ -24,6 +24,7 @@ from bench.methods.engines import METHODS as ENGINES
 from bench.methods.exports import EXPORTABLE
 from bench.methods.exports import METHODS as EXPORTS
 from bench.methods.serving import METHODS as SERVING
+from bench.methods.training import METHODS as TRAINING
 
 SAFE_TOKENS = (100, 20000)  # ordinary vocabulary, clear of special tokens
 
@@ -689,6 +690,7 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     **SERVING,
     **EXPORTS,
     **ENGINES,
+    **TRAINING,
 }
 
 REFERENCE = "transformers-eager"
@@ -698,7 +700,7 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     """Every method, less the ones a card cannot take part in: the JAX path
     needs `prefill` and `decode`, the serving rows `prefill_slots` and
     `decode_rows`, and KerasHub a converter for the checkpoint's
-    architecture."""
+    architecture. Placement, engine and training rows run only when named."""
     source = Path(data["directory"]) / data["source"]["path"]
     sources = [source] if source.is_file() else sorted(source.parent.glob("*.linnet"))
     text = "".join(path.read_text(encoding="utf-8") for path in sources)
@@ -711,6 +713,8 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     optional = {"linnet-gpus", "linnet-offload", "linnet-tp-jax", "linnet-tp-torch", "vllm-tp"}
     # SGLang and TGI need a setup of their own (`setup-pod.sh --engines`).
     optional |= set(ENGINES) | {m for m in EXPORTS if "sglang" in m or "tgi" in m}
+    # Training rows take minutes to hours each (`bench.methods.training`).
+    optional |= set(TRAINING)
     chosen: list[str] = []
     for name in METHODS:
         if name in optional:
