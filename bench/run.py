@@ -20,7 +20,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from bench.harness import MODELS, Result, card, python_for, run_isolated, write
+from bench.harness import MODELS, Result, card, combine, python_for, run_isolated, write
 from bench.worker import family_of
 
 
@@ -70,6 +70,13 @@ def main() -> None:
     parser.add_argument("--serve-prompt-min", type=int, default=128)
     parser.add_argument("--serve-prompt-max", type=int, default=512)
     parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="runs of each method, each in a fresh process; the row is their median, with "
+        "each metric's spread",
+    )
     parser.add_argument(
         "--output",
         help="write bench.json here instead of beside the card (a dry run that must not "
@@ -124,7 +131,12 @@ def main() -> None:
             continue
         for method in methods:
             print(f"[{model}] {method} ...", flush=True)
-            result = run_isolated(python_for(method), model, method, workload, args.timeout)
+            result = combine(
+                [
+                    run_isolated(python_for(method), model, method, workload, args.timeout)
+                    for _ in range(max(1, args.repeat))
+                ]
+            )
             result.key = method
             if result.kind == "unknown":  # a crash reports no kind of its own
                 result.kind = "linnet" if method.startswith("linnet") else "reference"
