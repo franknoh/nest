@@ -6,8 +6,9 @@ so a request's responses are sent from that thread, not returned by
 `execute`.
 
 Written into the model repository by `bench.methods.serving`, which fills
-in `CARD` and `GENERICS`. Inputs: `prompt` (INT32 token ids) and
-`max_tokens` (INT32, one value); output: `tokens` (INT32).
+in `CARD`, `GENERICS` and `ENGINE` (the engine's options). Inputs:
+`prompt` (INT32 token ids) and `max_tokens` (INT32, one value); output:
+`tokens` (INT32).
 """
 
 import queue
@@ -19,6 +20,7 @@ import triton_python_backend_utils as pb_utils
 
 CARD = "__CARD__"
 GENERICS: dict = {}  # __GENERICS__
+ENGINE: dict = {}  # __ENGINE__
 
 
 class TritonPythonModel:
@@ -35,7 +37,7 @@ class TritonPythonModel:
             generics=GENERICS,
             cast_dtype=True,
         )
-        self.engine = Engine(model)
+        self.engine = Engine(model, **ENGINE)
         # Every prompt length the engine compiles, so no request waits on one.
         self.engine.warmup(self.engine.buckets)
         self.incoming = queue.Queue()

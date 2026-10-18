@@ -268,25 +268,39 @@ def keras_hub(data: dict[str, Any], workload: dict[str, Any]) -> Result:
 # ------------------------------------------------------------------ Linnet
 
 
+def _layout(
+    data: dict[str, Any], workload: dict[str, Any], backend: str
+) -> tuple[dict[str, int | str], dict[str, int | bool], str]:
+    """How `linnet.serve` holds the cache: the generics to load with, the
+    engine's options, and a note. PyTorch serves from pages of one pool, as
+    `linnet serve` does by default, where the card has the entries: a step
+    reads the rows in flight to their lengths, where fixed rows are read
+    whole. No prefix sharing, as vLLM's and SGLang's prefix caches are off."""
+    from linnet import nest
+
+    _, concurrency, _, _, _ = settings(workload)
+    length = serve_max_seq(workload)
+    entries = {entry.short_name for entry in nest.resolve(data["directory"]).program().entries()}
+    if backend == "torch" and {"prefill_paged", "decode_paged"} <= entries:
+        return (
+            {"Batch": 1, "MaxSeq": concurrency * length, "T": "bf16"},
+            {"paged": True, "rows": concurrency, "max_len": length, "share": False},
+            f"pages of one pool of {concurrency * length} positions, {concurrency} rows",
+        )
+    return (
+        {"Batch": concurrency, "MaxSeq": length, "T": "bf16"},
+        {"share": False},
+        f"{concurrency} fixed cache rows of {length} positions",
+    )
+
+
 def _linnet(backend: str) -> Any:
     def run(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         from linnet import nest
         from linnet.serve import Engine, Request
 
-        _, concurrency, _, _, new = settings(workload)
-        length = serve_max_seq(workload)
-        # PyTorch serves from pages of one pool, as `linnet serve` does by
-        # default, where the card has the entries: a step reads the rows in
-        # flight to their lengths, where fixed rows are read whole.
-        entries = {
-            entry.short_name for entry in nest.resolve(data["directory"]).program().entries()
-        }
-        paged = backend == "torch" and {"prefill_paged", "decode_paged"} <= entries
-        generics: dict[str, int | str] = (
-            {"Batch": 1, "MaxSeq": concurrency * length, "T": "bf16"}
-            if paged
-            else {"Batch": concurrency, "MaxSeq": length, "T": "bf16"}
-        )
+        _, _, _, _, new = settings(workload)
+        generics, options, layout = _layout(data, workload, backend)
         start = time.perf_counter()
         if backend == "onnx":
             model = nest.load(
@@ -310,12 +324,7 @@ def _linnet(backend: str) -> Any:
             model = nest.load(
                 data["directory"], backend="jax_model", generics=generics, cast_dtype=True
             )
-        # No prefix sharing, as vLLM's and SGLang's prefix caches are off.
-        engine = (
-            Engine(model, paged=True, rows=concurrency, max_len=length, share=False)
-            if paged
-            else Engine(model, share=False)
-        )
+        engine = Engine(model, **options)
         load_s = time.perf_counter() - start
         requests = prompts(data, workload)
         engine.warmup(len(ids) for ids in requests)
@@ -328,12 +337,7 @@ def _linnet(backend: str) -> Any:
             stats.seconds,
             [c.ttft for c in done],
             load_s,
-            _describe(workload)
-            + (
-                f"; pages of one pool of {concurrency * length} positions, {concurrency} rows"
-                if paged
-                else f"; {concurrency} fixed cache rows of {length} positions"
-            ),
+            _describe(workload) + f"; {layout}",
         )
 
     return run
@@ -448,18 +452,18 @@ def triton_linnet(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     `linnet.serve` (CUDA graphs) in a thread, requests joining the engine's
     rows as they arrive, the first token streamed back as soon as it exists."""
     _, concurrency, _, _, new = settings(workload)
+    generics, options, layout = _layout(data, workload, "torch")
     root = Path(tempfile.mkdtemp(prefix="nest-triton-"))
     model_dir = root / "llm" / "1"
     model_dir.mkdir(parents=True)
     (root / "llm" / "config.pbtxt").write_text(LINNET_TRITON_CONFIG, encoding="utf-8")
-    generics = {"Batch": concurrency, "MaxSeq": serve_max_seq(workload), "T": "bf16"}
     template = (Path(__file__).resolve().parent.parent / "triton_linnet_model.py").read_text(
         encoding="utf-8"
     )
     (model_dir / "model.py").write_text(
-        template.replace("__CARD__", str(data["directory"])).replace(
-            "GENERICS: dict = {}  # __GENERICS__", f"GENERICS: dict = {generics!r}"
-        ),
+        template.replace("__CARD__", str(data["directory"]))
+        .replace("GENERICS: dict = {}  # __GENERICS__", f"GENERICS: dict = {generics!r}")
+        .replace("ENGINE: dict = {}  # __ENGINE__", f"ENGINE: dict = {options!r}"),
         encoding="utf-8",
     )
     bodies = [{"prompt": ids, "max_tokens": new} for ids in prompts(data, workload)]
@@ -471,7 +475,7 @@ def triton_linnet(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         firsts,
         load_s,
-        _describe(workload) + "; over HTTP, streamed, first tokens timed at the client",
+        _describe(workload) + f"; {layout}; over HTTP, streamed, first tokens timed at the client",
     )
 
 
