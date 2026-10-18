@@ -197,6 +197,9 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         model=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         max_model_len=max_seq(workload),
+        # As many sequences as the workload runs: a hybrid model (Qwen3.5's
+        # linear attention) reserves a recurrent state for each one up front.
+        max_num_seqs=int(workload.get("batch", 1)),
         gpu_memory_utilization=share,
         tensor_parallel_size=int(workload.get("tensor_parallel", 1)),
         # Every timed call sends the same prompt: with its prefix cache on, vLLM
