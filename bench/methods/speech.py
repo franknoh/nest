@@ -64,6 +64,46 @@ def _fixture(data: dict[str, Any]) -> tuple[Any, list[int], int, Any]:
     return features.astype(np.float32), prompt, int(eot), processor
 
 
+# Clips transcribed for `wer`, the first of the dummy set's validation split.
+WER_CLIPS = 32
+
+
+def _clips(processor: Any) -> tuple[list[Any], list[str]]:
+    """The first `WER_CLIPS` clips' log-mel features and their transcripts,
+    decoded as `_fixture` decodes its clip."""
+    import io
+
+    import numpy as np
+    import soundfile as sf
+    from datasets import Audio, load_dataset
+
+    clips = load_dataset(CLIP, "clean", split="validation").cast_column(
+        "audio", Audio(decode=False)
+    )
+    features: list[Any] = []
+    texts: list[str] = []
+    for clip in clips.select(range(min(WER_CLIPS, len(clips)))):
+        array, sampling_rate = sf.read(io.BytesIO(clip["audio"]["bytes"]))
+        mel = processor(array, sampling_rate=sampling_rate, return_tensors="np").input_features
+        features.append(mel.astype(np.float32))
+        texts.append(clip["text"])
+    return features, texts
+
+
+def _wer(processor: Any, outputs: list[list[int]], texts: list[str]) -> float:
+    """Word error rate over the clips, both sides through Whisper's English
+    normalizer (case, punctuation, spelled numbers), as Whisper's own
+    evaluations score."""
+    import jiwer
+
+    normalize = processor.tokenizer.normalize
+    said = [
+        normalize(processor.tokenizer.decode(tokens, skip_special_tokens=True))
+        for tokens in outputs
+    ]
+    return float(jiwer.wer([normalize(t) for t in texts], said))
+
+
 def _max_steps(data: dict[str, Any], prompt_len: int, workload: dict[str, Any]) -> int:
     """A safety cap on decode steps: the workload's `new_tokens`, or the
     card's `MaxTokens` less the prompt, whichever is smaller. Real content
@@ -104,7 +144,7 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         device = workload.get("device", "cuda")
         name = "transformers (torch.compile, static cache)" if compiled else "transformers (eager)"
         method = "transformers-compile" if compiled else "transformers-eager"
-        mel, prompt, _eot, _processor = _fixture(data)
+        mel, prompt, _eot, processor = _fixture(data)
         sync = torch_sync()
         dtype = torch.float32 if device == "cpu" else _feature_dtype(data, device)
 
@@ -133,10 +173,10 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
             with torch.no_grad():
                 return model.get_encoder()(features).last_hidden_state
 
-        def transcribe() -> torch.Tensor:
+        def transcribe(heard: torch.Tensor = features) -> torch.Tensor:
             with torch.no_grad():
                 return model.generate(
-                    input_features=features,
+                    input_features=heard,
                     decoder_input_ids=decoder_prompt,
                     max_new_tokens=steps,
                     do_sample=False,
@@ -146,10 +186,20 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         encode_ms = median_ms(encode, sync, int(workload["warmup"]), int(workload["iters"]))
         transcribe_ms = median_ms(transcribe, sync, int(workload["warmup"]), int(workload["iters"]))
         save_output(workload, method, encode()[0])
+        mels, texts = _clips(processor)
+        heard = [
+            [int(t) for t in transcribe(torch.tensor(m, dtype=dtype, device=device))[0]]
+            for m in mels
+        ]
         return Result(
             name,
             "reference",
-            {"encode_ms": encode_ms, "transcribe_ms": transcribe_ms, "load_s": load_s},
+            {
+                "encode_ms": encode_ms,
+                "transcribe_ms": transcribe_ms,
+                "load_s": load_s,
+                "wer": _wer(processor, heard, texts),
+            },
         )
 
     return run
@@ -180,7 +230,7 @@ def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, An
                 f"Linnet torch ({label})", "linnet", notes="CUDA graphs need a GPU; skipped on cpu"
             )
         sync = torch_sync()
-        mel, prompt, eot, _processor = _fixture(data)
+        mel, prompt, eot, processor = _fixture(data)
         dtype = _feature_dtype(data, device)
 
         start = time.perf_counter()
@@ -196,16 +246,23 @@ def _linnet_torch(compile: bool | str) -> Callable[[dict[str, Any], dict[str, An
         def encode() -> torch.Tensor:
             return model.run_entry("encode", [features])
 
-        def transcribe() -> list[int]:
-            return _transcribe_torch(model, features, prompt_ids, prompt, eot, steps)
+        def transcribe(heard: torch.Tensor = features) -> list[int]:
+            return _transcribe_torch(model, heard, prompt_ids, prompt, eot, steps)
 
         encode_ms = median_ms(encode, sync, int(workload["warmup"]), int(workload["iters"]))
         transcribe_ms = median_ms(transcribe, sync, int(workload["warmup"]), int(workload["iters"]))
         save_output(workload, method, encode()[0])
+        mels, texts = _clips(processor)
+        heard = [transcribe(torch.tensor(m, dtype=dtype, device=device)) for m in mels]
         return Result(
             f"Linnet torch ({label})",
             "linnet",
-            {"encode_ms": encode_ms, "transcribe_ms": transcribe_ms, "load_s": load_s},
+            {
+                "encode_ms": encode_ms,
+                "transcribe_ms": transcribe_ms,
+                "load_s": load_s,
+                "wer": _wer(processor, heard, texts),
+            },
             notes=CACHED,
         )
 
@@ -243,7 +300,7 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     import numpy as np
     from linnet import nest
 
-    mel, prompt, eot, _processor = _fixture(data)
+    mel, prompt, eot, processor = _fixture(data)
     start = time.perf_counter()
     model = nest.load(
         data["directory"],
@@ -266,8 +323,8 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     # decoders' `linnet_jax`).
     pick = jax.jit(lambda logits: jnp.argmax(logits, -1).reshape(1, 1).astype(jnp.int32))
 
-    def transcribe() -> list[int]:
-        model.run_entry("listen", [features])
+    def transcribe(heard: Any = features) -> list[int]:
+        model.run_entry("listen", [heard])
         token = pick(model.run_entry("prefill", [prompt_ids]))
         tokens = [*prompt, int(token[0, 0])]
         for _ in range(steps - 1):
@@ -285,6 +342,8 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         "transcribe_ms": median_ms(transcribe, lambda: None, warmup, iters),
         "load_s": load_s,
     }
+    mels, texts = _clips(processor)
+    metrics["wer"] = _wer(processor, [transcribe(jnp.asarray(m, dtype=dtype)) for m in mels], texts)
     save_output(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(encode_call())[0])
     return Result(f"Linnet JAX (XLA, {jax.default_backend()})", "linnet", metrics, notes=CACHED)
 
@@ -296,7 +355,7 @@ def _onnx_run(
     graph, each step replayed as a CUDA graph where ONNX Runtime can."""
     import numpy as np
 
-    mel, prompt, eot, _processor = _fixture(data)
+    mel, prompt, eot, processor = _fixture(data)
     warmup, iters = int(workload["warmup"]), int(workload["iters"])
     placed = stacks.onnx_placed(model, [mel])
     steps = _max_steps(data, len(prompt), workload)
@@ -304,8 +363,8 @@ def _onnx_run(
         lambda: model.run_entry("encode", placed, keep_on_device=True), lambda: None, warmup, iters
     )
 
-    def transcribe() -> list[int]:
-        model.run_entry("listen", placed, keep_on_device=True)
+    def transcribe(heard: Any = placed) -> list[int]:
+        model.run_entry("listen", heard, keep_on_device=True)
         chosen = model.run_entry("prefill", [np.asarray([prompt], np.int32)], argmax=True)
         token = np.asarray(chosen, dtype=np.int32).reshape(1, 1)
         tokens = [*prompt, int(token[0, 0])]
@@ -320,7 +379,13 @@ def _onnx_run(
         return tokens
 
     transcribe_ms = median_ms(transcribe, lambda: None, warmup, iters)
-    metrics = {"encode_ms": encode_ms, "transcribe_ms": transcribe_ms}
+    mels, texts = _clips(processor)
+    heard = [transcribe(stacks.onnx_placed(model, [m])) for m in mels]
+    metrics = {
+        "encode_ms": encode_ms,
+        "transcribe_ms": transcribe_ms,
+        "wer": _wer(processor, heard, texts),
+    }
     return metrics, model.run_entry("encode", [mel])[0]
 
 
