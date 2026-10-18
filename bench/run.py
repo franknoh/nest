@@ -4,11 +4,19 @@
     python -m bench.run qwen2.5-0.5b-instruct
     python -m bench.run qwen3-8b --methods linnet-torch,transformers-eager
     python -m bench.run tinyllama-1.1b-chat --device cpu --prompt 16 --new 4   # a dry run
+    python -m bench.run qwen3-8b --methods acc-vllm,acc-linnet-torch --merge     # accuracy
 
 Methods run one at a time, each in its own process (see `bench.harness`).
 After all of them, every saved first-token output is compared with the
 reference method's, so each row carries its distance from the reference
 beside its speed.
+
+The `acc-` rows (text generation, opt-in) measure numerics on WikiText-2
+instead of speed: perplexity, and its ratio, top-1 agreement, KL and greedy
+agreement against `transformers` in f32 (`acc-reference`, run first
+whenever another `acc-` row is asked for; see `bench.methods.accuracy`).
+Every timed text-generation row also reports `deterministic`: 1 when all its
+timed runs produced the same tokens.
 """
 
 from __future__ import annotations
@@ -85,6 +93,8 @@ def main() -> None:
     parser.add_argument("--serve-prompt-min", type=int, default=128)
     parser.add_argument("--serve-prompt-max", type=int, default=512)
     parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
+    parser.add_argument("--acc-windows", type=int, default=4, help="WikiText-2 windows (acc-)")
+    parser.add_argument("--acc-length", type=int, default=512, help="tokens per window (acc-)")
     parser.add_argument(
         "--soak-minutes", type=float, default=30.0, help="how long a `soak-` method holds full load"
     )
@@ -122,6 +132,10 @@ def main() -> None:
             # A rerun row is measured against the reference's output from the
             # same run, so the reference runs again too.
             methods = [family.REFERENCE, *methods]
+        if any(m.startswith("acc-") for m in methods) and "acc-reference" not in methods:
+            # Every accuracy row is scored against the f32 reference's output
+            # from the same run.
+            methods = ["acc-reference", *methods]
         workdir = Path(tempfile.mkdtemp(prefix=f"nest-bench-{model}-"))
         workload: dict[str, Any] = {
             "device": args.device,
@@ -139,6 +153,8 @@ def main() -> None:
             "serve_prompt_max": args.serve_prompt_max,
             "serve_new": args.serve_new,
             "soak_minutes": args.soak_minutes,
+            "acc_windows": args.acc_windows,
+            "acc_length": args.acc_length,
         }
         results: list[Result] = []
         keys: dict[str, str] = {}
@@ -158,7 +174,9 @@ def main() -> None:
             )
             result.key = method
             if result.kind == "unknown":  # a crash reports no kind of its own
-                result.kind = "linnet" if method.startswith("linnet") else "reference"
+                bare = method.removeprefix("acc-")
+                linnet = bare.startswith("linnet") or bare == "llamacpp"
+                result.kind = "linnet" if linnet else "reference"
             keys[result.method] = method
             status = result.error or ", ".join(
                 f"{key}={value:.4g}" for key, value in result.metrics.items() if value is not None
