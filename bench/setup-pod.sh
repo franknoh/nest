@@ -79,6 +79,10 @@ python -m pip install --quiet "tensorrt-cu13-libs>=10,<11"
 triton_version=$(python -c "import triton; print(triton.__version__)")
 python -m pip install --quiet \
     "triton_kernels @ git+https://github.com/triton-lang/triton.git@v${triton_version}#subdirectory=python/triton_kernels"
+# flash-linear-attention's chunked Gated DeltaNet kernel, which Linnet's
+# PyTorch and transformers both run the Qwen3.5 linear-attention layers with.
+# Without its dependencies: it would otherwise pull in its own transformers.
+python -m pip install --quiet --no-deps flash-linear-attention fla-core einops
 python - <<'EOF'
 import jax, torch, onnxruntime
 print("torch", torch.__version__, "cuda", torch.cuda.is_available(), torch.cuda.device_count(), "GPUs")

@@ -569,7 +569,7 @@
         "Int8Linear": "std.quant::Int8Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; i8]\n  param scale: Tensor[Out, 1; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
         "LayerPair": "gpt_oss::LayerPair<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, Inner: Dim, Experts: Dim, TopK: Dim, Window: Dim, Blocks: Dim, InnerBlocks: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub sliding: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, Batch, MaxSeq, T>\n  sub full: DecoderLayer<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Blocks, InnerBlocks, Batch, MaxSeq, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  pub fn prefill_packed<P: Dim>(x: Tensor[1, P, H; T], rows: Tensor[P; i32], positions: Tensor[P; i32], segments: Tensor[P; i32]) -> Tensor[1, P, H; T]\n  pub fn step_packed<P: Dim>(x: Tensor[1, Batch + P, H; T], rows: Tensor[P; i32], positions: Tensor[P; i32], segments: Tensor[P; i32], step_positions: Tensor[Batch; i32]) -> Tensor[1, Batch + P, H; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
-        "MixtureOfExperts": "gpt_oss.experts::MixtureOfExperts<H: Dim, Inner: Dim, Experts: Dim, TopK: Dim, Blocks: Dim, InnerBlocks: Dim, T: Float>\n  sub router: Linear<H, Experts, T>\n  param gate_up_blocks: Tensor[Experts, 2 * Inner, Blocks, 32; f4e2m1]\n  param gate_up_scales: Tensor[Experts, 2 * Inner, Blocks; u8]\n  param gate_up_bias: Tensor[Experts, 2 * Inner; T]\n  param down_blocks: Tensor[Experts, H, InnerBlocks, 32; f4e2m1]\n  param down_scales: Tensor[Experts, H, InnerBlocks; u8]\n  param down_bias: Tensor[Experts, H; T]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T]\n  pub fn forward_routed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  fn experts_of<R: Dim>(x: Tensor[R, 1, H; T]) -> Tensor[R, TopK; i64]\n  fn weights_of<R: Dim>(x: Tensor[R, 1, H; T]) -> Tensor[R, TopK; T]\n  fn activate<R: Dim>(gate_up: Tensor[R, TopK, 2 * Inner; T], expert: Tensor[R, TopK; i64]) -> Tensor[R, TopK, Inner; T]\n  fn down_bias_of<R: Dim>(weight: Tensor[R, TopK; T], expert: Tensor[R, TopK; i64]) -> Tensor[R, H; T]\n  fn route<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; T]\n  fn ranks<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; i32]",
+        "MixtureOfExperts": "gpt_oss.experts::MixtureOfExperts<H: Dim, Inner: Dim, Experts: Dim, TopK: Dim, Blocks: Dim, InnerBlocks: Dim, T: Float>\n  sub router: Linear<H, Experts, T>\n  param gate_up_blocks: Tensor[Experts, 2 * Inner, Blocks, 32; f4e2m1]\n  param gate_up_scales: Tensor[Experts, 2 * Inner, Blocks; f8e8m0]\n  param gate_up_bias: Tensor[Experts, 2 * Inner; T]\n  param down_blocks: Tensor[Experts, H, InnerBlocks, 32; f4e2m1]\n  param down_scales: Tensor[Experts, H, InnerBlocks; f8e8m0]\n  param down_bias: Tensor[Experts, H; T]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn forward_topk<B: Dim>(x: Tensor[B, 1, H; T]) -> Tensor[B, 1, H; T]\n  pub fn forward_routed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  fn experts_of<R: Dim>(x: Tensor[R, 1, H; T]) -> Tensor[R, TopK; i64]\n  fn weights_of<R: Dim>(x: Tensor[R, 1, H; T]) -> Tensor[R, TopK; T]\n  fn activate<R: Dim>(gate_up: Tensor[R, TopK, 2 * Inner; T], expert: Tensor[R, TopK; i64]) -> Tensor[R, TopK, Inner; T]\n  fn down_bias_of<R: Dim>(weight: Tensor[R, TopK; T], expert: Tensor[R, TopK; i64]) -> Tensor[R, H; T]\n  fn route<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; T]\n  fn ranks<B: Dim, S: Dim>(logits: Tensor[B, S, Experts; T]) -> Tensor[B, S, Experts; i32]",
         "Model": "gpt_oss::Model<Vocab: Dim, H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, Inner: Dim, Experts: Dim, TopK: Dim, Layers: Dim, Window: Dim, Batch: Dim, MaxSeq: Dim, T: Float = bf16>\n  sub embed_tokens: Embedding<Vocab, H, T>\n  sub pairs: [LayerPair<H, Heads, KvHeads, HeadDim, Inner, Experts, TopK, Window, H / 32, Inner / 32, Batch, MaxSeq, T>; Layers / 2]\n  sub norm: RmsNorm<H, T>\n  sub lm_head: Linear<H, Vocab, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]\n  pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]\n  pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry decode_rows(tokens: Tensor[Batch, 1; i32], positions: Tensor[Batch; i32]) -> Tensor[Batch, Vocab; T]\n  pub entry prefill_slots<M: Dim, S: Dim>(tokens: Tensor[M, S; i32], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, Vocab; T]\n  pub entry prefill_packed<P: Dim>(tokens: Tensor[P; i32], rows: Tensor[P; i32], positions: Tensor[P; i32], segments: Tensor[P; i32], last: Tensor[Batch; i32]) -> Tensor[Batch, Vocab; T]\n  pub entry step_packed<P: Dim>(tokens: Tensor[P; i32], rows: Tensor[P; i32], positions: Tensor[P; i32], segments: Tensor[P; i32], last: Tensor[Batch; i32], step_tokens: Tensor[Batch, 1; i32], step_positions: Tensor[Batch; i32]) -> Tensor[2 * Batch, Vocab; T]\n  pub entry states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]\n  fn hidden<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]",
         "Nf4Linear": "std.quant::Nf4Linear<In: Dim, Out: Dim, Block: Dim = 64, T: Float = bf16>\n  param weight: Tensor[Out, In; u4]\n  param absmax: Tensor[Out, In / Block; f32]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
@@ -5500,6 +5500,466 @@
           "unit": "ms"
         }
       ]
+    },
+    {
+      "name": "qwen3.6-35b-a3b",
+      "title": "Qwen3.6 35B-A3B",
+      "summary": "A 35B-parameter hybrid mixture of experts (3B active): three Gated DeltaNet (linear attention) layers for every gated full-attention layer, 256 experts with 8 chosen per token plus a gated shared expert, and an untied output head; the text model of Qwen3.6-35B-A3B, without its vision tower.",
+      "license": "Apache-2.0",
+      "family": "qwen3_5_moe",
+      "tags": [
+        "text-generation",
+        "decoder-only",
+        "mixture-of-experts",
+        "linear-attention",
+        "gated-deltanet",
+        "hybrid"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+        "github": "https://github.com/QwenLM/Qwen3.5"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "qwen3_5_moe",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 248320,
+        "H": 2048,
+        "Heads": 16,
+        "KvHeads": 2,
+        "HeadDim": 256,
+        "KeyHeads": 16,
+        "ValueHeads": 32,
+        "KeyDim": 128,
+        "ValueDim": 128,
+        "Conv": 8192,
+        "Width": 4,
+        "Experts": 256,
+        "TopK": 8,
+        "ExpertInner": 512,
+        "SharedInner": 512,
+        "Groups": 10,
+        "Batch": 1,
+        "MaxSeq": 262144,
+        "T": "bf16"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 34661536808,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "next_token",
+          "signature": "pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "decode",
+          "signature": "pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        },
+        {
+          "name": "prefill",
+          "signature": "pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[Batch, S; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        },
+        {
+          "name": "decode_rows",
+          "signature": "pub entry decode_rows(tokens: Tensor[Batch, 1; i32], positions: Tensor[Batch; i32]) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "positions",
+              "type": "Tensor[Batch; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        },
+        {
+          "name": "prefill_slots",
+          "signature": "pub entry prefill_slots<M: Dim, S: Dim>(tokens: Tensor[M, S; i32], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[M, S; i32]"
+            },
+            {
+              "name": "slots",
+              "type": "Tensor[M; i32]"
+            },
+            {
+              "name": "lengths",
+              "type": "Tensor[M; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[M, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        }
+      ],
+      "blocks": {
+        "AttentionLayer": "qwen3_5_moe::AttentionLayer<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, Experts: Dim, TopK: Dim, ExpertInner: Dim, SharedInner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub input_layernorm: RmsNorm<H, T>\n  sub self_attn: GatedAttention<H, Heads, KvHeads, HeadDim, Batch, MaxSeq, T>\n  sub post_attention_layernorm: RmsNorm<H, T>\n  sub mlp: SparseMoe<H, Experts, TopK, ExpertInner, SharedInner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn feed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]",
+        "DeltaLayer": "qwen3_5_moe::DeltaLayer<H: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Experts: Dim, TopK: Dim, ExpertInner: Dim, SharedInner: Dim, Batch: Dim, T: Float>\n  sub input_layernorm: RmsNorm<H, T>\n  sub linear_attn: GatedDeltaNet<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Batch, T>\n  sub post_attention_layernorm: RmsNorm<H, T>\n  sub mlp: SparseMoe<H, Experts, TopK, ExpertInner, SharedInner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn feed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "GatedAttention": "qwen3_5_moe.attention::GatedAttention<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub q_proj: Linear<H, 2 * Heads * HeadDim, T>\n  sub k_proj: Linear<H, KvHeads * HeadDim, T>\n  sub v_proj: Linear<H, KvHeads * HeadDim, T>\n  sub o_proj: Linear<Heads * HeadDim, H, T>\n  sub q_norm: RmsNorm<HeadDim, T>\n  sub k_norm: RmsNorm<HeadDim, T>\n  state cache_k: Tensor[Batch, KvHeads, MaxSeq, HeadDim; T]\n  state cache_v: Tensor[Batch, KvHeads, MaxSeq, HeadDim; T]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn project<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> (Tensor[B, Heads, S, HeadDim; T], Tensor[B, S, Heads * HeadDim; T], Tensor[B, KvHeads, S, HeadDim; T], Tensor[B, KvHeads, S, HeadDim; T])\n  fn finish<B: Dim, S: Dim>(mixed: Tensor[B, Heads, S, HeadDim; T], gate: Tensor[B, S, Heads * HeadDim; T]) -> Tensor[B, S, H; T]\n  fn rotate<B: Dim, N: Dim, S: Dim>(x: Tensor[B, N, S, HeadDim; T], cos_table: Tensor[S, HeadDim / 4; T], sin_table: Tensor[S, HeadDim / 4; T]) -> Tensor[B, N, S, HeadDim; T]\n  fn rotate_rows<B: Dim, N: Dim>(x: Tensor[B, N, 1, HeadDim; T], cos_rows: Tensor[B, 1, HeadDim / 4; T], sin_rows: Tensor[B, 1, HeadDim / 4; T]) -> Tensor[B, N, 1, HeadDim; T]",
+        "GatedDeltaNet": "qwen3_5_moe.deltanet::GatedDeltaNet<H: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Batch: Dim, T: Float>\n  sub in_proj_qkv: Linear<H, Conv, T>\n  sub in_proj_z: Linear<H, ValueHeads * ValueDim, T>\n  sub in_proj_b: Linear<H, ValueHeads, T>\n  sub in_proj_a: Linear<H, ValueHeads, T>\n  sub norm: GatedRmsNorm<ValueDim, T>\n  sub out_proj: Linear<ValueHeads * ValueDim, H, T>\n  param conv_weight: Tensor[Conv, 1, Width; T]\n  param A_log: Tensor[ValueHeads; T]\n  param dt_bias: Tensor[ValueHeads; T]\n  state history: Tensor[Batch, 1, -1 + Width, Conv; T]\n  state recurrent: Tensor[Batch, ValueHeads, KeyDim, ValueDim; f32]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn span<B: Dim, S: Dim>(x: Tensor[B, S, H; T], start_history: Tensor[B, -1 + Width, Conv; T], start_state: Tensor[B, ValueHeads, KeyDim, ValueDim; f32], lengths: Tensor[B; i32]) -> (Tensor[B, S, H; T], Tensor[B, -1 + Width, Conv; T], Tensor[B, ValueHeads, KeyDim, ValueDim; f32])\n  fn heads<B: Dim, S: Dim>(convolved: Tensor[B, S, Conv; T]) -> (Tensor[B, S, KeyHeads, KeyDim; T], Tensor[B, S, KeyHeads, KeyDim; T], Tensor[B, S, ValueHeads, ValueDim; T])\n  fn unit<B: Dim, S: Dim>(x: Tensor[B, S, KeyHeads, KeyDim; T]) -> Tensor[B, S, KeyHeads, KeyDim; T]\n  fn gates<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> (Tensor[B, S, ValueHeads; f32], Tensor[B, S, ValueHeads; f32])\n  fn finish<B: Dim, S: Dim>(out: Tensor[B, S, ValueHeads, ValueDim; T], x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  fn conv_taps() -> Tensor[Conv, Width; T]\n  fn zero_history<B: Dim>() -> Tensor[B, -1 + Width, Conv; T]\n  fn zero_state<B: Dim>() -> Tensor[B, ValueHeads, KeyDim, ValueDim; f32]",
+        "GatedRmsNorm": "qwen3_5_moe.norm::GatedRmsNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T], gate: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "LayerGroup": "qwen3_5_moe::LayerGroup<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Experts: Dim, TopK: Dim, ExpertInner: Dim, SharedInner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub linear: [DeltaLayer<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Experts, TopK, ExpertInner, SharedInner, Batch, T>; 3]\n  sub full: AttentionLayer<H, Heads, KvHeads, HeadDim, Experts, TopK, ExpertInner, SharedInner, Batch, MaxSeq, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, S, H; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "qwen3_5_moe::Model<Vocab: Dim, H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Experts: Dim, TopK: Dim, ExpertInner: Dim, SharedInner: Dim, Groups: Dim, Batch: Dim, MaxSeq: Dim, T: Float = bf16>\n  sub embed_tokens: Embedding<Vocab, H, T>\n  sub groups: [LayerGroup<H, Heads, KvHeads, HeadDim, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Experts, TopK, ExpertInner, SharedInner, Batch, MaxSeq, T>; Groups]\n  sub norm: RmsNorm<H, T>\n  sub lm_head: Linear<H, Vocab, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]\n  pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]\n  pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry decode_rows(tokens: Tensor[Batch, 1; i32], positions: Tensor[Batch; i32]) -> Tensor[Batch, Vocab; T]\n  pub entry prefill_slots<M: Dim, S: Dim>(tokens: Tensor[M, S; i32], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, Vocab; T]\n  fn logits<R: Dim>(x: Tensor[R, H; T]) -> Tensor[R, Vocab; T]\n  fn hidden_states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]",
+        "RmsNorm": "qwen3_5_moe.norm::RmsNorm<H: Dim, T: Float>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "SparseMoe": "qwen3_5_moe.moe::SparseMoe<H: Dim, Experts: Dim, TopK: Dim, ExpertInner: Dim, SharedInner: Dim, T: Float>\n  sub gate: Linear<H, Experts, T>\n  param gate_up_proj: Tensor[Experts, 2 * ExpertInner, H; T]\n  param down_proj: Tensor[Experts, H, ExpertInner; T]\n  sub shared_expert: SwiGlu<H, SharedInner, T>\n  sub shared_expert_gate: Linear<H, 1, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  fn ranks<R: Dim>(logits: Tensor[R, Experts; T]) -> Tensor[R, Experts; i32]",
+        "SwiGlu": "std.nn.mlp::SwiGlu<H: Dim, Inner: Dim, T: Float = bf16>\n  sub gate: Linear<H, Inner, T>\n  sub up: Linear<H, Inner, T>\n  sub down: Linear<Inner, H, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "Qwen/Qwen3.6-35B-A3B",
+        "files": [
+          "model-00001-of-00026.safetensors",
+          "model-00002-of-00026.safetensors",
+          "model-00003-of-00026.safetensors",
+          "model-00004-of-00026.safetensors",
+          "model-00005-of-00026.safetensors",
+          "model-00006-of-00026.safetensors",
+          "model-00007-of-00026.safetensors",
+          "model-00008-of-00026.safetensors",
+          "model-00009-of-00026.safetensors",
+          "model-00010-of-00026.safetensors",
+          "model-00011-of-00026.safetensors",
+          "model-00012-of-00026.safetensors",
+          "model-00013-of-00026.safetensors",
+          "model-00014-of-00026.safetensors",
+          "model-00015-of-00026.safetensors",
+          "model-00016-of-00026.safetensors",
+          "model-00017-of-00026.safetensors",
+          "model-00018-of-00026.safetensors",
+          "model-00019-of-00026.safetensors",
+          "model-00020-of-00026.safetensors",
+          "model-00021-of-00026.safetensors",
+          "model-00022-of-00026.safetensors",
+          "model-00023-of-00026.safetensors",
+          "model-00024-of-00026.safetensors",
+          "model-00025-of-00026.safetensors",
+          "model-00026-of-00026.safetensors"
+        ],
+        "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/attention.linnet",
+        "src/deltanet.linnet",
+        "src/lib.linnet",
+        "src/moe.linnet",
+        "src/norm.linnet",
+        "src/rope.linnet"
+      ],
+      "backends": []
+    },
+    {
+      "name": "qwen3.8-27b",
+      "title": "Qwen3.8 27B",
+      "summary": "A 27B-parameter hybrid decoder: three Gated DeltaNet (linear attention) layers for every gated full-attention layer, zero-centered RMS norms, SwiGLU, and an untied output head; the text model of Qwen3.8-27B, without its vision tower.",
+      "license": "Apache-2.0",
+      "family": "qwen3_5",
+      "tags": [
+        "text-generation",
+        "decoder-only",
+        "linear-attention",
+        "gated-deltanet",
+        "hybrid"
+      ],
+      "links": {
+        "huggingface": "https://huggingface.co/Qwen/Qwen3.8-27B",
+        "github": "https://github.com/QwenLM/Qwen3.5"
+      },
+      "source": "src/lib.linnet",
+      "root": "Model",
+      "module": "qwen3_5",
+      "entry": "forward",
+      "generics": {
+        "Vocab": 248320,
+        "H": 5120,
+        "Heads": 24,
+        "KvHeads": 4,
+        "HeadDim": 256,
+        "KeyHeads": 16,
+        "ValueHeads": 48,
+        "KeyDim": 128,
+        "ValueDim": 128,
+        "Conv": 10240,
+        "Width": 4,
+        "Inner": 17408,
+        "Groups": 16,
+        "Batch": 1,
+        "MaxSeq": 262144,
+        "T": "bf16"
+      },
+      "check": {
+        "B": 1,
+        "S": 8
+      },
+      "parameters": 26900150784,
+      "entries": [
+        {
+          "name": "forward",
+          "signature": "pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, S, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "next_token",
+          "signature": "pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, Vocab; T]"
+          ],
+          "states": []
+        },
+        {
+          "name": "decode",
+          "signature": "pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        },
+        {
+          "name": "prefill",
+          "signature": "pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[Batch, S; i32]"
+            },
+            {
+              "name": "pos",
+              "type": "i32"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        },
+        {
+          "name": "decode_rows",
+          "signature": "pub entry decode_rows(tokens: Tensor[Batch, 1; i32], positions: Tensor[Batch; i32]) -> Tensor[Batch, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[Batch, 1; i32]"
+            },
+            {
+              "name": "positions",
+              "type": "Tensor[Batch; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[Batch, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        },
+        {
+          "name": "prefill_slots",
+          "signature": "pub entry prefill_slots<M: Dim, S: Dim>(tokens: Tensor[M, S; i32], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, Vocab; T]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[M, S; i32]"
+            },
+            {
+              "name": "slots",
+              "type": "Tensor[M; i32]"
+            },
+            {
+              "name": "lengths",
+              "type": "Tensor[M; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[M, Vocab; T]"
+          ],
+          "states": [
+            "groups[*].full.self_attn.cache_k",
+            "groups[*].full.self_attn.cache_v",
+            "groups[*].linear[*].linear_attn.history",
+            "groups[*].linear[*].linear_attn.recurrent"
+          ]
+        }
+      ],
+      "blocks": {
+        "AttentionLayer": "qwen3_5::AttentionLayer<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, Inner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub input_layernorm: RmsNorm<H, T>\n  sub self_attn: GatedAttention<H, Heads, KvHeads, HeadDim, Batch, MaxSeq, T>\n  sub post_attention_layernorm: RmsNorm<H, T>\n  sub mlp: SwiGlu<H, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn feed<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "DeltaLayer": "qwen3_5::DeltaLayer<H: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Inner: Dim, Batch: Dim, T: Float>\n  sub input_layernorm: RmsNorm<H, T>\n  sub linear_attn: GatedDeltaNet<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Batch, T>\n  sub post_attention_layernorm: RmsNorm<H, T>\n  sub mlp: SwiGlu<H, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn feed<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
+        "GatedAttention": "qwen3_5.attention::GatedAttention<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub q_proj: Linear<H, 2 * Heads * HeadDim, T>\n  sub k_proj: Linear<H, KvHeads * HeadDim, T>\n  sub v_proj: Linear<H, KvHeads * HeadDim, T>\n  sub o_proj: Linear<Heads * HeadDim, H, T>\n  sub q_norm: RmsNorm<HeadDim, T>\n  sub k_norm: RmsNorm<HeadDim, T>\n  state cache_k: Tensor[Batch, KvHeads, MaxSeq, HeadDim; T]\n  state cache_v: Tensor[Batch, KvHeads, MaxSeq, HeadDim; T]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn project<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> (Tensor[B, Heads, S, HeadDim; T], Tensor[B, S, Heads * HeadDim; T], Tensor[B, KvHeads, S, HeadDim; T], Tensor[B, KvHeads, S, HeadDim; T])\n  fn finish<B: Dim, S: Dim>(mixed: Tensor[B, Heads, S, HeadDim; T], gate: Tensor[B, S, Heads * HeadDim; T]) -> Tensor[B, S, H; T]\n  fn rotate<B: Dim, N: Dim, S: Dim>(x: Tensor[B, N, S, HeadDim; T], cos_table: Tensor[S, HeadDim / 4; T], sin_table: Tensor[S, HeadDim / 4; T]) -> Tensor[B, N, S, HeadDim; T]\n  fn rotate_rows<B: Dim, N: Dim>(x: Tensor[B, N, 1, HeadDim; T], cos_rows: Tensor[B, 1, HeadDim / 4; T], sin_rows: Tensor[B, 1, HeadDim / 4; T]) -> Tensor[B, N, 1, HeadDim; T]",
+        "GatedDeltaNet": "qwen3_5.deltanet::GatedDeltaNet<H: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Batch: Dim, T: Float>\n  sub in_proj_qkv: Linear<H, Conv, T>\n  sub in_proj_z: Linear<H, ValueHeads * ValueDim, T>\n  sub in_proj_b: Linear<H, ValueHeads, T>\n  sub in_proj_a: Linear<H, ValueHeads, T>\n  sub norm: GatedRmsNorm<ValueDim, T>\n  sub out_proj: Linear<ValueHeads * ValueDim, H, T>\n  param conv_weight: Tensor[Conv, 1, Width; T]\n  param A_log: Tensor[ValueHeads; T]\n  param dt_bias: Tensor[ValueHeads; T]\n  state history: Tensor[Batch, 1, -1 + Width, Conv; T]\n  state recurrent: Tensor[Batch, ValueHeads, KeyDim, ValueDim; f32]\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, S, H; T]\n  fn span<B: Dim, S: Dim>(x: Tensor[B, S, H; T], start_history: Tensor[B, -1 + Width, Conv; T], start_state: Tensor[B, ValueHeads, KeyDim, ValueDim; f32], lengths: Tensor[B; i32]) -> (Tensor[B, S, H; T], Tensor[B, -1 + Width, Conv; T], Tensor[B, ValueHeads, KeyDim, ValueDim; f32])\n  fn heads<B: Dim, S: Dim>(convolved: Tensor[B, S, Conv; T]) -> (Tensor[B, S, KeyHeads, KeyDim; T], Tensor[B, S, KeyHeads, KeyDim; T], Tensor[B, S, ValueHeads, ValueDim; T])\n  fn unit<B: Dim, S: Dim>(x: Tensor[B, S, KeyHeads, KeyDim; T]) -> Tensor[B, S, KeyHeads, KeyDim; T]\n  fn gates<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> (Tensor[B, S, ValueHeads; f32], Tensor[B, S, ValueHeads; f32])\n  fn finish<B: Dim, S: Dim>(out: Tensor[B, S, ValueHeads, ValueDim; T], x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  fn conv_taps() -> Tensor[Conv, Width; T]\n  fn zero_history<B: Dim>() -> Tensor[B, -1 + Width, Conv; T]\n  fn zero_state<B: Dim>() -> Tensor[B, ValueHeads, KeyDim, ValueDim; f32]",
+        "GatedRmsNorm": "qwen3_5.norm::GatedRmsNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T], gate: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
+        "LayerGroup": "qwen3_5::LayerGroup<H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Inner: Dim, Batch: Dim, MaxSeq: Dim, T: Float>\n  sub linear: [DeltaLayer<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Inner, Batch, T>; 3]\n  sub full: AttentionLayer<H, Heads, KvHeads, HeadDim, Inner, Batch, MaxSeq, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]\n  pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T]\n  pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]\n  pub fn decode_rows(x: Tensor[Batch, 1, H; T], positions: Tensor[Batch; i32]) -> Tensor[Batch, 1, H; T]\n  pub fn prefill_slots<M: Dim, S: Dim>(x: Tensor[M, S, H; T], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, S, H; T]",
+        "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
+        "Model": "qwen3_5::Model<Vocab: Dim, H: Dim, Heads: Dim, KvHeads: Dim, HeadDim: Dim, KeyHeads: Dim, ValueHeads: Dim, KeyDim: Dim, ValueDim: Dim, Conv: Dim, Width: Dim, Inner: Dim, Groups: Dim, Batch: Dim, MaxSeq: Dim, T: Float = bf16>\n  sub embed_tokens: Embedding<Vocab, H, T>\n  sub groups: [LayerGroup<H, Heads, KvHeads, HeadDim, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Inner, Batch, MaxSeq, T>; Groups]\n  sub norm: RmsNorm<H, T>\n  sub lm_head: Linear<H, Vocab, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]\n  pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]\n  pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]\n  pub entry decode_rows(tokens: Tensor[Batch, 1; i32], positions: Tensor[Batch; i32]) -> Tensor[Batch, Vocab; T]\n  pub entry prefill_slots<M: Dim, S: Dim>(tokens: Tensor[M, S; i32], slots: Tensor[M; i32], lengths: Tensor[M; i32]) -> Tensor[M, Vocab; T]\n  fn logits<R: Dim>(x: Tensor[R, H; T]) -> Tensor[R, Vocab; T]\n  fn hidden_states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]",
+        "RmsNorm": "qwen3_5.norm::RmsNorm<H: Dim, T: Float>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]",
+        "SwiGlu": "std.nn.mlp::SwiGlu<H: Dim, Inner: Dim, T: Float = bf16>\n  sub gate: Linear<H, Inner, T>\n  sub up: Linear<H, Inner, T>\n  sub down: Linear<Inner, H, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
+      },
+      "weights": {
+        "repo": "Qwen/Qwen3.8-27B",
+        "files": [
+          "model-00001-of-00018.safetensors",
+          "model-00002-of-00018.safetensors",
+          "model-00003-of-00018.safetensors",
+          "model-00004-of-00018.safetensors",
+          "model-00005-of-00018.safetensors",
+          "model-00006-of-00018.safetensors",
+          "model-00007-of-00018.safetensors",
+          "model-00008-of-00018.safetensors",
+          "model-00009-of-00018.safetensors",
+          "model-00010-of-00018.safetensors",
+          "model-00011-of-00018.safetensors",
+          "model-00012-of-00018.safetensors",
+          "model-00013-of-00018.safetensors",
+          "model-00014-of-00018.safetensors",
+          "model-00015-of-00018.safetensors",
+          "model-00016-of-00018.safetensors",
+          "model-00017-of-00018.safetensors",
+          "model-00018-of-00018.safetensors"
+        ],
+        "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "bindings": "bindings.json"
+      },
+      "files": [
+        "README.md",
+        "bindings.json",
+        "linnet.toml",
+        "nest.toml",
+        "preview-dark.svg",
+        "preview.svg",
+        "src/attention.linnet",
+        "src/deltanet.linnet",
+        "src/lib.linnet",
+        "src/norm.linnet",
+        "src/rope.linnet"
+      ],
+      "backends": []
     },
     {
       "name": "resnet-18",

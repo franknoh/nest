@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1085" height="646" viewBox="0 0 1085 646" font-family="Inter, system-ui, sans-serif">
+<style>
+.label{font-size:12px;fill:#f2f2f2}
+.sub{font-size:10.5px;fill:#9a9a9a;font-family:'JetBrains Mono',ui-monospace,monospace}
+.edge{font-size:10px;fill:#9a9a9a;font-family:'JetBrains Mono',ui-monospace,monospace}
+.group{font-size:11px;fill:#9a9a9a}
+.title{font-size:13px;font-weight:600;fill:#f2f2f2}
+</style>
+<rect width="100%" height="100%" fill="hsl(0, 0%, 2%)"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8a8a8a"/></marker></defs>
+<text class="title" x="24.0" y="19">forward</text>
+<rect x="672.5" y="132.5" width="150.2" height="85.0" rx="4" fill="#0e0e0e" stroke="#333333" stroke-dasharray="4 3"/>
+<text class="group" x="680.5" y="145.5">embed_tokens.forward</text>
+<rect x="554.5" y="185.5" width="506.9" height="247.5" rx="4" fill="#0e0e0e" stroke="#333333" stroke-dasharray="4 3"/>
+<text class="group" x="562.5" y="198.5">for group in groups</text>
+<rect x="272.4" y="24.5" width="713.9" height="503.0" rx="4" fill="#0e0e0e" stroke="#333333" stroke-dasharray="4 3"/>
+<text class="group" x="280.4" y="37.5">norm.forward</text>
+<rect x="37.5" y="334.5" width="131.6" height="85.0" rx="4" fill="#0e0e0e" stroke="#333333" stroke-dasharray="4 3"/>
+<text class="group" x="45.5" y="347.5">lm_head.forward</text>
+<rect x="568.0" y="213.0" width="479.9" height="206.5" rx="4" fill="#0e0e0e" stroke="#333333" stroke-dasharray="4 3"/>
+<text class="group" x="576.0" y="226.0">groups[group].forward</text>
+<rect x="581.5" y="240.5" width="202.2" height="71.0" rx="4" fill="#0e0e0e" stroke="#333333" stroke-dasharray="4 3"/>
+<text class="group" x="589.5" y="253.5">for layer in groups[group].linear</text>
+<path d="M 193.2 96.0 C 193.2 128.0, 747.6 128.0, 747.6 159.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="161.3" y="120.0" width="63.8" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="193.2" y="131.5" text-anchor="middle">i32[B, S]</text>
+<path d="M 747.6 204.0 C 747.6 236.0, 682.6 236.0, 682.6 267.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="712.6" y="228.0" width="70.0" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="747.6" y="239.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 682.6 298.0 C 682.6 330.0, 814.7 330.0, 814.7 361.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="647.6" y="322.0" width="70.0" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="682.6" y="333.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 814.7 406.0 C 814.7 438.0, 397.2 438.0, 397.2 469.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="779.7" y="430.0" width="70.0" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="814.7" y="441.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 501.1 82.0 C 501.1 121.0, 905.0 121.0, 905.0 159.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="459.9" y="106.0" width="82.4" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="501.1" y="117.5" text-anchor="middle">f32[B, S, H]</text>
+<path d="M 905.0 204.0 C 905.0 236.0, 835.4 236.0, 835.4 267.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="870.0" y="228.0" width="70.0" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="905.0" y="239.5" text-anchor="middle">T[B, S, H]</text>
+<path d="M 835.4 298.0 C 835.4 330.0, 103.3 330.0, 103.3 361.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="797.3" y="322.0" width="76.2" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="835.4" y="333.5" text-anchor="middle">T[S * B, H]</text>
+<path d="M 103.3 406.0 C 103.3 438.0, 632.2 438.0, 632.2 469.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="52.8" y="430.0" width="101.0" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="103.3" y="441.5" text-anchor="middle">T[S * B, Vocab]</text>
+<path d="M 632.2 500.0 C 632.2 539.0, 346.0 539.0, 346.0 577.0" fill="none" stroke="#8a8a8a" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="584.8" y="524.0" width="94.8" height="15" rx="2" fill="hsl(0, 0%, 2%)" opacity="0.9"/>
+<text class="edge" x="632.2" y="535.5" text-anchor="middle">T[B, S, Vocab]</text>
+<rect x="128.5" y="52.0" width="129.4" height="44.0" rx="14" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="193.2" y="70.0" text-anchor="middle">tokens</text>
+<text class="sub" x="193.2" y="86.0" text-anchor="middle">Tensor[B, S; i32]</text>
+<rect x="285.9" y="52.0" width="124.8" height="30.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="348.3" y="71.0" text-anchor="middle">index notation</text>
+<rect x="438.7" y="52.0" width="124.8" height="30.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="501.1" y="71.0" text-anchor="middle">index notation</text>
+<rect x="686.0" y="160.0" width="123.2" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="747.6" y="178.0" text-anchor="middle">embedding</text>
+<text class="sub" x="747.6" y="194.0" text-anchor="middle">std.nn.embedding</text>
+<rect x="837.2" y="160.0" width="135.6" height="44.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="905.0" y="178.0" text-anchor="middle">cast</text>
+<text class="sub" x="905.0" y="194.0" text-anchor="middle">Tensor[B, S, H; T]</text>
+<rect x="798.2" y="268.0" width="74.4" height="30.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="835.4" y="287.0" text-anchor="middle">reshape</text>
+<rect x="595.0" y="268.0" width="175.2" height="30.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="682.6" y="287.0" text-anchor="middle">linear[layer].forward</text>
+<rect x="51.0" y="362.0" width="104.6" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="103.3" y="380.0" text-anchor="middle">linear</text>
+<text class="sub" x="103.3" y="396.0" text-anchor="middle">std.nn.linear</text>
+<rect x="595.0" y="362.0" width="439.4" height="44.0" rx="4" fill="#161616" stroke="hsl(358, 85%, 52%)" stroke-width="1.2"/>
+<text class="label" x="814.7" y="380.0" text-anchor="middle">full.forward</text>
+<text class="sub" x="814.7" y="396.0" text-anchor="middle">AttentionLayer&lt;H, Heads, KvHeads, HeadDim, Inner, Batch, MaxSeq, T&gt;</text>
+<rect x="595.0" y="470.0" width="74.4" height="30.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="632.2" y="489.0" text-anchor="middle">reshape</text>
+<rect x="323.2" y="470.0" width="148.0" height="44.0" rx="4" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="397.2" y="488.0" text-anchor="middle">cast</text>
+<text class="sub" x="397.2" y="504.0" text-anchor="middle">Tensor[B, S, H; f32]</text>
+<rect x="265.8" y="578.0" width="160.4" height="44.0" rx="14" fill="#161616" stroke="#3a3a3a" stroke-width="1.2"/>
+<text class="label" x="346.0" y="596.0" text-anchor="middle">result</text>
+<text class="sub" x="346.0" y="612.0" text-anchor="middle">Tensor[B, S, Vocab; T]</text>
+</svg>

@@ -1,0 +1,17 @@
+// Rotary tables for Qwen3.5's full-attention layers: only the first quarter
+// of each head (`partial_rotary_factor` 0.25, 64 of 256) rotates, at a base
+// of 10,000,000. The checkpoint's multimodal rope (`mrope_section`) gives a
+// text token the same position on all three of its axes, which is this.
+module qwen3_5_moe.rope
+
+pub const THETA: f32 = 10000000.0
+
+// `(cos, sin)` of shape `[S, D]` for `D` rotating dimensions, each frequency
+// repeated for both halves as `rope` expects.
+pub fn tables<S: Dim, D: Dim, T: Float>(theta: f32) -> (Tensor[S, D; T], Tensor[S, D; T])
+where D % 2 == 0 {
+    let inv_freq[i] = exp(-(cast<f32>(iota<i64>(D / 2)[i]) * 2.0 / cast<f32>(D)) * log(theta))
+    let angles[s, i] = cast<f32>(iota<i64>(S)[s]) * inv_freq[i]
+    let full = concat(angles, angles, axis = -1)
+    return (cast<T>(cos(full)), cast<T>(sin(full)))
+}

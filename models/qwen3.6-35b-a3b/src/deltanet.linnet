@@ -1,0 +1,220 @@
+// Qwen3.5's linear-attention layers (three of every four): Gated DeltaNet.
+//
+// One projection gives the queries, keys and values side by side; a
+// depthwise causal convolution of width `Width` runs over them, then
+// `silu`. The queries and keys are L2-normalized per head, and each value
+// head keeps a state of `[KeyDim, ValueDim]` that the gated delta rule
+// (`std.nn.recurrent`) forgets by `exp(decay)` and writes at rate `beta` each
+// token:
+//
+//   beta = sigmoid(b),  decay = -exp(A_log) * softplus(a + dt_bias)
+//
+// The heads' outputs are normalized and gated by `silu(z)`, then projected
+// back. `KeyHeads` query/key heads each serve `ValueHeads / KeyHeads` value
+// heads.
+//
+// Two states per layer, by row: `history`, the convolution's last
+// `Width - 1` inputs, and `recurrent`, the delta rule's state in f32. A
+// prompt starts both from zero; a decoding step reads and replaces them.
+module qwen3_5_moe.deltanet
+
+use crate.norm::{GatedRmsNorm}
+use std.nn.activations::{sigmoid, silu}
+use std.nn.cache::{write_slots}
+use std.nn.linear::{Linear}
+use std.nn.recurrent::{causal_conv, gated_delta_rule, gated_delta_step}
+
+pub block GatedDeltaNet<
+    H: Dim,
+    KeyHeads: Dim,
+    ValueHeads: Dim,
+    KeyDim: Dim,
+    ValueDim: Dim,
+    Conv: Dim,
+    Width: Dim,
+    Batch: Dim,
+    T: Float,
+>
+where
+    KeyHeads > 0,
+    KeyDim > 0,
+    ValueHeads % KeyHeads == 0,
+    Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
+    Width > 1,
+    Batch > 0
+{
+    sub in_proj_qkv: Linear<H, Conv, T>
+    sub in_proj_z: Linear<H, ValueHeads * ValueDim, T>
+    sub in_proj_b: Linear<H, ValueHeads, T>
+    sub in_proj_a: Linear<H, ValueHeads, T>
+    sub norm: GatedRmsNorm<ValueDim, T>
+    sub out_proj: Linear<ValueHeads * ValueDim, H, T>
+
+    param conv_weight: Tensor[Conv, 1, Width; T]
+    param A_log: Tensor[ValueHeads; T]
+    param dt_bias: Tensor[ValueHeads; T]
+
+    state history: Tensor[Batch, 1, Width - 1, Conv; T]
+    state recurrent: Tensor[Batch, ValueHeads, KeyDim, ValueDim; f32]
+
+    // A whole sequence from zero, no state kept.
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]
+    where S > 0 {
+        let lengths = fill<i32>([B], cast<i32>(S))
+        let (out, _, _) = span<B, S>(x, zero_history<B>(), zero_state<B>(), lengths)
+        return out
+    }
+
+    // One token for every row, each continuing its state.
+    pub fn decode(x: Tensor[Batch, 1, H; T]) -> Tensor[Batch, 1, H; T] {
+        let mixed = in_proj_qkv.forward(x)
+        let window = concat(reshape(history, [Batch, Width - 1, Conv]), mixed, axis = 1)
+        let convolved = causal_conv(mixed, reshape(history, [Batch, Width - 1, Conv]), conv_taps())
+        history = reshape(window[:, 1:Width, :], [Batch, 1, Width - 1, Conv])
+        let (q, k, v) = heads<Batch, 1>(cast<T>(silu(convolved)))
+        let (decay, beta) = gates<Batch, 1>(x)
+        let stepped = gated_delta_step(
+            reshape(q, [Batch, KeyHeads, KeyDim]),
+            reshape(k, [Batch, KeyHeads, KeyDim]),
+            reshape(v, [Batch, ValueHeads, ValueDim]),
+            reshape(decay, [Batch, ValueHeads]),
+            reshape(beta, [Batch, ValueHeads]),
+            recurrent,
+            rsqrt(cast<f32>(KeyDim)),
+        )
+        recurrent = permute(stepped[:, 1:1 + KeyDim, :, :], [0, 2, 1, 3])
+        return finish<Batch, 1>(
+            reshape(cast<T>(stepped[:, 0:1, :, :]), [Batch, 1, ValueHeads, ValueDim]),
+            x,
+        )
+    }
+
+    // `S` tokens for every row: from zero at position 0, otherwise
+    // continuing the rows' states.
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        let fresh = pos == 0
+        let start_history =
+            if fresh { zero_history<Batch>() } else { reshape(history, [Batch, Width - 1, Conv]) }
+        let start_state = if fresh { zero_state<Batch>() } else { recurrent }
+        let lengths = fill<i32>([Batch], cast<i32>(S))
+        let (out, ends, final) = span<Batch, S>(x, start_history, start_state, lengths)
+        history = reshape(ends, [Batch, 1, Width - 1, Conv])
+        recurrent = final
+        return out
+    }
+
+    // `M` prompts from their first positions into rows `slots`, prompt `m`
+    // the first `lengths[m]` of its `S` tokens: the padding after it neither
+    // decays nor writes the state, and the history is its last inputs.
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+        lengths: Tensor[M; i32],
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
+        let (out, ends, final) = span<M, S>(x, zero_history<M>(), zero_state<M>(), lengths)
+        history = write_slots(history, reshape(ends, [M, 1, Width - 1, Conv]), slots, 0)
+        recurrent = write_slots(recurrent, final, slots, 0)
+        return out
+    }
+
+    // `S` tokens of `B` sequences from `start_history` and `start_state`,
+    // sequence `b` the first `lengths[b]`: the outputs, the history after
+    // each sequence's last token, and its final state.
+    fn span<B: Dim, S: Dim>(
+        x: Tensor[B, S, H; T],
+        start_history: Tensor[B, Width - 1, Conv; T],
+        start_state: Tensor[B, ValueHeads, KeyDim, ValueDim; f32],
+        lengths: Tensor[B; i32],
+    ) -> (Tensor[B, S, H; T], Tensor[B, Width -
+        1, Conv; T], Tensor[B, ValueHeads, KeyDim, ValueDim; f32])
+    where S > 0 {
+        let mixed = in_proj_qkv.forward(x)
+        let convolved = causal_conv(mixed, start_history, conv_taps())
+        let (q, k, v) = heads<B, S>(cast<T>(silu(convolved)))
+        let (decay, beta) = gates<B, S>(x)
+        let steps = iota<i32>(S)
+        let inside[b, s] = steps[s] < lengths[b]
+        let kept_decay[b, s, h] = select(inside[b, s], decay[b, s, h], 0.0)
+        let kept_beta[b, s, h] = select(inside[b, s], beta[b, s, h], 0.0)
+        let ruled = gated_delta_rule(
+            q,
+            k,
+            v,
+            kept_decay,
+            kept_beta,
+            start_state,
+            rsqrt(cast<f32>(KeyDim)),
+        )
+        let final = permute(ruled[:, S:S + KeyDim, :, :], [0, 2, 1, 3])
+        // The last `Width - 1` inputs before each sequence's end, the
+        // history's own where the sequence is shorter.
+        let padded = concat(start_history, mixed, axis = 1)
+        let taps = iota<i32>(Width - 1)
+        let at[b, j] = cast<i64>(lengths[b] + taps[j])
+        let ends[b, j, c] = padded[b, at[b, j], c]
+        return (finish<B, S>(cast<T>(ruled[:, 0:S, :, :]), x), ends, final)
+    }
+
+    // The convolved projection split into L2-normalized query and key heads
+    // and the value heads.
+    fn heads<B: Dim, S: Dim>(
+        convolved: Tensor[B, S, Conv; T],
+    ) -> (Tensor[B, S, KeyHeads, KeyDim; T], Tensor[B, S, KeyHeads, KeyDim; T], Tensor[B, S, ValueHeads, ValueDim; T]) {
+        let q = reshape(convolved[:, :, 0:KeyHeads * KeyDim], [B, S, KeyHeads, KeyDim])
+        let k = reshape(
+            convolved[:, :, KeyHeads * KeyDim:2 * KeyHeads * KeyDim],
+            [B, S, KeyHeads, KeyDim],
+        )
+        let v = reshape(convolved[:, :, 2 * KeyHeads * KeyDim:Conv], [B, S, ValueHeads, ValueDim])
+        return (unit<B, S>(q), unit<B, S>(k), v)
+    }
+
+    // Each head scaled to unit length, in f32.
+    fn unit<B: Dim, S: Dim>(
+        x: Tensor[B, S, KeyHeads, KeyDim; T],
+    ) -> Tensor[B, S, KeyHeads, KeyDim; T] {
+        let xf = cast<f32>(x)
+        let squares[b, s, h] = sum[d] xf[b, s, h, d] * xf[b, s, h, d]
+        let scaled[b, s, h, d] = xf[b, s, h, d] * rsqrt(squares[b, s, h] + 1e-6)
+        return cast<T>(scaled)
+    }
+
+    // Each token's decay (log space) and write rate per value head, in f32.
+    fn gates<B: Dim, S: Dim>(
+        x: Tensor[B, S, H; T],
+    ) -> (Tensor[B, S, ValueHeads; f32], Tensor[B, S, ValueHeads; f32]) {
+        let a = cast<f32>(in_proj_a.forward(x))
+        let rate = sigmoid(cast<f32>(in_proj_b.forward(x)))
+        let shifted[b, s, h] = a[b, s, h] + cast<f32>(dt_bias[h])
+        // softplus, stable for large inputs
+        let soft[b, s, h] = max(shifted[b, s, h], 0.0) + log(1.0 + exp(-abs(shifted[b, s, h])))
+        let decay[b, s, h] = -exp(cast<f32>(A_log[h])) * soft[b, s, h]
+        return (decay, rate)
+    }
+
+    // The heads' outputs normalized, gated by `silu(z)`, projected back.
+    fn finish<B: Dim, S: Dim>(
+        out: Tensor[B, S, ValueHeads, ValueDim; T],
+        x: Tensor[B, S, H; T],
+    ) -> Tensor[B, S, H; T] {
+        let z = reshape(in_proj_z.forward(x), [B, S, ValueHeads, ValueDim])
+        return out_proj.forward(reshape(norm.forward(out, z), [B, S, ValueHeads * ValueDim]))
+    }
+
+    fn conv_taps() -> Tensor[Conv, Width; T] {
+        return reshape(conv_weight, [Conv, Width])
+    }
+
+    fn zero_history<B: Dim>() -> Tensor[B, Width - 1, Conv; T] {
+        return fill<T>([B, Width - 1, Conv], 0.0)
+    }
+
+    fn zero_state<B: Dim>() -> Tensor[B, ValueHeads, KeyDim, ValueDim; f32] {
+        return fill<f32>([B, ValueHeads, KeyDim, ValueDim], 0.0)
+    }
+}
