@@ -20,10 +20,14 @@ from typing import Any
 
 from bench.harness import Result, median_ms, memory_share
 from bench.methods import stacks
+from bench.methods.accuracy import METHODS as ACCURACY
 from bench.methods.engines import METHODS as ENGINES
 from bench.methods.exports import EXPORTABLE
 from bench.methods.exports import METHODS as EXPORTS
 from bench.methods.serving import METHODS as SERVING
+from bench.methods.tasks import METHODS as TASKS
+from bench.methods.tasks import OPT_IN as TASKS_OPT_IN
+from bench.methods.training import METHODS as TRAINING
 
 SAFE_TOKENS = (100, 20000)  # ordinary vocabulary, clear of special tokens
 
@@ -84,6 +88,15 @@ def plain_greedy(model: Any, new: int, minimum: int | None = None) -> Any:
     )
 
 
+def deterministic(runs: list[list[int]]) -> float | None:
+    """1.0 when every timed run produced the same tokens, else 0.0: greedy
+    decoding that varies from run to run (split-K reductions, batch-shape
+    dependent kernels) is a numerics finding of its own."""
+    if not runs:
+        return None
+    return 1.0 if all(run == runs[0] for run in runs) else 0.0
+
+
 # ------------------------------------------------------------ reference stacks
 
 
@@ -130,21 +143,23 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         ids = torch.tensor([prompt_ids(data, workload)], device=workload.get("device", "cuda"))
         new = int(workload["new_tokens"])
 
-        def generate() -> _Stamps:
+        def generate() -> tuple[_Stamps, torch.Tensor]:
             stamps = _Stamps()
             stamps.times.append(time.perf_counter())
             with torch.no_grad():
-                model.generate(
+                out = model.generate(
                     ids, generation_config=plain_greedy(model, new, minimum=new), streamer=stamps
                 )
-            return stamps
+            return stamps, out
 
         for _ in range(int(workload["warmup"])):
             generate()
         ttfts: list[float] = []
         rates: list[float] = []
+        outputs: list[torch.Tensor] = []
         for _ in range(int(workload["iters"])):
-            stamps = generate()
+            stamps, out = generate()
+            outputs.append(out)
             # [start, prompt echoed, token 1, token 2, ...]
             first = stamps.times[2]
             ttfts.append((first - stamps.times[0]) * 1e3)
@@ -152,6 +167,8 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
         with torch.no_grad():
             save_logits(workload, method, model(ids).logits[0, -1])
         import statistics
+
+        same = deterministic([out[0, ids.shape[1] :].tolist() for out in outputs])
 
         return Result(
             name,
@@ -161,6 +178,7 @@ def _transformers(compiled: bool) -> Callable[[dict[str, Any], dict[str, Any]], 
                 "ttft_ms": statistics.median(ttfts),
                 "decode_tok_s": statistics.median(rates),
                 "load_s": load_s,
+                "deterministic": same,
             },
         )
 
@@ -179,6 +197,9 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         model=workload.get("model_path", data["weights"]["repo"]),
         dtype="bfloat16",
         max_model_len=max_seq(workload),
+        # As many sequences as the workload runs: a hybrid model (Qwen3.5's
+        # linear attention) reserves a recurrent state for each one up front.
+        max_num_seqs=int(workload.get("batch", 1)),
         gpu_memory_utilization=share,
         tensor_parallel_size=int(workload.get("tensor_parallel", 1)),
         # Every timed call sends the same prompt: with its prefix cache on, vLLM
@@ -191,15 +212,17 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     first = SamplingParams(max_tokens=1, temperature=0.0, ignore_eos=True)
     whole = SamplingParams(max_tokens=new, temperature=0.0, ignore_eos=True)
 
-    def timed(params: Any) -> float:
+    def timed(params: Any) -> tuple[float, list[int]]:
         begin = time.perf_counter()
-        llm.generate([prompt], params, use_tqdm=False)
-        return (time.perf_counter() - begin) * 1e3
+        outputs = llm.generate([prompt], params, use_tqdm=False)
+        elapsed = (time.perf_counter() - begin) * 1e3
+        return elapsed, list(outputs[0].outputs[0].token_ids)
 
     for _ in range(int(workload["warmup"])):
         timed(whole)
-    ttft = statistics.median(timed(first) for _ in range(int(workload["iters"])))
-    total = statistics.median(timed(whole) for _ in range(int(workload["iters"])))
+    ttft = statistics.median(timed(first)[0] for _ in range(int(workload["iters"])))
+    runs = [timed(whole) for _ in range(int(workload["iters"]))]
+    total = statistics.median(ms for ms, _ in runs)
     token = llm.generate([prompt], first, use_tqdm=False)[0].outputs[0].token_ids[0]
     return Result(
         "vLLM",
@@ -209,6 +232,7 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
             "decode_tok_s": (new - 1) / ((total - ttft) / 1e3),
             "load_s": load_s,
             "first_token": float(token),
+            "deterministic": deterministic([tokens for _, tokens in runs]),
         },
         notes="reserves a KV-cache pool up front (gpu_memory_utilization "
         f"{share}), so its memory is a setting, not a need",
@@ -286,34 +310,49 @@ def _linnet_torch(
             # No KV-cache entries (gpt-oss here): the first token is one pass
             # over the prompt, and there is no decode to time -- repeating that
             # pass per token would measure recomputation, not decoding.
+            firsts: list[int] = []
+
             def whole() -> None:
-                model.run_entry("next_token", [ids]).argmax(-1).item()
+                firsts.append(int(model.run_entry("next_token", [ids]).argmax(-1).item()))
 
             for _ in range(int(workload["warmup"])):
                 whole()
+            firsts.clear()
             ttft = median_ms(whole, sync, 0, int(workload["iters"]))
             save_logits(workload, method, model.run_entry("next_token", [ids])[0])
             return Result(
                 f"Linnet torch ({label})",
                 "linnet",
-                {"ttft_ms": ttft, "load_s": load_s},
+                {
+                    "ttft_ms": ttft,
+                    "load_s": load_s,
+                    "deterministic": deterministic([[token] for token in firsts]),
+                },
                 notes="the card has no KV-cache entries, so only the first token is timed",
             )
 
         def prefill() -> torch.Tensor:
             return model.run_entry("prefill", [ids, zero])
 
+        # Each run's tokens, kept as device tensors: reading them back inside
+        # the timed loop would add a host sync per step.
+        runs: list[list[torch.Tensor]] = []
+
         def generate() -> float:
             logits = prefill()
             token = logits.argmax(-1).reshape(1, 1).to(torch.int32)
+            steps = [token]
             sync()
             begin = time.perf_counter()
             for step in range(new - 1):
                 pos = torch.tensor(length + step, dtype=torch.int32, device=device)
                 token = model.run_entry("decode", [token, pos]).argmax(-1).reshape(1, 1)
                 token = token.to(torch.int32)
+                steps.append(token)
             sync()
-            return (new - 1) / (time.perf_counter() - begin)
+            rate = (new - 1) / (time.perf_counter() - begin)
+            runs.append(steps)
+            return rate
 
         def first_token() -> None:
             prefill().argmax(-1).item()
@@ -321,8 +360,10 @@ def _linnet_torch(
         # Warmup also compiles: one shape for the prompt, one for a step.
         for _ in range(int(workload["warmup"])):
             generate()
+        runs.clear()
         ttft = median_ms(first_token, sync, 0, int(workload["iters"]))
         rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
+        same = deterministic([torch.cat(run).reshape(-1).tolist() for run in runs])
         save_logits(workload, method, prefill()[0])
         notes = f"KV cache compiled for {max_seq(workload)} positions"
         if where is not None and not where.trivial:
@@ -330,7 +371,7 @@ def _linnet_torch(
         return Result(
             f"Linnet torch ({label})",
             "linnet",
-            {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
+            {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s, "deterministic": same},
             notes=notes,
         )
 
@@ -372,17 +413,25 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     def first() -> Any:
         return model.run_entry("prefill", [ids, np.int32(0)])
 
+    # Each run's tokens, left on the device until the timing is done.
+    runs: list[list[Any]] = []
+
     def generate() -> float:
         token = pick(first())
+        steps = [token]
         jax.block_until_ready(token)
         begin = time.perf_counter()
         for step in range(new - 1):
             token = pick(model.run_entry("decode", [token, np.int32(length + step)]))
+            steps.append(token)
         jax.block_until_ready(token)
-        return (new - 1) / (time.perf_counter() - begin)
+        rate = (new - 1) / (time.perf_counter() - begin)
+        runs.append(steps)
+        return rate
 
     for _ in range(int(workload["warmup"])):
         generate()
+    runs.clear()
     ttft = median_ms(
         lambda: jax.block_until_ready(pick(first())),
         lambda: None,
@@ -390,11 +439,14 @@ def linnet_jax(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         int(workload["iters"]),
     )
     rate = statistics.median(generate() for _ in range(max(3, int(workload["iters"]) // 3)))
+    same = deterministic(
+        [np.concatenate([t.reshape(-1) for t in jax.device_get(run)]).tolist() for run in runs]
+    )
     save_logits(workload, workload.get("jax_key", "linnet-jax"), jax.device_get(first())[0])
     return Result(
         f"Linnet JAX (XLA, {jax.default_backend()})",
         "linnet",
-        {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s},
+        {"ttft_ms": ttft, "decode_tok_s": rate, "load_s": load_s, "deterministic": same},
         notes=f"KV cache compiled for {max_seq(workload)} positions",
     )
 
@@ -546,10 +598,12 @@ CONTINUATION = "The printing press changed Europe because"
 SAMPLE_TOKENS = 96
 
 
-def _greedy_linnet(model: Any, ids: list[int], eos: set[int], device: str) -> list[int]:
-    """Greedy continuation through the card's own entries: `prefill` and
-    `decode` where it has them, otherwise `next_token` over the growing
-    sequence (a card without a cache, such as gpt-oss here)."""
+def _greedy_linnet(
+    model: Any, ids: list[int], eos: set[int], device: str, new: int = SAMPLE_TOKENS
+) -> list[int]:
+    """Greedy continuation of `new` tokens through the card's own entries:
+    `prefill` and `decode` where it has them, otherwise `next_token` over the
+    growing sequence (a card without a cache, such as gpt-oss here)."""
     import torch
 
     out: list[int] = []
@@ -558,7 +612,7 @@ def _greedy_linnet(model: Any, ids: list[int], eos: set[int], device: str) -> li
         logits = model.run_entry(
             "prefill", [tokens, torch.tensor(0, dtype=torch.int32, device=device)]
         )
-        for step in range(SAMPLE_TOKENS):
+        for step in range(new):
             token = int(logits.argmax(-1).item())
             out.append(token)
             if token in eos:
@@ -568,7 +622,7 @@ def _greedy_linnet(model: Any, ids: list[int], eos: set[int], device: str) -> li
             logits = model.run_entry("decode", [one, position])
         return out
     sequence = list(ids)
-    for _ in range(SAMPLE_TOKENS):
+    for _ in range(new):
         tokens = torch.tensor([sequence], dtype=torch.int32, device=device)
         token = int(model.run_entry("next_token", [tokens]).argmax(-1).item())
         out.append(token)
@@ -689,6 +743,9 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     **SERVING,
     **EXPORTS,
     **ENGINES,
+    **TASKS,
+    **ACCURACY,
+    **TRAINING,
 }
 
 REFERENCE = "transformers-eager"
@@ -698,7 +755,7 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     """Every method, less the ones a card cannot take part in: the JAX path
     needs `prefill` and `decode`, the serving rows `prefill_slots` and
     `decode_rows`, and KerasHub a converter for the checkpoint's
-    architecture."""
+    architecture. Placement, engine and training rows run only when named."""
     source = Path(data["directory"]) / data["source"]["path"]
     sources = [source] if source.is_file() else sorted(source.parent.glob("*.linnet"))
     text = "".join(path.read_text(encoding="utf-8") for path in sources)
@@ -711,13 +768,19 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     optional = {"linnet-gpus", "linnet-offload", "linnet-tp-jax", "linnet-tp-torch", "vllm-tp"}
     # SGLang and TGI need a setup of their own (`setup-pod.sh --engines`).
     optional |= set(ENGINES) | {m for m in EXPORTS if "sglang" in m or "tgi" in m}
+    optional |= TASKS_OPT_IN | {"gsm8k-sglang"}
+    # Accuracy rows are a measurement of their own, with an f32 reference
+    # (four bytes a parameter) in front of them.
+    optional |= set(ACCURACY)
+    # Training rows take minutes to hours each (`bench.methods.training`).
+    optional |= set(TRAINING)
     chosen: list[str] = []
     for name in METHODS:
         if name in optional:
             continue
         if name in ("linnet-jax", "linnet-jax-source") and not cached:
             continue
-        if name.startswith("serve-linnet") and not serving:
+        if name.startswith(("serve-linnet", "gsm8k-linnet", "soak-linnet")) and not serving:
             continue
         if name in ("keras-hub", "serve-keras-hub") and not keras:
             continue

@@ -4,11 +4,20 @@
     python -m bench.run qwen2.5-0.5b-instruct
     python -m bench.run qwen3-8b --methods linnet-torch,transformers-eager
     python -m bench.run tinyllama-1.1b-chat --device cpu --prompt 16 --new 4   # a dry run
+    python -m bench.run qwen3-8b --methods acc-vllm,acc-linnet-torch --merge     # accuracy
+    python -m bench.run qwen3-8b --methods train-sft-lora-linnet,train-sft-lora-trl --merge
 
 Methods run one at a time, each in its own process (see `bench.harness`).
 After all of them, every saved first-token output is compared with the
 reference method's, so each row carries its distance from the reference
 beside its speed.
+
+The `acc-` rows (text generation, opt-in) measure numerics on WikiText-2
+instead of speed: perplexity, and its ratio, top-1 agreement, KL and greedy
+agreement against `transformers` in f32 (`acc-reference`, run first
+whenever another `acc-` row is asked for; see `bench.methods.accuracy`).
+Every timed text-generation row also reports `deterministic`: 1 when all its
+timed runs produced the same tokens.
 """
 
 from __future__ import annotations
@@ -20,7 +29,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from bench.harness import MODELS, Result, card, python_for, run_isolated, write
+from bench.harness import MODELS, Result, card, combine, python_for, run_isolated, write
 from bench.worker import family_of
 
 
@@ -33,12 +42,27 @@ def compare(results: list[Result], workdir: Path, reference: str, keys: dict[str
     if not expected_path.exists():
         return
     expected = np.load(expected_path)
+    want = expected.astype("float64").reshape(-1)
+    span = float(want.max() - want.min()) or 1.0
     for result in results:
         path = workdir / f"{keys[result.method]}.npy"
         if path.exists() and result.error is None:
             got = np.load(path)
             if got.shape == expected.shape:
                 result.max_abs_diff = float(np.abs(got - expected).max())
+                # The same comparison by size and by direction: relative L2
+                # error, cosine similarity, and PSNR over the reference's range.
+                have = got.astype("float64").reshape(-1)
+                error = have - want
+                norm = float(np.linalg.norm(want)) or 1.0
+                result.metrics["out_rel_err"] = float(np.linalg.norm(error)) / norm
+                result.metrics["out_cosine"] = float(
+                    have @ want / ((float(np.linalg.norm(have)) or 1.0) * norm)
+                )
+                mse = float(np.mean(error**2))
+                result.metrics["out_psnr_db"] = (
+                    float(10 * np.log10(span**2 / mse)) if mse > 0 else None
+                )
 
 
 def main() -> None:
@@ -70,6 +94,26 @@ def main() -> None:
     parser.add_argument("--serve-prompt-min", type=int, default=128)
     parser.add_argument("--serve-prompt-max", type=int, default=512)
     parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
+    parser.add_argument("--acc-windows", type=int, default=8, help="WikiText-2 windows (acc-)")
+    parser.add_argument("--acc-length", type=int, default=512, help="tokens per window (acc-)")
+    parser.add_argument(
+        "--soak-minutes", type=float, default=30.0, help="how long a `soak-` method holds full load"
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="runs of each method, each in a fresh process; the row is their median, with "
+        "each metric's spread",
+    )
+    parser.add_argument(
+        "--train-steps", type=int, default=40, help="optimizer steps per training row"
+    )
+    parser.add_argument(
+        "--trl-compile",
+        action="store_true",
+        help="run the TRL training rows under torch.compile (Trainer's `torch_compile`)",
+    )
     parser.add_argument(
         "--output",
         help="write bench.json here instead of beside the card (a dry run that must not "
@@ -93,10 +137,16 @@ def main() -> None:
         else:
             applicable = list(family.METHODS)
         methods: list[str] = args.methods.split(",") if args.methods else applicable
-        if args.merge and family.REFERENCE not in methods:
+        trains_only = all(method.startswith("train-") for method in methods)
+        if args.merge and family.REFERENCE not in methods and not trains_only:
             # A rerun row is measured against the reference's output from the
-            # same run, so the reference runs again too.
+            # same run, so the reference runs again too. Training rows compare
+            # with each other, not with it.
             methods = [family.REFERENCE, *methods]
+        if any(m.startswith("acc-") for m in methods) and "acc-reference" not in methods:
+            # Every accuracy row is scored against the f32 reference's output
+            # from the same run.
+            methods = ["acc-reference", *methods]
         workdir = Path(tempfile.mkdtemp(prefix=f"nest-bench-{model}-"))
         workload: dict[str, Any] = {
             "device": args.device,
@@ -113,6 +163,11 @@ def main() -> None:
             "serve_prompt_min": args.serve_prompt_min,
             "serve_prompt_max": args.serve_prompt_max,
             "serve_new": args.serve_new,
+            "soak_minutes": args.soak_minutes,
+            "acc_windows": args.acc_windows,
+            "acc_length": args.acc_length,
+            "train_steps": args.train_steps,
+            "trl_compile": args.trl_compile,
         }
         results: list[Result] = []
         keys: dict[str, str] = {}
@@ -124,10 +179,21 @@ def main() -> None:
             continue
         for method in methods:
             print(f"[{model}] {method} ...", flush=True)
-            result = run_isolated(python_for(method), model, method, workload, args.timeout)
+            result = combine(
+                [
+                    run_isolated(python_for(method), model, method, workload, args.timeout)
+                    for _ in range(max(1, args.repeat))
+                ]
+            )
             result.key = method
             if result.kind == "unknown":  # a crash reports no kind of its own
-                result.kind = "linnet" if method.startswith("linnet") else "reference"
+                bare = method.removeprefix("acc-")
+                linnet = (
+                    bare.startswith("linnet")
+                    or bare == "llamacpp"
+                    or method.endswith(("-linnet", "grad-check"))
+                )
+                result.kind = "linnet" if linnet else "reference"
             keys[result.method] = method
             status = result.error or ", ".join(
                 f"{key}={value:.4g}" for key, value in result.metrics.items() if value is not None

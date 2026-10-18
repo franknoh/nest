@@ -67,6 +67,45 @@ def prompts(data: dict[str, Any], workload: dict[str, Any]) -> list[list[int]]:
     ]
 
 
+def _percentile(values: list[float], share: float) -> float:
+    """The `share` quantile of `values`, linearly interpolated."""
+    ordered = sorted(values)
+    place = share * (len(ordered) - 1)
+    low = int(place)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (place - low)
+
+
+def _latencies(name: str, seconds: list[float] | None) -> dict[str, float | None]:
+    """P50, P90 and P99 of per-request latencies, in milliseconds."""
+    if not seconds:
+        return {}
+    return {
+        f"{name}_p{int(share * 100)}_ms": _percentile(seconds, share) * 1e3
+        for share in (0.5, 0.9, 0.99)
+    }
+
+
+def _agreement(served: list[list[int]], alone: list[list[int]]) -> float:
+    """How much of each request's output, served among the others, a run of
+    that request alone reproduces: the mean agreeing prefix over the alone
+    run's length. Greedy decoding is deterministic only per batch shape, so
+    a server's batching can change near-ties in bf16; this shows how much."""
+    shares = []
+    for together, single in zip(served, alone, strict=True):
+        agree = 0
+        for a, b in zip(together, single, strict=False):
+            if a != b:
+                break
+            agree += 1
+        shares.append(agree / max(len(single), 1))
+    return statistics.mean(shares)
+
+
+# Requests rerun one at a time after a serving run, for `batch_agree`.
+ALONE = 8
+
+
 def _result(
     name: str,
     kind: str,
@@ -75,7 +114,14 @@ def _result(
     ttfts: list[float] | None,
     load_s: float,
     notes: str,
+    ends: list[float] | None = None,
+    inter_tokens: list[float] | None = None,
+    agree: float | None = None,
 ) -> Result:
+    """A serving row. `ttfts` and `ends` are each request's first-token and
+    last-token times, in seconds from when it was submitted (all at once
+    offline, as a slot frees through a server); `inter_tokens` each
+    request's mean time between tokens after the first."""
     metrics: dict[str, float | None] = {
         "serve_tok_s": tokens / seconds,
         "serve_s": seconds,
@@ -83,6 +129,11 @@ def _result(
     }
     if ttfts:
         metrics["serve_ttft_ms"] = statistics.median(ttfts) * 1e3
+    metrics.update(_latencies("serve_ttft", ttfts))
+    metrics.update(_latencies("serve_e2e", ends))
+    metrics.update(_latencies("serve_itl", inter_tokens))
+    if agree is not None:
+        metrics["batch_agree"] = agree
     return Result(name, kind, metrics, notes=notes)
 
 
@@ -120,13 +171,22 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
     seconds = time.perf_counter() - begin
     tokens = sum(len(o.outputs[0].token_ids) for o in outputs)
     ttfts: list[float] = []
+    ends: list[float] = []
     for output in outputs:
         # V1 reports per-request timestamps where it can; offline it may not.
         metrics = getattr(output, "metrics", None)
         first = getattr(metrics, "first_token_time", None) if metrics is not None else None
+        last = getattr(metrics, "last_token_time", None) if metrics is not None else None
         arrival = getattr(metrics, "arrival_time", None) if metrics is not None else None
         if first and arrival:
             ttfts.append(first - arrival)
+        if last and arrival:
+            ends.append(last - arrival)
+    served = [list(o.outputs[0].token_ids) for o in outputs[:ALONE]]
+    alone = [
+        list(llm.generate([one], params, use_tqdm=False)[0].outputs[0].token_ids)
+        for one in inputs[:ALONE]
+    ]
     return _result(
         "vLLM (offline, continuous batching)",
         "reference",
@@ -135,6 +195,8 @@ def vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         ttfts,
         load_s,
         _describe(workload) + f"; KV-cache pool at gpu_memory_utilization {share}",
+        ends=ends,
+        agree=_agreement(served, alone),
     )
 
 
@@ -329,6 +391,10 @@ def _linnet(backend: str) -> Any:
         requests = prompts(data, workload)
         engine.warmup(len(ids) for ids in requests)
         done, stats = engine.run([Request(prompt=ids, max_new_tokens=new) for ids in requests])
+        alone = [
+            engine.run([Request(prompt=ids, max_new_tokens=new)])[0][0].tokens
+            for ids in requests[:ALONE]
+        ]
         label = {"torch": "CUDA graphs", "jax": "XLA", "onnx": "ONNX Runtime, f16"}[backend]
         return _result(
             f"Linnet {backend} (linnet.serve, {label})",
@@ -338,6 +404,9 @@ def _linnet(backend: str) -> Any:
             [c.ttft for c in done],
             load_s,
             _describe(workload) + f"; {layout}",
+            ends=[c.finished for c in done],
+            inter_tokens=[c.inter_token for c in done],
+            agree=_agreement([c.tokens for c in done[:ALONE]], alone),
         )
 
     return run
@@ -390,7 +459,9 @@ def triton_vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         }
         for text in texts
     ]
-    load_s, seconds, firsts = _stream(root, os.environ.get("NEST_VLLM_SITE"), bodies, concurrency)
+    load_s, seconds, firsts, lasts = _stream(
+        root, os.environ.get("NEST_VLLM_SITE"), bodies, concurrency
+    )
     return _result(
         "Triton Inference Server (vLLM backend)",
         "reference",
@@ -398,17 +469,19 @@ def triton_vllm(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         firsts,
         load_s,
-        _describe(workload) + "; over HTTP, streamed, first tokens timed at the client",
+        _describe(workload) + "; over HTTP, streamed, latencies timed at the client from each "
+        "request's send",
+        ends=lasts,
     )
 
 
 def _stream(
     root: Path, python_path: str | None, bodies: list[dict[str, Any]], concurrency: int
-) -> tuple[float, float, list[float]]:
+) -> tuple[float, float, list[float], list[float]]:
     """Serves the repository at `root` and sends `bodies` to its `llm` model's
     streaming endpoint with `concurrency` in flight. Returns the server's
-    load time, the run's wall time, and each request's first-token time from
-    the run's start, as the client sees them."""
+    load time, the run's wall time, and each request's first-token and
+    last-response times from when it was sent, as the client sees them."""
     import requests as http
 
     from bench import triton
@@ -417,22 +490,21 @@ def _stream(
     with triton.server(root, python_path=python_path) as url:
         load_s = time.perf_counter() - start
         endpoint = f"{url}/v2/models/llm/generate_stream"
-        began = [0.0]
 
-        def call(index: int) -> float:
-            first = 0.0
+        def call(index: int) -> tuple[float, float]:
+            sent = time.perf_counter()
+            first = last = 0.0
             with http.post(endpoint, json=bodies[index], stream=True, timeout=600) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
-                    if line.startswith(b"data:") and not first:
-                        first = time.perf_counter() - began[0]
-            return first
+                    if line.startswith(b"data:"):
+                        last = time.perf_counter() - sent
+                        first = first or last
+            return first, last
 
-        began[0] = time.perf_counter()
         triton.closed_loop(call, min(8, len(bodies)), min(8, concurrency))  # warm-up
-        began[0] = time.perf_counter()
-        seconds, firsts = triton.closed_loop(call, len(bodies), concurrency)
-    return load_s, seconds, firsts
+        seconds, times = triton.closed_loop(call, len(bodies), concurrency)
+    return load_s, seconds, [first for first, _ in times], [last for _, last in times]
 
 
 LINNET_TRITON_CONFIG = """backend: "python"
@@ -467,7 +539,9 @@ def triton_linnet(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         encoding="utf-8",
     )
     bodies = [{"prompt": ids, "max_tokens": new} for ids in prompts(data, workload)]
-    load_s, seconds, firsts = _stream(root, os.environ.get("NEST_MAIN_SITE"), bodies, concurrency)
+    load_s, seconds, firsts, lasts = _stream(
+        root, os.environ.get("NEST_MAIN_SITE"), bodies, concurrency
+    )
     return _result(
         "Triton Inference Server (Python backend, linnet.serve)",
         "linnet",
@@ -475,7 +549,9 @@ def triton_linnet(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         seconds,
         firsts,
         load_s,
-        _describe(workload) + f"; {layout}; over HTTP, streamed, first tokens timed at the client",
+        _describe(workload) + f"; {layout}; over HTTP, streamed, latencies timed at the client "
+        "from each request's send",
+        ends=lasts,
     )
 
 

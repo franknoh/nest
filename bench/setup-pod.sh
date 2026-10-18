@@ -64,9 +64,9 @@ else
 fi
 python -m pip install --quiet -e "/workspace/Linnet/python/linnet[torch,jax,onnx,nest]"
 python -m pip install --quiet "jax[cuda13]" onnxruntime-gpu onnxscript nvidia-ml-py \
-    transformers accelerate diffusers sentence-transformers datasets soundfile \
+    transformers accelerate diffusers sentence-transformers datasets soundfile jiwer \
     pillow safetensors huggingface_hub sentencepiece protobuf keras keras-hub \
-    "tritonclient[http]" requests
+    "tritonclient[http]" requests peft trl
 # onnxruntime-gpu is built for CUDA 12; its libraries sit beside PyTorch's
 # CUDA 13 ones under different names, and the worker preloads them.
 python -m pip install --quiet nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 \
@@ -93,7 +93,8 @@ deactivate
 # Triton's vLLM backend imports from (`NEST_VLLM_SITE`).
 python3 -m venv /workspace/vllm
 /workspace/vllm/bin/python -m pip install --quiet --upgrade pip
-/workspace/vllm/bin/python -m pip install --quiet vllm nvidia-ml-py numpy
+# `datasets` for the accuracy row, which reads WikiText-2 when it runs alone.
+/workspace/vllm/bin/python -m pip install --quiet vllm nvidia-ml-py numpy datasets
 /workspace/vllm/bin/python -c "import vllm; print('vllm', vllm.__version__)"
 
 # Triton's vLLM backend is Python; its source goes where the server looks
@@ -124,7 +125,8 @@ ls /opt/tritonserver/backends
 # rows fail and the rest run.
 (
     set +e
-    if [ ! -x /workspace/llama.cpp/build/bin/llama-bench ]; then
+    if [ ! -x /workspace/llama.cpp/build/bin/llama-bench ] \
+        || [ ! -x /workspace/llama.cpp/build/bin/llama-perplexity ]; then
         if ! command -v nvcc >/dev/null && [ ! -x /usr/local/cuda/bin/nvcc ]; then
             version=$(nvidia-smi | grep -oE "CUDA Version: [0-9]+\.[0-9]+" | grep -oE "[0-9]+\.[0-9]+")
             major=${version%%.*}
@@ -139,10 +141,11 @@ ls /opt/tritonserver/backends
         git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /workspace/llama.cpp
         cmake -S /workspace/llama.cpp -B /workspace/llama.cpp/build -G Ninja \
             -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$cuda_arch" -DLLAMA_CURL=OFF >/dev/null \
-            && cmake --build /workspace/llama.cpp/build --target llama-bench >/dev/null
+            && cmake --build /workspace/llama.cpp/build --target llama-bench llama-perplexity >/dev/null
     fi
     /workspace/venv/bin/python -m pip install --quiet gguf
-    ls -la /workspace/llama.cpp/build/bin/llama-bench || echo "llama.cpp build failed; its rows will fail"
+    ls -la /workspace/llama.cpp/build/bin/llama-bench /workspace/llama.cpp/build/bin/llama-perplexity \
+        || echo "llama.cpp build failed; its rows will fail"
 )
 
 # SGLang and Text Generation Inference, for the engine rows, only with
@@ -153,7 +156,7 @@ ls /opt/tritonserver/backends
 if [ "${1:-}" = "--engines" ]; then
     python3 -m venv /workspace/sglang
     /workspace/sglang/bin/python -m pip install --quiet --upgrade pip
-    /workspace/sglang/bin/python -m pip install --quiet "sglang[all]" nvidia-ml-py numpy
+    /workspace/sglang/bin/python -m pip install --quiet "sglang[all]" nvidia-ml-py numpy datasets
     /workspace/sglang/bin/python -c "import sglang; print('sglang', sglang.__version__)"
 
     if [ "$arch" != x86_64 ]; then

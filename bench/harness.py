@@ -40,6 +40,43 @@ class Result:
     notes: str = ""
     error: str | None = None
     key: str = ""  # the method's key in its family's METHODS, which `reference` names
+    # With repeated runs (`--repeat`): each metric's coefficient of variation
+    # (stdev / mean) over the runs, and how many runs there were.
+    spread: dict[str, float] = field(default_factory=dict)
+    runs: int = 1
+
+
+def combine(results: list[Result]) -> Result:
+    """Repeated runs of one method as one row: each metric's median over the
+    runs that measured it, its spread beside it. A run that failed is left
+    out; if every run failed, the first failure stands."""
+    measured = [r for r in results if r.error is None]
+    if not measured:
+        return results[0]
+    first = measured[0]
+    metrics: dict[str, float | None] = {}
+    spread: dict[str, float] = {}
+    for name in first.metrics:
+        values = [r.metrics[name] for r in measured if r.metrics.get(name) is not None]
+        if not values:
+            metrics[name] = None
+            continue
+        metrics[name] = statistics.median(values)
+        mean = statistics.mean(values)
+        if len(values) > 1 and mean:
+            spread[name] = statistics.stdev(values) / abs(mean)
+    failed = len(results) - len(measured)
+    notes = first.notes + (f"; {failed} of {len(results)} runs failed" if failed else "")
+    return Result(
+        first.method,
+        first.kind,
+        metrics,
+        max_abs_diff=first.max_abs_diff,
+        notes=notes,
+        key=first.key,
+        spread=spread,
+        runs=len(measured),
+    )
 
 
 def median_ms(fn: Callable[[], Any], sync: Callable[[], None], warmup: int, iters: int) -> float:
@@ -185,6 +222,8 @@ def environment() -> dict[str, str]:
         "transformers": "transformers",
         "vllm": "vllm",
         "diffusers": "diffusers",
+        "trl": "trl",
+        "peft": "peft",
         "onnxruntime": "onnxruntime-gpu",
         "linnet": "linnet-lang",
     }
@@ -295,8 +334,10 @@ def python_for(method: str) -> str:
     """vLLM and SGLang pin their own PyTorch, so each lives in its own
     environment; the pod's setup script exports where. Everything else runs
     here."""
-    if method in ("vllm", "serve-vllm", "vllm-tp") and "NEST_VLLM_PYTHON" in os.environ:
+    vllm = ("vllm", "serve-vllm", "vllm-tp", "gsm8k-vllm", "soak-vllm", "acc-vllm")
+    sglang = ("sglang", "serve-sglang", "gsm8k-sglang", "acc-sglang")
+    if method in vllm and "NEST_VLLM_PYTHON" in os.environ:
         return os.environ["NEST_VLLM_PYTHON"]
-    if method in ("sglang", "serve-sglang") and "NEST_SGLANG_PYTHON" in os.environ:
+    if method in sglang and "NEST_SGLANG_PYTHON" in os.environ:
         return os.environ["NEST_SGLANG_PYTHON"]
     return sys.executable

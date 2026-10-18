@@ -25,7 +25,15 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import Result, compute_capability, memory_share
-from bench.methods.serving import _describe, _result, prompts, serve_max_seq, settings
+from bench.methods.serving import (
+    ALONE,
+    _agreement,
+    _describe,
+    _result,
+    prompts,
+    serve_max_seq,
+    settings,
+)
 
 # ------------------------------------------------------------------ SGLang
 
@@ -116,9 +124,17 @@ def serve_sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         begin = time.perf_counter()
         outputs = engine.generate(input_ids=inputs, sampling_params=_sampling(new))
         seconds = time.perf_counter() - begin
+        alone = [
+            list(engine.generate(input_ids=[ids], sampling_params=_sampling(new))[0]["output_ids"])
+            for ids in inputs[:ALONE]
+        ]
     finally:
         engine.shutdown()
     tokens = sum(int(o["meta_info"]["completion_tokens"]) for o in outputs)
+    # The offline engine reports each request's latency where its version does.
+    ends = [
+        float(o["meta_info"]["e2e_latency"]) for o in outputs if "e2e_latency" in o["meta_info"]
+    ]
     return _result(
         "SGLang (offline, continuous batching)",
         "reference",
@@ -127,6 +143,8 @@ def serve_sglang(data: dict[str, Any], workload: dict[str, Any]) -> Result:
         None,
         load_s,
         _describe(workload) + f"; KV-cache pool at mem_fraction_static {share}" + _attention_note(),
+        ends=ends,
+        agree=_agreement([list(o["output_ids"]) for o in outputs[:ALONE]], alone),
     )
 
 
