@@ -332,8 +332,9 @@ def python_for(method: str) -> str:
     """vLLM and SGLang pin their own PyTorch, so each lives in its own
     environment; the pod's setup script exports where. Everything else runs
     here."""
-    if method in ("vllm", "serve-vllm", "vllm-tp") and "NEST_VLLM_PYTHON" in os.environ:
+    vllm = ("vllm", "serve-vllm", "vllm-tp", "gsm8k-vllm", "soak-vllm")
+    if method in vllm and "NEST_VLLM_PYTHON" in os.environ:
         return os.environ["NEST_VLLM_PYTHON"]
-    if method in ("sglang", "serve-sglang") and "NEST_SGLANG_PYTHON" in os.environ:
+    if method in ("sglang", "serve-sglang", "gsm8k-sglang") and "NEST_SGLANG_PYTHON" in os.environ:
         return os.environ["NEST_SGLANG_PYTHON"]
     return sys.executable

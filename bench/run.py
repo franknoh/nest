@@ -71,6 +71,9 @@ def main() -> None:
     parser.add_argument("--serve-prompt-max", type=int, default=512)
     parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
     parser.add_argument(
+        "--soak-minutes", type=float, default=30.0, help="how long a `soak-` method holds full load"
+    )
+    parser.add_argument(
         "--repeat",
         type=int,
         default=1,
@@ -120,6 +123,7 @@ def main() -> None:
             "serve_prompt_min": args.serve_prompt_min,
             "serve_prompt_max": args.serve_prompt_max,
             "serve_new": args.serve_new,
+            "soak_minutes": args.soak_minutes,
         }
         results: list[Result] = []
         keys: dict[str, str] = {}

@@ -24,6 +24,8 @@ from bench.methods.engines import METHODS as ENGINES
 from bench.methods.exports import EXPORTABLE
 from bench.methods.exports import METHODS as EXPORTS
 from bench.methods.serving import METHODS as SERVING
+from bench.methods.tasks import METHODS as TASKS
+from bench.methods.tasks import OPT_IN as TASKS_OPT_IN
 
 SAFE_TOKENS = (100, 20000)  # ordinary vocabulary, clear of special tokens
 
@@ -689,6 +691,7 @@ METHODS: dict[str, Callable[[dict[str, Any], dict[str, Any]], Result]] = {
     **SERVING,
     **EXPORTS,
     **ENGINES,
+    **TASKS,
 }
 
 REFERENCE = "transformers-eager"
@@ -711,13 +714,14 @@ def methods_for(data: dict[str, Any]) -> list[str]:
     optional = {"linnet-gpus", "linnet-offload", "linnet-tp-jax", "linnet-tp-torch", "vllm-tp"}
     # SGLang and TGI need a setup of their own (`setup-pod.sh --engines`).
     optional |= set(ENGINES) | {m for m in EXPORTS if "sglang" in m or "tgi" in m}
+    optional |= TASKS_OPT_IN | {"gsm8k-sglang"}
     chosen: list[str] = []
     for name in METHODS:
         if name in optional:
             continue
         if name in ("linnet-jax", "linnet-jax-source") and not cached:
             continue
-        if name.startswith("serve-linnet") and not serving:
+        if name.startswith(("serve-linnet", "gsm8k-linnet", "soak-linnet")) and not serving:
             continue
         if name in ("keras-hub", "serve-keras-hub") and not keras:
             continue
