@@ -33,12 +33,27 @@ def compare(results: list[Result], workdir: Path, reference: str, keys: dict[str
     if not expected_path.exists():
         return
     expected = np.load(expected_path)
+    want = expected.astype("float64").reshape(-1)
+    span = float(want.max() - want.min()) or 1.0
     for result in results:
         path = workdir / f"{keys[result.method]}.npy"
         if path.exists() and result.error is None:
             got = np.load(path)
             if got.shape == expected.shape:
                 result.max_abs_diff = float(np.abs(got - expected).max())
+                # The same comparison by size and by direction: relative L2
+                # error, cosine similarity, and PSNR over the reference's range.
+                have = got.astype("float64").reshape(-1)
+                error = have - want
+                norm = float(np.linalg.norm(want)) or 1.0
+                result.metrics["out_rel_err"] = float(np.linalg.norm(error)) / norm
+                result.metrics["out_cosine"] = float(
+                    have @ want / ((float(np.linalg.norm(have)) or 1.0) * norm)
+                )
+                mse = float(np.mean(error**2))
+                result.metrics["out_psnr_db"] = (
+                    float(10 * np.log10(span**2 / mse)) if mse > 0 else None
+                )
 
 
 def main() -> None:
