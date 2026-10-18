@@ -1,0 +1,360 @@
+// Qwen3.5-MoE, the text model (Qwen3.6-35B-A3B is this architecture): a hybrid
+// decoder whose layers come in fours, three of linear attention (Gated
+// DeltaNet, `crate.deltanet`) and then one of gated full attention
+// (`crate.attention`), each followed by a mixture of experts (`crate.moe`), with zero-centered
+// RMS norms throughout and an untied output head. The checkpoint's vision
+// tower and its multi-token-prediction layer are not part of it.
+//
+// The entries a decoder serves from: `forward` and `next_token` over whole
+// sequences, `prefill`/`decode` for a batch at one position, and
+// `prefill_slots`/`decode_rows` for a server's rows each at its own length.
+// The full-attention layers keep key/value caches; the linear-attention
+// layers keep a convolution history and a recurrent state per row.
+module qwen3_5_moe
+
+use crate.attention::{GatedAttention}
+use crate.deltanet::{GatedDeltaNet}
+use crate.norm::{RmsNorm}
+use std.nn.embedding::{Embedding}
+use std.nn.linear::{Linear}
+use crate.moe::{SparseMoe}
+
+pub block DeltaLayer<
+    H: Dim,
+    KeyHeads: Dim,
+    ValueHeads: Dim,
+    KeyDim: Dim,
+    ValueDim: Dim,
+    Conv: Dim,
+    Width: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    ExpertInner: Dim,
+    SharedInner: Dim,
+    Batch: Dim,
+    T: Float,
+>
+where
+    KeyHeads > 0,
+    KeyDim > 0,
+    ValueHeads % KeyHeads == 0,
+    Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
+    Width > 1,
+    Experts > 0,
+    TopK > 0,
+    Batch > 0
+{
+    sub input_layernorm: RmsNorm<H, T>
+    sub linear_attn: GatedDeltaNet<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Batch, T>
+    sub post_attention_layernorm: RmsNorm<H, T>
+    sub mlp: SparseMoe<H, Experts, TopK, ExpertInner, SharedInner, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]
+    where S > 0 {
+        return feed(x + linear_attn.forward(input_layernorm.forward(x)))
+    }
+
+    pub fn decode(x: Tensor[Batch, 1, H; T]) -> Tensor[Batch, 1, H; T] {
+        return feed(x + linear_attn.decode(input_layernorm.forward(x)))
+    }
+
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        return feed(x + linear_attn.prefill(input_layernorm.forward(x), pos))
+    }
+
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+        lengths: Tensor[M; i32],
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
+        return feed(x + linear_attn.prefill_slots(input_layernorm.forward(x), slots, lengths))
+    }
+
+    fn feed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        return x + mlp.forward(post_attention_layernorm.forward(x))
+    }
+}
+
+pub block AttentionLayer<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    ExpertInner: Dim,
+    SharedInner: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float,
+>
+where
+    Heads > 0,
+    Experts > 0,
+    TopK > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    (HeadDim / 4) % 2 == 0,
+    MaxSeq > 0,
+    Batch > 0
+{
+    sub input_layernorm: RmsNorm<H, T>
+    sub self_attn: GatedAttention<H, Heads, KvHeads, HeadDim, Batch, MaxSeq, T>
+    sub post_attention_layernorm: RmsNorm<H, T>
+    sub mlp: SparseMoe<H, Experts, TopK, ExpertInner, SharedInner, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        return feed(x + self_attn.forward(input_layernorm.forward(x)))
+    }
+
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
+        return feed(x + self_attn.decode(input_layernorm.forward(x), pos))
+    }
+
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        return feed(x + self_attn.prefill(input_layernorm.forward(x), pos))
+    }
+
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        return feed(x + self_attn.decode_rows(input_layernorm.forward(x), positions))
+    }
+
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
+        return feed(x + self_attn.prefill_slots(input_layernorm.forward(x), slots))
+    }
+
+    fn feed<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
+        return x + mlp.forward(post_attention_layernorm.forward(x))
+    }
+}
+
+// Four layers: three of linear attention, then one of full attention
+// (`full_attention_interval` 4). A `sub` array holds one block type, so the
+// four are the repeating unit.
+pub block LayerGroup<
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    KeyHeads: Dim,
+    ValueHeads: Dim,
+    KeyDim: Dim,
+    ValueDim: Dim,
+    Conv: Dim,
+    Width: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    ExpertInner: Dim,
+    SharedInner: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float,
+>
+where
+    Heads > 0,
+    Experts > 0,
+    TopK > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    (HeadDim / 4) % 2 == 0,
+    KeyHeads > 0,
+    KeyDim > 0,
+    ValueHeads % KeyHeads == 0,
+    Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
+    Width > 1,
+    MaxSeq > 0,
+    Batch > 0
+{
+    sub linear: [DeltaLayer<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Experts, TopK, ExpertInner, SharedInner, Batch, T>; 3]
+    sub full: AttentionLayer<H, Heads, KvHeads, HeadDim, Experts, TopK, ExpertInner, SharedInner, Batch, MaxSeq, T>
+
+    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]
+    where S > 0 {
+        var y = x
+        static for layer in linear {
+            y = layer.forward(y)
+        }
+        return full.forward(y)
+    }
+
+    pub fn decode(x: Tensor[Batch, 1, H; T], pos: i32) -> Tensor[Batch, 1, H; T] {
+        var y = x
+        static for layer in linear {
+            y = layer.decode(y)
+        }
+        return full.decode(y, pos)
+    }
+
+    pub fn prefill<S: Dim>(x: Tensor[Batch, S, H; T], pos: i32) -> Tensor[Batch, S, H; T]
+    where S > 0 {
+        var y = x
+        static for layer in linear {
+            y = layer.prefill(y, pos)
+        }
+        return full.prefill(y, pos)
+    }
+
+    pub fn decode_rows(
+        x: Tensor[Batch, 1, H; T],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, 1, H; T] {
+        var y = x
+        static for layer in linear {
+            y = layer.decode(y)
+        }
+        return full.decode_rows(y, positions)
+    }
+
+    pub fn prefill_slots<M: Dim, S: Dim>(
+        x: Tensor[M, S, H; T],
+        slots: Tensor[M; i32],
+        lengths: Tensor[M; i32],
+    ) -> Tensor[M, S, H; T]
+    where
+        M > 0,
+        S > 0
+    {
+        var y = x
+        static for layer in linear {
+            y = layer.prefill_slots(y, slots, lengths)
+        }
+        return full.prefill_slots(y, slots)
+    }
+}
+
+pub block Model<
+    Vocab: Dim,
+    H: Dim,
+    Heads: Dim,
+    KvHeads: Dim,
+    HeadDim: Dim,
+    KeyHeads: Dim,
+    ValueHeads: Dim,
+    KeyDim: Dim,
+    ValueDim: Dim,
+    Conv: Dim,
+    Width: Dim,
+    Experts: Dim,
+    TopK: Dim,
+    ExpertInner: Dim,
+    SharedInner: Dim,
+    Groups: Dim,
+    Batch: Dim,
+    MaxSeq: Dim,
+    T: Float = bf16,
+>
+where
+    Heads > 0,
+    Experts > 0,
+    TopK > 0,
+    KvHeads > 0,
+    Heads % KvHeads == 0,
+    (HeadDim / 4) % 2 == 0,
+    KeyHeads > 0,
+    KeyDim > 0,
+    ValueHeads % KeyHeads == 0,
+    Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
+    Width > 1,
+    MaxSeq > 0,
+    Batch > 0
+{
+    sub embed_tokens: Embedding<Vocab, H, T>
+    sub groups: [LayerGroup<H, Heads, KvHeads, HeadDim, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Experts, TopK, ExpertInner, SharedInner, Batch, MaxSeq, T>; Groups]
+    sub norm: RmsNorm<H, T>
+    sub lm_head: Linear<H, Vocab, T>
+
+    // Logits for every position.
+    pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, Vocab; T]
+    where S > 0 {
+        let rows = reshape(norm.forward(hidden_states(tokens)), [B * S, H])
+        return reshape(lm_head.forward(rows), [B, S, Vocab])
+    }
+
+    // Logits for the last position only.
+    pub entry next_token<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, Vocab; T]
+    where S > 0 {
+        return logits(hidden_states(tokens)[:, S - 1, :])
+    }
+
+    // One new token per sequence at `pos`, continuing the caches and states.
+    pub entry decode(token: Tensor[Batch, 1; i32], pos: i32) -> Tensor[Batch, Vocab; T] {
+        var x = embed_tokens.forward(token)
+        static for group in groups {
+            x = group.decode(x, pos)
+        }
+        return logits(x[:, 0, :])
+    }
+
+    // A prompt of `S` tokens at `pos` in one pass (from zero at position 0);
+    // the logits after its last token.
+    pub entry prefill<S: Dim>(tokens: Tensor[Batch, S; i32], pos: i32) -> Tensor[Batch, Vocab; T]
+    where S > 0 {
+        var x = embed_tokens.forward(tokens)
+        static for group in groups {
+            x = group.prefill(x, pos)
+        }
+        return logits(x[:, S - 1, :])
+    }
+
+    // One new token per row, row `b` at `positions[b]` (continuous
+    // batching). A row with no request computes along and is ignored.
+    pub entry decode_rows(
+        tokens: Tensor[Batch, 1; i32],
+        positions: Tensor[Batch; i32],
+    ) -> Tensor[Batch, Vocab; T] {
+        var x = embed_tokens.forward(tokens)
+        static for group in groups {
+            x = group.decode_rows(x, positions)
+        }
+        return logits(x[:, 0, :])
+    }
+
+    // `M` requests' prompts into rows `slots`, prompt `m` the first
+    // `lengths[m]` of its `S` tokens; the logits after each prompt's last
+    // token. `decode_rows` continues row `slots[m]` at `lengths[m]`.
+    pub entry prefill_slots<M: Dim, S: Dim>(
+        tokens: Tensor[M, S; i32],
+        slots: Tensor[M; i32],
+        lengths: Tensor[M; i32],
+    ) -> Tensor[M, Vocab; T]
+    where
+        M > 0,
+        S > 0
+    {
+        var x = embed_tokens.forward(tokens)
+        static for group in groups {
+            x = group.prefill_slots(x, slots, lengths)
+        }
+        let last[b, h] = x[b, cast<i64>(lengths[b]) - 1, h]
+        return logits(last)
+    }
+
+    fn logits<R: Dim>(x: Tensor[R, H; T]) -> Tensor[R, Vocab; T] {
+        return lm_head.forward(norm.forward(x))
+    }
+
+    fn hidden_states<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, H; T]
+    where S > 0 {
+        var x = embed_tokens.forward(tokens)
+        static for group in groups {
+            x = group.forward(x)
+        }
+        return x
+    }
+}

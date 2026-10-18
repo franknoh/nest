@@ -1,0 +1,74 @@
+[model]
+name = "qwen3.6-35b-a3b"
+title = "Qwen3.6 35B-A3B"
+summary = "A 35B-parameter hybrid mixture of experts (3B active): three Gated DeltaNet (linear attention) layers for every gated full-attention layer, 256 experts with 8 chosen per token plus a gated shared expert, and an untied output head; the text model of Qwen3.6-35B-A3B, without its vision tower."
+license = "Apache-2.0"
+family = "qwen3_5_moe"
+tags = ["text-generation", "decoder-only", "mixture-of-experts", "linear-attention", "gated-deltanet", "hybrid"]
+
+[links]
+huggingface = "https://huggingface.co/Qwen/Qwen3.6-35B-A3B"
+github = "https://github.com/QwenLM/Qwen3.5"
+
+[source]
+path = "src/lib.linnet"
+root = "Model"
+entry = "forward"
+
+[generics]
+Vocab = 248320
+H = 2048
+Heads = 16
+KvHeads = 2
+HeadDim = 256
+KeyHeads = 16
+ValueHeads = 32
+KeyDim = 128
+ValueDim = 128
+Conv = 8192
+Width = 4
+Experts = 256
+TopK = 8
+ExpertInner = 512
+SharedInner = 512
+Groups = 10
+Batch = 1
+MaxSeq = 262144
+T = "bf16"
+
+[check]
+B = 1
+S = 8
+
+[weights]
+repo = "Qwen/Qwen3.6-35B-A3B"
+revision = "995ad96eacd98c81ed38be0c5b274b04031597b0"
+files = [
+    "model-00001-of-00026.safetensors",
+    "model-00002-of-00026.safetensors",
+    "model-00003-of-00026.safetensors",
+    "model-00004-of-00026.safetensors",
+    "model-00005-of-00026.safetensors",
+    "model-00006-of-00026.safetensors",
+    "model-00007-of-00026.safetensors",
+    "model-00008-of-00026.safetensors",
+    "model-00009-of-00026.safetensors",
+    "model-00010-of-00026.safetensors",
+    "model-00011-of-00026.safetensors",
+    "model-00012-of-00026.safetensors",
+    "model-00013-of-00026.safetensors",
+    "model-00014-of-00026.safetensors",
+    "model-00015-of-00026.safetensors",
+    "model-00016-of-00026.safetensors",
+    "model-00017-of-00026.safetensors",
+    "model-00018-of-00026.safetensors",
+    "model-00019-of-00026.safetensors",
+    "model-00020-of-00026.safetensors",
+    "model-00021-of-00026.safetensors",
+    "model-00022-of-00026.safetensors",
+    "model-00023-of-00026.safetensors",
+    "model-00024-of-00026.safetensors",
+    "model-00025-of-00026.safetensors",
+    "model-00026-of-00026.safetensors",
+]
+bindings = "bindings.json"

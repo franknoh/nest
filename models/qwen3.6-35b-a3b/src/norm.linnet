@@ -1,0 +1,33 @@
+// Qwen3.5's two normalizations.
+module qwen3_5_moe.norm
+
+use std.nn.activations::{silu}
+
+// RMS normalization around one: the checkpoint stores `w` and the layer
+// scales by `1 + w`, in f32, rounding once at the end (Qwen3-Next's
+// zero-centered norm).
+pub block RmsNorm<H: Dim, T: Float> {
+    param weight: Tensor[H; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T] {
+        let xf = cast<f32>(x)
+        let mean_square[*s] = sum[h] xf[*s, h] * xf[*s, h] / cast<f32>(H)
+        let scaled[*s, h] = xf[*s, h] * rsqrt(mean_square[*s] + 1e-6) * (1.0 + cast<f32>(weight[h]))
+        return cast<T>(scaled)
+    }
+}
+
+// The linear attention's output norm, gated: each head's output normalized,
+// rounded, scaled by `weight` (around zero, not one), then times
+// `silu(gate)` in f32.
+pub block GatedRmsNorm<D: Dim, T: Float> {
+    param weight: Tensor[D; T]
+
+    pub fn forward<*S: Shape>(x: Tensor[*S, D; T], gate: Tensor[*S, D; T]) -> Tensor[*S, D; T] {
+        let xf = cast<f32>(x)
+        let mean_square[*s] = sum[d] xf[*s, d] * xf[*s, d] / cast<f32>(D)
+        let normalized[*s, d] = xf[*s, d] * rsqrt(mean_square[*s] + 1e-6)
+        let weighted = cast<f32>(cast<T>(normalized) * weight)
+        return cast<T>(weighted * silu(cast<f32>(gate)))
+    }
+}
