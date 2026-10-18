@@ -17,6 +17,7 @@ NEST_MAIN_SITE=$(python -c "import site; print(site.getsitepackages()[0])")
 export NEST_MAIN_SITE LINNET_STD=/workspace/Linnet/stdlib
 export NEST_LLAMA_CONVERTER=/workspace/llama.cpp/convert_hf_to_gguf.py
 export NEST_LLAMA_BENCH=/workspace/llama.cpp/build/bin/llama-bench
+export NEST_LLAMA_PERPLEXITY=/workspace/llama.cpp/build/bin/llama-perplexity
 # SGLang and TGI, where `setup-pod.sh --engines` installed them; their rows
 # run only when named (`--methods`).
 if [ -x /workspace/sglang/bin/python ]; then export NEST_SGLANG_PYTHON=/workspace/sglang/bin/python; fi
