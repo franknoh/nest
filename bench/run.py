@@ -94,7 +94,7 @@ def main() -> None:
     parser.add_argument("--serve-prompt-min", type=int, default=128)
     parser.add_argument("--serve-prompt-max", type=int, default=512)
     parser.add_argument("--serve-new", type=int, default=128, help="new tokens per request")
-    parser.add_argument("--acc-windows", type=int, default=4, help="WikiText-2 windows (acc-)")
+    parser.add_argument("--acc-windows", type=int, default=8, help="WikiText-2 windows (acc-)")
     parser.add_argument("--acc-length", type=int, default=512, help="tokens per window (acc-)")
     parser.add_argument(
         "--soak-minutes", type=float, default=30.0, help="how long a `soak-` method holds full load"

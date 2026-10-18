@@ -48,7 +48,7 @@ NO_REFERENCE = "no accuracy reference in this run (acc-reference), so perplexity
 
 
 def _settings(workload: dict[str, Any]) -> tuple[int, int]:
-    return int(workload.get("acc_windows", 4)), int(workload.get("acc_length", 512))
+    return int(workload.get("acc_windows", 8)), int(workload.get("acc_length", 512))
 
 
 def acc_seq(workload: dict[str, Any]) -> int:
