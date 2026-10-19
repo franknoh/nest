@@ -22,7 +22,7 @@ use crate.norm::{GatedRmsNorm}
 use std.nn.activations::{sigmoid, silu}
 use std.nn.cache::{write_slots}
 use std.nn.linear::{Linear}
-use std.nn.recurrent::{causal_conv, gated_delta_rule, gated_delta_step}
+use std.nn.recurrent::{causal_conv, gated_delta_rule, gated_delta_update}
 
 pub block GatedDeltaNet<
     H: Dim,
@@ -73,20 +73,20 @@ where
         history = reshape(window[:, 1:Width, :], [Batch, 1, Width - 1, Conv])
         let (q, k, v) = heads<Batch, 1>(cast<T>(silu(convolved)))
         let (decay, beta) = gates<Batch, 1>(x)
-        let stepped = gated_delta_step(
-            reshape(q, [Batch, KeyHeads, KeyDim]),
+        // The state updated where it lies (nothing else reads the old
+        // one), then each value head's output read from it.
+        recurrent = gated_delta_update(
             reshape(k, [Batch, KeyHeads, KeyDim]),
             reshape(v, [Batch, ValueHeads, ValueDim]),
             reshape(decay, [Batch, ValueHeads]),
             reshape(beta, [Batch, ValueHeads]),
             recurrent,
-            rsqrt(cast<f32>(KeyDim)),
         )
-        recurrent = permute(stepped[:, 1:1 + KeyDim, :, :], [0, 2, 1, 3])
-        return finish<Batch, 1>(
-            reshape(cast<T>(stepped[:, 0:1, :, :]), [Batch, 1, ValueHeads, ValueDim]),
-            x,
-        )
+        let grouped = reshape(recurrent, [Batch, KeyHeads, ValueHeads / KeyHeads, KeyDim, ValueDim])
+        let query = reshape(q, [Batch, KeyHeads, KeyDim])
+        let read[b, g, r, j] = sum[i] grouped[b, g, r, i, j] * cast<f32>(query[b, g, i])
+        let scaled = reshape(read, [Batch, 1, ValueHeads, ValueDim]) * rsqrt(cast<f32>(KeyDim))
+        return finish<Batch, 1>(cast<T>(scaled), x)
     }
 
     // `S` tokens for every row: from zero at position 0, otherwise

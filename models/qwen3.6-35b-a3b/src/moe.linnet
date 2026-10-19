@@ -13,7 +13,7 @@ module qwen3_5_moe.moe
 use std.nn.activations::{sigmoid, silu}
 use std.nn.linear::{Linear}
 use std.nn.mlp::{SwiGlu}
-use std.nn.moe::{combine_experts, linear_experts_shared}
+use std.nn.moe::{combine_experts, linear_experts_shared, top_k}
 use std.nn.softmax::{softmax}
 
 pub block SparseMoe<H: Dim, Experts: Dim, TopK: Dim, ExpertInner: Dim, SharedInner: Dim, T: Float>
@@ -30,31 +30,16 @@ where
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T] {
         let rows = reshape(x, [B * S, H])
         let logits = gate.forward(rows)
-        let ranked = ranks<B * S>(logits)
-        let slots = iota<i32>(Experts)
-        let places = iota<i32>(TopK)
-        let chosen[r, k] = sum<i32>[e] select(ranked[r, e] == places[k], slots[e], 0)
-        let expert[r, k] = cast<i64>(chosen[r, k])
-        // The softmax over the chosen logits alone, in f32: the others are
-        // pushed below its floor and come out as exactly zero.
-        let kept[r, e] = select(ranked[r, e] < cast<i32>(TopK), cast<f32>(logits[r, e]), -1e30)
-        let probabilities = softmax(kept)
-        let weight[r, k] = sum[e] select(ranked[r, e] == places[k], probabilities[r, e], 0.0)
+        let expert = top_k<B * S, Experts, TopK, T>(logits)
+        // The softmax over the chosen logits alone, in f32: the full softmax
+        // renormalized over the chosen, as the reference computes it.
+        let chosen[r, k] = cast<f32>(logits[r, expert[r, k]])
+        let weight = softmax(chosen)
         let gate_up = linear_experts_shared(rows, gate_up_proj, expert)
         let activated =
             silu(gate_up[:, :, 0:ExpertInner]) * gate_up[:, :, ExpertInner:2 * ExpertInner]
         let routed = combine_experts(activated, down_proj, expert, cast<T>(weight))
         let shared = shared_expert.forward(rows) * sigmoid(shared_expert_gate.forward(rows))
         return reshape(routed + shared, [B, S, H])
-    }
-
-    // Each expert's rank among a row's router logits: 0 for the largest,
-    // ties to the lower index as `torch.topk` orders them.
-    fn ranks<R: Dim>(logits: Tensor[R, Experts; T]) -> Tensor[R, Experts; i32] {
-        let slots = iota<i32>(Experts)
-        let outranks[r, e, j] =
-            logits[r, j] > logits[r, e] || (logits[r, j] == logits[r, e] && slots[j] < slots[e])
-        let beaten[r, e] = sum<i32>[j] cast<i32>(outranks[r, e, j])
-        return beaten
     }
 }
