@@ -21,8 +21,16 @@ module qwen3_5.deltanet
 use crate.norm::{GatedRmsNorm}
 use std.nn.activations::{sigmoid, silu}
 use std.nn.cache::{write_slots}
+use std.linalg::{batched_matmul}
 use std.nn.linear::{Linear}
-use std.nn.recurrent::{causal_conv, gated_delta_rule, gated_delta_step}
+use std.nn.recurrent::{
+    causal_conv,
+    causal_conv_packed,
+    causal_history_packed,
+    gated_delta_rule,
+    gated_delta_rule_packed,
+    gated_delta_update,
+}
 
 pub block GatedDeltaNet<
     H: Dim,
@@ -73,20 +81,23 @@ where
         history = reshape(window[:, 1:Width, :], [Batch, 1, Width - 1, Conv])
         let (q, k, v) = heads<Batch, 1>(cast<T>(silu(convolved)))
         let (decay, beta) = gates<Batch, 1>(x)
-        let stepped = gated_delta_step(
-            reshape(q, [Batch, KeyHeads, KeyDim]),
+        // The state updated where it lies (nothing else reads the old
+        // one), then each value head's output read from it.
+        recurrent = gated_delta_update(
             reshape(k, [Batch, KeyHeads, KeyDim]),
             reshape(v, [Batch, ValueHeads, ValueDim]),
             reshape(decay, [Batch, ValueHeads]),
             reshape(beta, [Batch, ValueHeads]),
             recurrent,
-            rsqrt(cast<f32>(KeyDim)),
         )
-        recurrent = permute(stepped[:, 1:1 + KeyDim, :, :], [0, 2, 1, 3])
-        return finish<Batch, 1>(
-            reshape(cast<T>(stepped[:, 0:1, :, :]), [Batch, 1, ValueHeads, ValueDim]),
-            x,
-        )
+        // The queries repeated for their value heads, so the product reads
+        // the state as it lies rather than a reordered copy.
+        let shared = reshape(q, [Batch, KeyHeads, 1, KeyDim])
+        let spread = broadcast_to(shared, [Batch, KeyHeads, ValueHeads / KeyHeads, KeyDim])
+        let query = reshape(cast<f32>(spread), [Batch, ValueHeads, 1, KeyDim])
+        let read = batched_matmul(query, recurrent)
+        let scaled = reshape(read, [Batch, 1, ValueHeads, ValueDim]) * rsqrt(cast<f32>(KeyDim))
+        return finish<Batch, 1>(cast<T>(scaled), x)
     }
 
     // `S` tokens for every row: from zero at position 0, otherwise
@@ -120,6 +131,60 @@ where
         history = write_slots(history, reshape(ends, [M, 1, Width - 1, Conv]), slots, 0)
         recurrent = write_slots(recurrent, final, slots, 0)
         return out
+    }
+
+    // Prompts packed into one sequence (`linnet.serve`): token `p` of prompt
+    // `segments[p]` (`-1` for padding) for row `rows[p]`, each prompt from
+    // zero; the rows they fill take their histories and states.
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let mixed = reshape(in_proj_qkv.forward(x), [P, Conv])
+        let convolved = causal_conv_packed(mixed, segments, conv_taps())
+        let ends = causal_history_packed(
+            mixed,
+            segments,
+            rows,
+            reshape(history, [Batch, Width - 1, Conv]),
+        )
+        history = reshape(ends, [Batch, 1, Width - 1, Conv])
+        let (q, k, v) = heads<1, P>(cast<T>(silu(reshape(convolved, [1, P, Conv]))))
+        let (decay, beta) = gates<1, P>(x)
+        let ruled = gated_delta_rule_packed(
+            q,
+            k,
+            v,
+            decay,
+            beta,
+            segments,
+            rows,
+            recurrent,
+            rsqrt(cast<f32>(KeyDim)),
+        )
+        let outputs = P * ValueHeads
+        recurrent = reshape(
+            ruled[outputs:outputs + Batch * ValueHeads * KeyDim, :],
+            [Batch, ValueHeads, KeyDim, ValueDim],
+        )
+        let out = reshape(ruled[0:outputs, :], [1, P, ValueHeads, ValueDim])
+        return finish<1, P>(cast<T>(out), x)
+    }
+
+    // `prefill_packed`'s prompts, `P` tokens, then one step for each of the
+    // `Batch` rows as `decode` takes it. The steps go first, so a row the
+    // prompts fill ends with its prompt's state.
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        let stepped = decode(reshape(x[:, P:P + Batch, :], [Batch, 1, H]))
+        let filled = prefill_packed<P>(x[:, 0:P, :], rows, segments)
+        return concat(filled, reshape(stepped, [1, Batch, H]), axis = 1)
     }
 
     // `S` tokens of `B` sequences from `start_history` and `start_state`,

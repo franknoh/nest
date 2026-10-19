@@ -24,8 +24,10 @@ followed by a SwiGLU MLP of width 17408.
 The full-attention layers keep key/value caches; the linear-attention
 layers keep each row's convolution history and its recurrent state in f32.
 `prefill`/`decode` serve one batch at one position, `prefill_slots`/
-`decode_rows` a server's rows each at its own length (fixed rows; the
-card has no paged entries yet).
+`decode_rows` a server's rows each at its own length, and `prefill_packed`/
+`step_packed` prompts packed into one pass, each prompt a sequence of its
+own in the linear-attention layers (fixed rows; the card has no paged
+entries yet).
 
 `bindings.json` maps `groups.<g>.linear.<i>` to checkpoint layer `4g + i`
 and `groups.<g>.full` to layer `4g + 3`.

@@ -6,8 +6,9 @@
 // tower and its multi-token-prediction layer are not part of it.
 //
 // The entries a decoder serves from: `forward` and `next_token` over whole
-// sequences, `prefill`/`decode` for a batch at one position, and
-// `prefill_slots`/`decode_rows` for a server's rows each at its own length.
+// sequences, `prefill`/`decode` for a batch at one position,
+// `prefill_slots`/`decode_rows` for a server's rows each at its own length,
+// and `prefill_packed`/`step_packed` for prompts packed into one pass.
 // The full-attention layers keep key/value caches; the linear-attention
 // layers keep a convolution history and a recurrent state per row.
 module qwen3_5
@@ -70,6 +71,24 @@ where
         return feed(x + linear_attn.prefill_slots(input_layernorm.forward(x), slots, lengths))
     }
 
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        return feed(x + linear_attn.prefill_packed(input_layernorm.forward(x), rows, segments))
+    }
+
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        return feed(x + linear_attn.step_packed(input_layernorm.forward(x), rows, segments))
+    }
+
     fn feed<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T] {
         return x + mlp.forward(post_attention_layernorm.forward(x))
     }
@@ -127,6 +146,31 @@ where
         S > 0
     {
         return feed(x + self_attn.prefill_slots(input_layernorm.forward(x), slots))
+    }
+
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let normed = input_layernorm.forward(x)
+        return feed(x + self_attn.prefill_packed(normed, rows, positions, segments))
+    }
+
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        step_positions: Tensor[Batch; i32],
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        let normed = input_layernorm.forward(x)
+        return feed(
+            x + self_attn.step_packed(normed, rows, positions, segments, step_positions),
+        )
     }
 
     fn feed<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T] {
@@ -220,6 +264,35 @@ where
             y = layer.prefill_slots(y, slots, lengths)
         }
         return full.prefill_slots(y, slots)
+    }
+
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        var y = x
+        static for layer in linear {
+            y = layer.prefill_packed(y, rows, segments)
+        }
+        return full.prefill_packed(y, rows, positions, segments)
+    }
+
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        step_positions: Tensor[Batch; i32],
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        var y = x
+        static for layer in linear {
+            y = layer.step_packed(y, rows, segments)
+        }
+        return full.step_packed(y, rows, positions, segments, step_positions)
     }
 }
 
@@ -323,6 +396,51 @@ where
         }
         let last[b, h] = x[b, cast<i64>(lengths[b]) - 1, h]
         return logits(last)
+    }
+
+    // Prompts packed end to end into one pass (`linnet.serve`): token `p`
+    // is position `positions[p]` of row `rows[p]` in prompt `segments[p]`
+    // (`-1` for padding), every prompt from its first position; the logits
+    // after each prompt's last token (`last[m]`).
+    pub entry prefill_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        last: Tensor[Batch; i32],
+    ) -> Tensor[Batch, Vocab; T]
+    where P > 0 {
+        var x = embed_tokens.forward(reshape(tokens, [1, P]))
+        static for group in groups {
+            x = group.prefill_packed(x, rows, positions, segments)
+        }
+        let ends[m, h] = x[0, cast<i64>(last[m]), h]
+        return logits(ends)
+    }
+
+    // `prefill_packed`'s prompts and a step for every row in one pass, as
+    // `decode_rows` takes it (`step_tokens[b]` at `step_positions[b]`): the
+    // weights are read once for both. A row the prompts fill steps along,
+    // its key and value written where no request reads (the engine uses
+    // `MaxSeq - 1`) and its state replaced by its prompt's. The logits
+    // after each prompt, as `prefill_packed`, then each row's step.
+    pub entry step_packed<P: Dim>(
+        tokens: Tensor[P; i32],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        last: Tensor[Batch; i32],
+        step_tokens: Tensor[Batch, 1; i32],
+        step_positions: Tensor[Batch; i32],
+    ) -> Tensor[2 * Batch, Vocab; T]
+    where P > 0 {
+        let every = concat(tokens, reshape(step_tokens, [Batch]), axis = 0)
+        var x = embed_tokens.forward(reshape(every, [1, P + Batch]))
+        static for group in groups {
+            x = group.step_packed(x, rows, positions, segments, step_positions)
+        }
+        let ends[m, h] = x[0, cast<i64>(last[m]), h]
+        return logits(concat(ends, x[0, P:P + Batch, :], axis = 0))
     }
 
     fn logits<R: Dim>(x: Tensor[R, H; T]) -> Tensor[R, Vocab; T] {

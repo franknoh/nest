@@ -6,14 +6,15 @@
 //
 // The caches are the usual `[Batch, KvHeads, MaxSeq, HeadDim]` pair:
 // `decode`/`prefill` for one batch at one position, `decode_rows` and
-// `prefill_slots` for a server's rows each at its own length.
+// `prefill_slots` for a server's rows each at its own length, and
+// `prefill_packed`/`step_packed` for prompts packed into one sequence.
 module qwen3_5.attention
 
 use crate.norm::{RmsNorm}
 use crate.rope::{THETA, tables}
 use std.nn.activations::{sigmoid}
 use std.nn.attention::{causal_mask, grouped_attention, grouped_attention_rows}
-use std.nn.cache::{write_at, write_rows, write_slots, write_span}
+use std.nn.cache::{write_at, write_rows, write_slots, write_span, write_tokens}
 use std.nn.linear::{Linear}
 use std.nn.rope::{rope, rope_rows}
 
@@ -152,6 +153,76 @@ where
             some(causal_mask<S, S>()),
         )
         return finish<M, S>(mixed, gate)
+    }
+
+    // Prompts packed into one sequence: token `p`, position `positions[p]`
+    // of row `rows[p]`, attends to its own prompt (`segments`) up to itself.
+    pub fn prefill_packed<P: Dim>(
+        x: Tensor[1, P, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+    ) -> Tensor[1, P, H; T]
+    where P > 0 {
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim / 4, T>(THETA)
+        let cos_at[p, d] = cos_table[cast<i64>(positions[p]), d]
+        let sin_at[p, d] = sin_table[cast<i64>(positions[p]), d]
+        let (q, gate, k, v) = project<1, P>(x)
+        let keys = rotate<1, KvHeads, P>(k, cos_at, sin_at)
+        cache_k = write_tokens(cache_k, keys, rows, positions)
+        cache_v = write_tokens(cache_v, v, rows, positions)
+        let own[i, j] = segments[i] == segments[j] && positions[j] <= positions[i]
+        let mixed = grouped_attention(
+            rotate<1, Heads, P>(q, cos_at, sin_at),
+            keys,
+            v,
+            rsqrt(cast<f32>(HeadDim)),
+            some(own),
+        )
+        return finish<1, P>(mixed, gate)
+    }
+
+    // `prefill_packed`'s prompts, `P` tokens, then one step for each of the
+    // `Batch` rows at `step_positions[b]`: every token's key and value go to
+    // its row at its position, the prompts attend among themselves and each
+    // step over its row as in `decode_rows`.
+    pub fn step_packed<P: Dim>(
+        x: Tensor[1, P + Batch, H; T],
+        rows: Tensor[P; i32],
+        positions: Tensor[P; i32],
+        segments: Tensor[P; i32],
+        step_positions: Tensor[Batch; i32],
+    ) -> Tensor[1, P + Batch, H; T]
+    where P > 0 {
+        let every_at = concat(positions, step_positions, axis = 0)
+        let every_row = concat(rows, iota<i32>(Batch), axis = 0)
+        let (cos_table, sin_table) = tables<MaxSeq, HeadDim / 4, T>(THETA)
+        let cos_at[p, d] = cos_table[cast<i64>(every_at[p]), d]
+        let sin_at[p, d] = sin_table[cast<i64>(every_at[p]), d]
+        let (q, gate, k, v) = project<1, P + Batch>(x)
+        let queries = rotate<1, Heads, P + Batch>(q, cos_at, sin_at)
+        let keys = rotate<1, KvHeads, P + Batch>(k, cos_at, sin_at)
+        cache_k = write_tokens(cache_k, keys, every_row, every_at)
+        cache_v = write_tokens(cache_v, v, every_row, every_at)
+        let own[i, j] = segments[i] == segments[j] && positions[j] <= positions[i]
+        let prompts = grouped_attention(
+            queries[:, :, 0:P, :],
+            keys[:, :, 0:P, :],
+            v[:, :, 0:P, :],
+            rsqrt(cast<f32>(HeadDim)),
+            some(own),
+        )
+        let slots = iota<i32>(MaxSeq)
+        let seen[b, s] = slots[s] <= step_positions[b]
+        let steps = grouped_attention_rows(
+            permute(queries[:, :, P:P + Batch, :], [2, 1, 0, 3]),
+            cache_k,
+            cache_v,
+            rsqrt(cast<f32>(HeadDim)),
+            reshape(seen, [Batch, 1, MaxSeq]),
+        )
+        let mixed = concat(prompts, permute(steps, [2, 1, 0, 3]), axis = 2)
+        return finish<1, P + Batch>(mixed, gate)
     }
 
     // Queries and their gates, keys, values: `[B, Heads, S, HeadDim]`,
