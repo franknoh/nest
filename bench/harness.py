@@ -11,6 +11,7 @@ caches, compiled kernels and allocator state out of the next one's numbers.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import platform
@@ -166,6 +167,10 @@ def run_isolated(
     """Runs one method in a fresh interpreter and returns its result, with
     the process's peak GPU memory filled in from the outside."""
     command = [python, "-m", "bench.worker", model, method, json.dumps(workload)]
+    if _shares_host_memory():
+        _evict_checkpoint(model)
+        _drop_caches()
+        _settle()
     env = dict(os.environ)
     # JAX reserves 75% of the GPU at start unless told not to, which would
     # make its "peak" a setting rather than a measurement.
@@ -191,6 +196,11 @@ def run_isolated(
             process.kill()
             stdout, stderr = process.communicate()
             return Result(method, "unknown", error=f"timed out after {timeout:.0f} s")
+    # The whole of what it printed, beside the run's outputs: a failure's
+    # last line rarely names its cause (vLLM's says "see root cause above").
+    workdir = Path(workload.get("workdir", ROOT / "logs"))
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / f"{method}.log").write_text(stdout + stderr, encoding="utf-8")
     lines = [line for line in stdout.splitlines() if line.startswith("RESULT ")]
     if process.returncode != 0 or not lines:
         tail = (stderr.strip().splitlines() or ["no output"])[-1]
@@ -285,6 +295,65 @@ def compute_capability() -> tuple[int, int]:
     return (int(major), int(minor))
 
 
+def _evict_checkpoint(model: str) -> None:
+    """Drops the model's checkpoint files from the page cache. Where the GPU
+    shares the host's memory, the cache the last method's load left counts
+    as used, and an engine sized from free memory (vLLM) would get too
+    little for the weights. `posix_fadvise` needs no privileges."""
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:
+        return
+    repo = card(model).get("weights", {}).get("repo")
+    if not repo:
+        return
+    folder = Path(HF_HUB_CACHE) / ("models--" + repo.replace("/", "--"))
+    for path in folder.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            try:
+                with path.open("rb") as handle:
+                    os.posix_fadvise(handle.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+            except OSError:
+                continue
+
+
+def _drop_caches(limit: float = 60.0) -> None:
+    """Asks the host to drop its page cache, where `NEST_DROP_CACHES` names
+    a file a root process on the host watches (a container cannot write
+    `/proc/sys/vm/drop_caches`, and `posix_fadvise` from inside one leaves
+    the host's cache as it is): the file is made, and gone once dropped."""
+    trigger = os.environ.get("NEST_DROP_CACHES")
+    if not trigger:
+        return
+    path = Path(trigger)
+    path.touch()
+    deadline = time.monotonic() + limit
+    while path.exists() and time.monotonic() < deadline:
+        time.sleep(0.5)
+
+
+def _available_gib() -> float:
+    with open("/proc/meminfo", encoding="utf-8") as meminfo:
+        fields = dict(line.split(":", 1) for line in meminfo)
+    return int(fields["MemAvailable"].split()[0]) / 2**20
+
+
+def _settle(limit: float = 60.0) -> None:
+    """Waits until the memory the last method held is back: where the GPU
+    shares the host's memory, a process's GPU memory returns some seconds
+    after it exits, and an engine sized from free memory meanwhile gets too
+    little (vLLM then fails to start)."""
+    deadline = time.monotonic() + limit
+    last = _available_gib()
+    while time.monotonic() < deadline:
+        time.sleep(2.0)
+        now = _available_gib()
+        if now - last < 0.5:
+            return
+        last = now
+
+
+@functools.cache
 def _shares_host_memory() -> bool:
     """Whether the GPU has no memory of its own: NVML gives it none."""
     try:
