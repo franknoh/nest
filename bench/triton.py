@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -29,6 +30,29 @@ def available() -> bool:
     return Path(SERVER).exists() or shutil.which("tritonserver") is not None
 
 
+def _pth_paths(site: Path) -> list[str]:
+    """The directories `site`'s `.pth` files add: `PYTHONPATH` does not run
+    them, and some packages are importable only through one (vLLM's
+    FlashInfer kernels import `cutlass`, which `nvidia_cutlass_dsl`'s `.pth`
+    puts on the path at startup). Python itself processes them, in a
+    subprocess, and reports what they added."""
+    script = (
+        "import os, site, sys; before = list(sys.path); site.addsitedir(sys.argv[1]); "
+        "print(os.pathsep.join(p for p in sys.path if p not in before and p != sys.argv[1]))"
+    )
+    try:
+        listed = subprocess.run(  # noqa: S603 - our own interpreter and script
+            [sys.executable, "-c", script, str(site)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [path for path in listed.split(os.pathsep) if path]
+
+
 @contextmanager
 def server(repository: Path, python_path: str | None = None, timeout: float = 3600.0) -> Any:
     """A running server over `repository`, ready when this yields. A model
@@ -38,7 +62,7 @@ def server(repository: Path, python_path: str | None = None, timeout: float = 36
         raise RuntimeError("no tritonserver here (the benchmark pod's image provides it)")
     env = dict(os.environ)
     if python_path is not None:
-        env["PYTHONPATH"] = python_path
+        env["PYTHONPATH"] = os.pathsep.join([python_path, *_pth_paths(Path(python_path))])
     log = open(repository / "server.log", "w", encoding="utf-8")  # noqa: SIM115 - closed below
     process = subprocess.Popen(  # noqa: S603 - the server binary, our own arguments
         [
