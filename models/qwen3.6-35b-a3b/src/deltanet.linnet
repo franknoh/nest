@@ -14,22 +14,23 @@
 // heads.
 //
 // Two states per layer, by row: `history`, the convolution's last
-// `Width - 1` inputs, and `recurrent`, the delta rule's state in f32. A
-// prompt starts both from zero; a decoding step reads and replaces them.
+// `Width - 1` inputs, and `recurrent`, the delta rule's state in f32, kept
+// as `gated_delta_rule` returns it (`[1 + KeyDim, ValueHeads, ValueDim]`, row
+// 0 the last output read from it). A prompt starts both from zero; a
+// decoding step reads and replaces them.
 module qwen3_5_moe.deltanet
 
 use crate.norm::{GatedRmsNorm}
 use std.nn.activations::{sigmoid, silu}
 use std.nn.cache::{write_slots}
-use std.linalg::{batched_matmul}
 use std.nn.linear::{Linear}
 use std.nn.recurrent::{
     causal_conv,
     causal_conv_packed,
     causal_history_packed,
+    gated_delta_decode,
     gated_delta_rule,
     gated_delta_rule_packed,
-    gated_delta_update,
 }
 
 pub block GatedDeltaNet<
@@ -45,6 +46,7 @@ pub block GatedDeltaNet<
 >
 where
     KeyHeads > 0,
+    ValueHeads > 0,
     KeyDim > 0,
     ValueHeads % KeyHeads == 0,
     Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
@@ -63,7 +65,7 @@ where
     param dt_bias: Tensor[ValueHeads; T]
 
     state history: Tensor[Batch, 1, Width - 1, Conv; T]
-    state recurrent: Tensor[Batch, ValueHeads, KeyDim, ValueDim; f32]
+    state recurrent: Tensor[Batch, 1 + KeyDim, ValueHeads, ValueDim; f32]
 
     // A whole sequence from zero, no state kept.
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]
@@ -82,22 +84,18 @@ where
         let (q, k, v) = heads<Batch, 1>(cast<T>(silu(convolved)))
         let (decay, beta) = gates<Batch, 1>(x)
         // The state updated where it lies (nothing else reads the old
-        // one), then each value head's output read from it.
-        recurrent = gated_delta_update(
+        // one), each value head's output read from it in the same pass.
+        recurrent = gated_delta_decode(
+            reshape(q, [Batch, KeyHeads, KeyDim]),
             reshape(k, [Batch, KeyHeads, KeyDim]),
             reshape(v, [Batch, ValueHeads, ValueDim]),
             reshape(decay, [Batch, ValueHeads]),
             reshape(beta, [Batch, ValueHeads]),
             recurrent,
+            rsqrt(cast<f32>(KeyDim)),
         )
-        // The queries repeated for their value heads, so the product reads
-        // the state as it lies rather than a reordered copy.
-        let shared = reshape(q, [Batch, KeyHeads, 1, KeyDim])
-        let spread = broadcast_to(shared, [Batch, KeyHeads, ValueHeads / KeyHeads, KeyDim])
-        let query = reshape(cast<f32>(spread), [Batch, ValueHeads, 1, KeyDim])
-        let read = batched_matmul(query, recurrent)
-        let scaled = reshape(read, [Batch, 1, ValueHeads, ValueDim]) * rsqrt(cast<f32>(KeyDim))
-        return finish<Batch, 1>(cast<T>(scaled), x)
+        let read = reshape(recurrent[:, 0:1, :, :], [Batch, 1, ValueHeads, ValueDim])
+        return finish<Batch, 1>(cast<T>(read), x)
     }
 
     // `S` tokens for every row: from zero at position 0, otherwise
@@ -107,11 +105,11 @@ where
         let fresh = pos == 0
         let start_history =
             if fresh { zero_history<Batch>() } else { reshape(history, [Batch, Width - 1, Conv]) }
-        let start_state = if fresh { zero_state<Batch>() } else { recurrent }
+        let start_state = if fresh { zero_state<Batch>() } else { held_state(recurrent) }
         let lengths = fill<i32>([Batch], cast<i32>(S))
-        let (out, ends, final) = span<Batch, S>(x, start_history, start_state, lengths)
+        let (out, ends, held) = span<Batch, S>(x, start_history, start_state, lengths)
         history = reshape(ends, [Batch, 1, Width - 1, Conv])
-        recurrent = final
+        recurrent = held
         return out
     }
 
@@ -127,9 +125,9 @@ where
         M > 0,
         S > 0
     {
-        let (out, ends, final) = span<M, S>(x, zero_history<M>(), zero_state<M>(), lengths)
+        let (out, ends, held) = span<M, S>(x, zero_history<M>(), zero_state<M>(), lengths)
         history = write_slots(history, reshape(ends, [M, 1, Width - 1, Conv]), slots, 0)
-        recurrent = write_slots(recurrent, final, slots, 0)
+        recurrent = write_slots(recurrent, held, slots, 0)
         return out
     }
 
@@ -161,14 +159,15 @@ where
             beta,
             segments,
             rows,
-            recurrent,
+            held_state(recurrent),
             rsqrt(cast<f32>(KeyDim)),
         )
         let outputs = P * ValueHeads
-        recurrent = reshape(
+        let states = reshape(
             ruled[outputs:outputs + Batch * ValueHeads * KeyDim, :],
             [Batch, ValueHeads, KeyDim, ValueDim],
         )
+        recurrent = concat(recurrent[:, 0:1, :, :], permute(states, [0, 2, 1, 3]), axis = 1)
         let out = reshape(ruled[0:outputs, :], [1, P, ValueHeads, ValueDim])
         return finish<1, P>(cast<T>(out), x)
     }
@@ -189,14 +188,15 @@ where
 
     // `S` tokens of `B` sequences from `start_history` and `start_state`,
     // sequence `b` the first `lengths[b]`: the outputs, the history after
-    // each sequence's last token, and its final state.
+    // each sequence's last token, and its final state as `recurrent` keeps
+    // it.
     fn span<B: Dim, S: Dim>(
         x: Tensor[B, S, H; T],
         start_history: Tensor[B, Width - 1, Conv; T],
         start_state: Tensor[B, ValueHeads, KeyDim, ValueDim; f32],
         lengths: Tensor[B; i32],
-    ) -> (Tensor[B, S, H; T], Tensor[B, Width -
-        1, Conv; T], Tensor[B, ValueHeads, KeyDim, ValueDim; f32])
+    ) -> (Tensor[B, S, H; T], Tensor[B, Width - 1, Conv; T], Tensor[B, 1 +
+        KeyDim, ValueHeads, ValueDim; f32])
     where S > 0 {
         let mixed = in_proj_qkv.forward(x)
         let convolved = causal_conv(mixed, start_history, conv_taps())
@@ -215,14 +215,17 @@ where
             start_state,
             rsqrt(cast<f32>(KeyDim)),
         )
-        let final = permute(ruled[:, S:S + KeyDim, :, :], [0, 2, 1, 3])
         // The last `Width - 1` inputs before each sequence's end, the
         // history's own where the sequence is shorter.
         let padded = concat(start_history, mixed, axis = 1)
         let taps = iota<i32>(Width - 1)
         let at[b, j] = cast<i64>(lengths[b] + taps[j])
         let ends[b, j, c] = padded[b, at[b, j], c]
-        return (finish<B, S>(cast<T>(ruled[:, 0:S, :, :]), x), ends, final)
+        return (
+            finish<B, S>(cast<T>(ruled[:, 0:S, :, :]), x),
+            ends,
+            ruled[:, S - 1:S + KeyDim, :, :],
+        )
     }
 
     // The convolved projection split into L2-normalized query and key heads
@@ -277,6 +280,13 @@ where
 
     fn zero_history<B: Dim>() -> Tensor[B, Width - 1, Conv; T] {
         return fill<T>([B, Width - 1, Conv], 0.0)
+    }
+
+    // `recurrent`'s state rows as the delta rule takes a state.
+    fn held_state(
+        kept: Tensor[Batch, 1 + KeyDim, ValueHeads, ValueDim; f32],
+    ) -> Tensor[Batch, ValueHeads, KeyDim, ValueDim; f32] {
+        return permute(kept[:, 1:1 + KeyDim, :, :], [0, 2, 1, 3])
     }
 
     fn zero_state<B: Dim>() -> Tensor[B, ValueHeads, KeyDim, ValueDim; f32] {
