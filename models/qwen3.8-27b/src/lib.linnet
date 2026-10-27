@@ -31,6 +31,7 @@ pub block DeltaLayer<
     Inner: Dim,
     Batch: Dim,
     T: Float,
+    State: Float,
 >
 where
     KeyHeads > 0,
@@ -42,7 +43,7 @@ where
     Batch > 0
 {
     sub input_layernorm: RmsNorm<H, T>
-    sub linear_attn: GatedDeltaNet<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Batch, T>
+    sub linear_attn: GatedDeltaNet<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Batch, T, State>
     sub post_attention_layernorm: RmsNorm<H, T>
     sub mlp: SwiGlu<H, Inner, T>
 
@@ -197,6 +198,7 @@ pub block LayerGroup<
     Batch: Dim,
     MaxSeq: Dim,
     T: Float,
+    State: Float,
 >
 where
     Heads > 0,
@@ -212,7 +214,7 @@ where
     MaxSeq > 0,
     Batch > 0
 {
-    sub linear: [DeltaLayer<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Inner, Batch, T>; 3]
+    sub linear: [DeltaLayer<H, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Inner, Batch, T, State>; 3]
     sub full: AttentionLayer<H, Heads, KvHeads, HeadDim, Inner, Batch, MaxSeq, T>
 
     pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, H; T]) -> Tensor[B, S, H; T]
@@ -315,6 +317,7 @@ pub block Model<
     Batch: Dim,
     MaxSeq: Dim,
     T: Float = bf16,
+    State: Float = f32,
 >
 where
     Heads > 0,
@@ -331,7 +334,7 @@ where
     Batch > 0
 {
     sub embed_tokens: Embedding<Vocab, H, T>
-    sub groups: [LayerGroup<H, Heads, KvHeads, HeadDim, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Inner, Batch, MaxSeq, T>; Groups]
+    sub groups: [LayerGroup<H, Heads, KvHeads, HeadDim, KeyHeads, ValueHeads, KeyDim, ValueDim, Conv, Width, Inner, Batch, MaxSeq, T, State>; Groups]
     sub norm: RmsNorm<H, T>
     sub lm_head: Linear<H, Vocab, T>
 
