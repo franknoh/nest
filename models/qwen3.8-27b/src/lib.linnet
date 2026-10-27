@@ -34,6 +34,7 @@ pub block DeltaLayer<
 >
 where
     KeyHeads > 0,
+    ValueHeads > 0,
     KeyDim > 0,
     ValueHeads % KeyHeads == 0,
     Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
@@ -203,6 +204,7 @@ where
     Heads % KvHeads == 0,
     (HeadDim / 4) % 2 == 0,
     KeyHeads > 0,
+    ValueHeads > 0,
     KeyDim > 0,
     ValueHeads % KeyHeads == 0,
     Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
@@ -320,6 +322,7 @@ where
     Heads % KvHeads == 0,
     (HeadDim / 4) % 2 == 0,
     KeyHeads > 0,
+    ValueHeads > 0,
     KeyDim > 0,
     ValueHeads % KeyHeads == 0,
     Conv == 2 * KeyHeads * KeyDim + ValueHeads * ValueDim,
