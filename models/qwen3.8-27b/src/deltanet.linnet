@@ -17,9 +17,9 @@
 // `Width - 1` inputs, and `recurrent`, the delta rule's state, kept as
 // `gated_delta_rule` returns it (`[1 + KeyDim, ValueHeads, ValueDim]`, row 0
 // the last output read from it). A prompt starts both from zero; a decoding
-// step reads and replaces them. The state is in `State`: f32 by default, or
-// bf16, as vLLM keeps it, which halves what a decoding step reads and writes
-// at the cost of some drift.
+// step reads and replaces them. The state is in `State`: f32 by default, as
+// the checkpoint's `mamba_ssm_dtype` asks (and vLLM keeps it), or bf16, which
+// halves what a decoding step reads and writes at the cost of some drift.
 module qwen3_5.deltanet
 
 use crate.norm::{GatedRmsNorm}
