@@ -1,0 +1,268 @@
+{
+  "date": "2026-10-28T13:33:26+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "aarch64",
+    "torch": "2.14.1+cu130",
+    "jax": "0.11.2",
+    "transformers": "5.20.0",
+    "diffusers": "0.41.0",
+    "trl": "1.16.0",
+    "peft": "0.21.2",
+    "onnxruntime": "1.31.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA GB10",
+    "gpus": "1",
+    "driver": "580.173.02"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128,
+    "soak_minutes": 30.0,
+    "acc_windows": 8,
+    "acc_length": 512,
+    "train_steps": 40,
+    "trl_compile": false
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 518.2150839245878,
+        "decode_tok_s": 4.2320273774032025,
+        "load_s": 301.38830057589803,
+        "deterministic": 1.0,
+        "out_rel_err": 0.0,
+        "out_cosine": 1.0,
+        "out_psnr_db": null
+      },
+      "max_abs_diff": 0.0,
+      "notes": "",
+      "error": null,
+      "key": "transformers-eager",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "transformers-compile",
+      "kind": "reference",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "Unsupported: Skip calling `torch.compiler.disable()`d function\n  Explanation: Skip calling function `<function chunk_gated_delta_rule at 0xf0e7cd65e2a0>` since it was wrapped with `torch.compiler.disable` (reason: None)\n  Hint: Remove the `torch.compiler.disable` call\n\n  Developer debug context: <function chunk_gated_delta_rule at 0xf0e7cd65e2a0>\n\n For more details about this graph break, please v",
+      "key": "transformers-compile",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "vLLM",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 433.88319299265277,
+        "decode_tok_s": 4.448444011654088,
+        "load_s": 405.7738218580198,
+        "first_token": 2303.0,
+        "deterministic": 1.0
+      },
+      "max_abs_diff": null,
+      "notes": "reserves a KV-cache pool up front (gpu_memory_utilization 0.712), so its memory is a setting, not a need",
+      "error": null,
+      "key": "vllm",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 637.7490439917892,
+        "decode_tok_s": 4.223494811698663,
+        "load_s": 290.7961454880424,
+        "deterministic": 1.0,
+        "out_rel_err": 0.006535774362000322,
+        "out_cosine": 0.9999873991339839,
+        "out_psnr_db": 57.749021260044415
+      },
+      "max_abs_diff": 0.109375,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-torch",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 509.1826359857805,
+        "decode_tok_s": 4.350488673616221,
+        "load_s": 284.1623952599475,
+        "deterministic": 1.0,
+        "out_rel_err": 0.004680144121752995,
+        "out_cosine": 0.99998986185276,
+        "out_psnr_db": 60.6497777266644
+      },
+      "max_abs_diff": 0.125,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-cudagraphs",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (torch.compile, inductor)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 514.0794515027665,
+        "decode_tok_s": 4.336996028067598,
+        "load_s": 283.30889899400063,
+        "deterministic": 1.0,
+        "out_rel_err": 0.004680144121752995,
+        "out_cosine": 0.99998986185276,
+        "out_psnr_db": 60.6497777266644
+      },
+      "max_abs_diff": 0.125,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-inductor",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet JAX (XLA, StableHLO)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 1156.9358940032544,
+        "decode_tok_s": 4.439559047709331,
+        "load_s": 37.47739086000365,
+        "peak_vram_mib": 58254.9
+      },
+      "max_abs_diff": 0.140625,
+      "notes": "KV cache compiled for 768 positions; peak memory is JAX's allocator peak; the driver shows its pool, which grows in whole regions",
+      "error": null,
+      "key": "linnet-jax",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "vLLM (offline, continuous batching)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 143.40306571705057,
+        "serve_s": 228.50278573998366,
+        "load_s": 464.21109359298134
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.593",
+      "error": null,
+      "key": "serve-vllm",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (linnet.serve, CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 124.04305837364448,
+        "serve_s": 264.1663340909872,
+        "load_s": 282.3742796629667,
+        "serve_ttft_ms": 111015.93877148116,
+        "serve_ttft_p50_ms": 111015.93877148116,
+        "serve_ttft_p90_ms": 214073.0361189926,
+        "serve_ttft_p99_ms": 217827.718999004,
+        "serve_e2e_p50_ms": 165637.8297334304,
+        "serve_e2e_p90_ms": 264166.2983469432,
+        "serve_e2e_p99_ms": 264166.2983469432,
+        "serve_itl_p50_ms": 404.93668071232645,
+        "serve_itl_p90_ms": 489.7246616535021,
+        "serve_itl_p99_ms": 495.56765211727765,
+        "batch_agree": 1.0
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
+      "error": null,
+      "key": "serve-linnet-torch",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Triton Inference Server (Python backend, linnet.serve)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 122.48628409650597,
+        "serve_s": 267.52383127389476,
+        "load_s": 629.3961513479007,
+        "serve_ttft_ms": 20325.995812017936,
+        "serve_ttft_p50_ms": 20325.995812017936,
+        "serve_ttft_p90_ms": 21139.919199456926,
+        "serve_ttft_p99_ms": 21154.495647986187,
+        "serve_e2e_p50_ms": 66655.07769753458,
+        "serve_e2e_p90_ms": 67374.08834748203,
+        "serve_e2e_p99_ms": 67387.79805881204
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; over HTTP, streamed, latencies timed at the client from each request's send",
+      "error": null,
+      "key": "serve-triton-linnet",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Triton Inference Server (vLLM backend)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 140.66103249831013,
+        "serve_s": 232.95719801000087,
+        "load_s": 502.33887052198406,
+        "serve_ttft_ms": 4519.685389008373,
+        "serve_ttft_p50_ms": 4519.685389008373,
+        "serve_ttft_p90_ms": 10660.44915751263,
+        "serve_ttft_p99_ms": 15492.990049849323,
+        "serve_e2e_p50_ms": 57679.84303749108,
+        "serve_e2e_p90_ms": 63475.69754801225,
+        "serve_e2e_p99_ms": 68774.91707298905
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, latencies timed at the client from each request's send",
+      "error": null,
+      "key": "serve-triton-vllm",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "serve-linnet-jax",
+      "kind": "reference",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "exit -9: external/xla+/xla/stream_executor/cuda/cuda_device_allocator.cc:487",
+      "key": "serve-linnet-jax",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "serve-transformers",
+      "kind": "reference",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "ValueError: Invalid layer type: linear_attention",
+      "key": "serve-transformers",
+      "spread": {},
+      "runs": 1
+    }
+  ],
+  "reference": "transformers-eager"
+}

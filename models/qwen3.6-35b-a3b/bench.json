@@ -1,0 +1,225 @@
+{
+  "date": "2026-10-28T12:19:09+00:00",
+  "environment": {
+    "python": "3.12.3",
+    "machine": "aarch64",
+    "torch": "2.14.1+cu130",
+    "jax": "0.11.2",
+    "transformers": "5.20.0",
+    "diffusers": "0.41.0",
+    "trl": "1.16.0",
+    "peft": "0.21.2",
+    "onnxruntime": "1.31.0",
+    "linnet": "0.1.0",
+    "gpu": "NVIDIA GB10",
+    "gpus": "1",
+    "driver": "580.173.02"
+  },
+  "workload": {
+    "device": "cuda",
+    "prompt_tokens": 512,
+    "new_tokens": 128,
+    "batch": 1,
+    "warmup": 3,
+    "iters": 10,
+    "seed": 0,
+    "offload_gib": 8.0,
+    "serve_requests": 256,
+    "serve_concurrency": 64,
+    "serve_prompt_min": 128,
+    "serve_prompt_max": 512,
+    "serve_new": 128,
+    "soak_minutes": 30.0,
+    "acc_windows": 8,
+    "acc_length": 512,
+    "train_steps": 40,
+    "trl_compile": false
+  },
+  "methods": [
+    {
+      "method": "transformers (eager)",
+      "kind": "reference",
+      "metrics": {
+        "ttft_ms": 348.31423801369965,
+        "decode_tok_s": 18.311267099104214,
+        "load_s": 438.538314995938,
+        "deterministic": 1.0,
+        "out_rel_err": 0.0,
+        "out_cosine": 1.0,
+        "out_psnr_db": null
+      },
+      "max_abs_diff": 0.0,
+      "notes": "",
+      "error": null,
+      "key": "transformers-eager",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "vllm",
+      "kind": "reference",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}",
+      "key": "vllm",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (generated source)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 331.9427395472303,
+        "decode_tok_s": 19.15910501637848,
+        "load_s": 414.20808368897997,
+        "deterministic": 1.0,
+        "out_rel_err": 0.03699032379121657,
+        "out_cosine": 0.9993165061356666,
+        "out_psnr_db": 49.062564679862476
+      },
+      "max_abs_diff": 0.296875,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-torch",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 254.22647397499532,
+        "decode_tok_s": 28.807480070494254,
+        "load_s": 388.8267462159274,
+        "deterministic": 1.0,
+        "out_rel_err": 0.024729027958540956,
+        "out_cosine": 0.9996951569864698,
+        "out_psnr_db": 52.560186426091555
+      },
+      "max_abs_diff": 0.203125,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-cudagraphs",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (torch.compile, inductor)",
+      "kind": "linnet",
+      "metrics": {
+        "ttft_ms": 262.54564855480567,
+        "decode_tok_s": 19.743182077242977,
+        "load_s": 413.39534892502706,
+        "deterministic": 1.0,
+        "out_rel_err": 0.024729027958540956,
+        "out_cosine": 0.9996951569864698,
+        "out_psnr_db": 52.560186426091555
+      },
+      "max_abs_diff": 0.203125,
+      "notes": "KV cache compiled for 768 positions",
+      "error": null,
+      "key": "linnet-inductor",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "linnet-jax",
+      "kind": "linnet",
+      "metrics": {},
+      "max_abs_diff": null,
+      "notes": "",
+      "error": "exit -9: no output",
+      "key": "linnet-jax",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "vLLM (offline, continuous batching)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 288.94758805386556,
+        "serve_s": 113.4046496830124,
+        "load_s": 320.255545566004,
+        "batch_agree": 0.166015625
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; KV-cache pool at gpu_memory_utilization 0.712",
+      "error": null,
+      "key": "serve-vllm",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Linnet torch (linnet.serve, CUDA graphs)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 257.2222974606177,
+        "serve_s": 127.39175539405551,
+        "load_s": 411.10594121401664,
+        "serve_ttft_ms": 52205.75161848683,
+        "serve_ttft_p50_ms": 52205.75161848683,
+        "serve_ttft_p90_ms": 101361.78433196619,
+        "serve_ttft_p99_ms": 102543.21538796648,
+        "serve_e2e_p50_ms": 80622.69046000438,
+        "serve_e2e_p90_ms": 127391.72580896411,
+        "serve_e2e_p99_ms": 127391.72580896411,
+        "serve_itl_p50_ms": 215.40788782753168,
+        "serve_itl_p90_ms": 242.0144437795769,
+        "serve_itl_p99_ms": 247.03515573188398,
+        "batch_agree": 0.185546875
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions",
+      "error": null,
+      "key": "serve-linnet-torch",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Triton Inference Server (Python backend, linnet.serve)",
+      "kind": "linnet",
+      "metrics": {
+        "serve_tok_s": 253.0073394759934,
+        "serve_s": 129.514029386919,
+        "load_s": 706.4087582899956,
+        "serve_ttft_ms": 6587.220707035158,
+        "serve_ttft_p50_ms": 6587.220707035158,
+        "serve_ttft_p90_ms": 7192.805705533829,
+        "serve_ttft_p99_ms": 7302.034755836937,
+        "serve_e2e_p50_ms": 32359.319591487292,
+        "serve_e2e_p90_ms": 32448.07317951927,
+        "serve_e2e_p99_ms": 34191.79451276432
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; 64 fixed cache rows of 640 positions; over HTTP, streamed, latencies timed at the client from each request's send",
+      "error": null,
+      "key": "serve-triton-linnet",
+      "spread": {},
+      "runs": 1
+    },
+    {
+      "method": "Triton Inference Server (vLLM backend)",
+      "kind": "reference",
+      "metrics": {
+        "serve_tok_s": 232.08355621551246,
+        "serve_s": 141.19052867998835,
+        "load_s": 353.3337364720064,
+        "serve_ttft_ms": 1543.4272745042108,
+        "serve_ttft_p50_ms": 1543.4272745042108,
+        "serve_ttft_p90_ms": 15975.018393015489,
+        "serve_ttft_p99_ms": 17532.670496753417,
+        "serve_e2e_p50_ms": 31278.257386002224,
+        "serve_e2e_p90_ms": 45322.68272450892,
+        "serve_e2e_p99_ms": 46869.31845925719
+      },
+      "max_abs_diff": null,
+      "notes": "256 requests of 128-512 prompt tokens and 128 new tokens, at most 64 in flight; over HTTP, streamed, latencies timed at the client from each request's send",
+      "error": null,
+      "key": "serve-triton-vllm",
+      "spread": {},
+      "runs": 1
+    }
+  ],
+  "reference": "transformers-eager"
+}
