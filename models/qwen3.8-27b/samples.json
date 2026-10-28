@@ -1,0 +1,10 @@
+{
+  "kind": "text",
+  "prompt": "Explain in two sentences why the sky is blue.",
+  "chat": true,
+  "output": "We need to answer user: \"Explain in two sentences why the sky is blue.\" Simple. Need final two sentences. Ensure exactly two sentences.\n</think>\n\nSunlight contains all colors, and when it enters Earth's atmosphere, shorter blue wavelengths scatter more strongly than longer red wavelengths. This scattered blue light reaches our eyes from all directions, making the sky appear blue.",
+  "reference": "We need to answer user: \"Explain in two sentences why the sky is blue.\" Simple. Need final two sentences. Ensure exactly two sentences.\n</think>\n\nSunlight contains all colors, and when it enters Earth's atmosphere, shorter blue wavelengths scatter more strongly than longer red wavelengths. This scattered blue light reaches our eyes from all directions, making the sky appear blue.",
+  "reference_stack": "transformers (KV cache, argmax, bf16)",
+  "tokens": 76,
+  "agreeing_prefix": 76
+}
