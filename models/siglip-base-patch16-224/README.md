@@ -76,6 +76,7 @@ repository have the exact values.
 | --- | --- |
 | `image_features<B>(image)` | the pooled image embedding, before normalization |
 | `text_features<B>(tokens)` | the pooled sentence embedding, before normalization |
+| `embed_padded<B, S>(tokens, lengths)` | `text_features` of each sequence's first `lengths[b]` tokens, padded to 64 with `</s>` as SigLIP's processor pads them, at unit length, `Tensor[B, 768; f32]` |
 | `similarity<Bi, Bt>(image, tokens)` | `logits_per_text`: each text's dot product against each image, L2-normalized, scaled by `exp(logit_scale)` and shifted by `logit_bias` |
 
 `similarity` is the card's main entry, since it is the only one that
@@ -84,6 +85,17 @@ exercises both towers and the constraint tying their widths together.
 matrix transposed; nothing else changes. Applying `sigmoid` to an entry of
 `similarity`'s output gives the probability that a given image and text
 match, the way the reference model's own usage example does.
+
+## Serving
+
+```bash
+linnet serve siglip-base-patch16-224
+```
+
+`linnet serve` serves text embeddings from `embed_padded` with OpenAI's
+embeddings API at `/v1/embeddings`; inputs are at most 64 tokens. Over five
+sentences, they are within 1.8e-7 of `transformers`' `get_text_features`
+on inputs padded to 64, normalized. Image embeddings are not served yet.
 
 ## Provenance
 

@@ -23,7 +23,7 @@
 module modernbert
 
 use std.nn.activations::{gelu_erf}
-use std.nn.attention::{attention}
+use std.nn.attention::{attention, attention_rows}
 use std.nn.embedding::{Embedding}
 use std.nn.linear::{linear}
 use std.nn.norm::{layer_norm}
@@ -103,7 +103,8 @@ where D % 2 == 0 {
 //
 // The rotary base and the mask are arguments rather than properties of the
 // block: the same weights shape serves a local layer (a band mask, base
-// 10000) and a global layer (no mask, base 160000).
+// 10000) and a global layer (no mask, base 160000). `rows`, a mask per
+// sequence, replaces `window` for a batch padded to one length.
 pub block Attention<D: Dim, Heads: Dim, T: Float>
 where
     Heads > 0,
@@ -117,6 +118,7 @@ where
         x: Tensor[B, S, D; T],
         theta: f32,
         window: Tensor[S, S; bool]?,
+        rows: Tensor[B, S, S; bool]? = none,
     ) -> Tensor[B, S, D; T] {
         let fused = qkv.forward(x)
         let (cos_table, sin_table) = rope_tables<S, D / Heads, T>(theta)
@@ -133,7 +135,11 @@ where
             sin_table,
         )
         let v = split_heads<B, S, Heads, D / Heads, T>(fused[..., 2 * D:3 * D])
-        let mixed = attention(q, k, v, rsqrt(cast<f32>(D / Heads)), window)
+        let scale = rsqrt(cast<f32>(D / Heads))
+        let mixed = match rows {
+            some(m) => attention_rows(q, k, v, scale, m)
+            none => attention(q, k, v, scale, window)
+        }
         return out.forward(merge_heads<B, S, Heads, D / Heads, T>(mixed))
     }
 }
@@ -184,8 +190,9 @@ where
         x: Tensor[B, S, D; T],
         theta: f32,
         window: Tensor[S, S; bool]?,
+        rows: Tensor[B, S, S; bool]? = none,
     ) -> Tensor[B, S, D; T] {
-        let attended = x + attn.forward(attn_norm.forward(x), theta, window)
+        let attended = x + attn.forward(attn_norm.forward(x), theta, window, rows)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
 }
@@ -207,8 +214,9 @@ where
         x: Tensor[B, S, D; T],
         theta: f32,
         window: Tensor[S, S; bool]?,
+        rows: Tensor[B, S, S; bool]? = none,
     ) -> Tensor[B, S, D; T] {
-        let attended = x + attn.forward(x, theta, window)
+        let attended = x + attn.forward(x, theta, window, rows)
         return attended + mlp.forward(mlp_norm.forward(attended))
     }
 }
@@ -227,16 +235,31 @@ where
     sub local: [EncoderLayer<D, Heads, Inner, T>; Period - 1]
     sub global: EncoderLayer<D, Heads, Inner, T>
 
+    // `keys[b, q, k]`, for a batch padded to one length, says which keys
+    // sequence `b` has; a local layer's window applies inside them.
     pub fn forward<B: Dim, S: Dim>(
         x: Tensor[B, S, D; T],
         window: Tensor[S, S; bool],
+        keys: Tensor[B, S, S; bool]? = none,
     ) -> Tensor[B, S, D; T] {
+        let local_rows = match keys {
+            some(k) => some(within(k, window))
+            none => none
+        }
         var h = x
         static for layer in local {
-            h = layer.forward(h, LOCAL_THETA, some(window))
+            h = layer.forward(h, LOCAL_THETA, some(window), local_rows)
         }
-        return global.forward(h, GLOBAL_THETA, none)
+        return global.forward(h, GLOBAL_THETA, none, keys)
     }
+}
+
+fn within<B: Dim, S: Dim>(
+    keys: Tensor[B, S, S; bool],
+    window: Tensor[S, S; bool],
+) -> Tensor[B, S, S; bool] {
+    let both[b, q, k] = keys[b, q, k] && window[q, k]
+    return both
 }
 
 pub block Model<
@@ -275,4 +298,40 @@ where
         }
         return final_norm.forward(x)
     }
+
+    // The sentence embedding vLLM serves for this checkpoint (an encoder
+    // nobody trained for embeddings, pooled as vLLM pools ModernBERT): the
+    // first token's normalized last hidden state, `[CLS]`, scaled to unit
+    // length.
+    pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, D; f32] {
+        let hidden = forward(tokens)
+        return unit(cast<f32>(hidden[:, 0, :]))
+    }
+
+    // `embed` over a batch padded to one length: sequence `b` is its first
+    // `lengths[b]` tokens, which see only each other. A server passes
+    // inputs of many lengths together this way, each getting the vector it
+    // gets alone.
+    pub entry embed_padded<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        lengths: Tensor[B; i32],
+    ) -> Tensor[B, D; f32] {
+        let positions = iota<i32>(S)
+        let keep[b, s] = positions[s] < lengths[b]
+        let keys = broadcast_to(reshape(keep, [B, 1, S]), [B, S, S])
+        let window = band_mask<S, S, Window>()
+        var x = embeddings.forward(tokens)
+        x = first.forward(x, GLOBAL_THETA, none, some(keys))
+        static for cycle in cycles {
+            x = cycle.forward(x, window, some(keys))
+        }
+        return unit(cast<f32>(final_norm.forward(x)[:, 0, :]))
+    }
+}
+
+// `x` scaled to unit length, row by row.
+fn unit<B: Dim, D: Dim>(x: Tensor[B, D; f32]) -> Tensor[B, D; f32] {
+    let squared[b] = sum<f32>[d] x[b, d] * x[b, d]
+    let scaled[b, d] = x[b, d] * rsqrt(squared[b] + 1e-24)
+    return scaled
 }

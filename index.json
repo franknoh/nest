@@ -199,16 +199,56 @@
             "Tensor[B, D; T]"
           ],
           "states": []
+        },
+        {
+          "name": "embed",
+          "signature": "pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
+        },
+        {
+          "name": "embed_padded",
+          "signature": "pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "lengths",
+              "type": "Tensor[B; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
         }
       ],
       "blocks": {
-        "Attention": "bert::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "Attention": "bert::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], mask: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
         "Embeddings": "bert::Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float>\n  param word_embeddings: Tensor[Vocab, D; T]\n  param position_embeddings: Tensor[MaxPositions, D; T]\n  param token_type_embeddings: Tensor[TypeVocab, D; T]\n  sub norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
-        "EncoderLayer": "bert::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "EncoderLayer": "bert::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], mask: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "LayerNorm": "bert::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
-        "Model": "bert::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  sub pooler: Pooler<D, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]\n  pub entry pool<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; T]",
+        "Model": "bert::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  sub pooler: Pooler<D, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]\n  pub entry pool<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; T]\n  pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; f32]\n  pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, D; f32]",
         "Pooler": "bert::Pooler<D: Dim, T: Float>\n  sub dense: Linear<D, D, T>\n  pub fn forward<B: Dim>(x: Tensor[B, D; T]) -> Tensor[B, D; T]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
       },
@@ -2959,19 +2999,51 @@
             "Tensor[B, S, D; T]"
           ],
           "states": []
+        },
+        {
+          "name": "embed",
+          "signature": "pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
+        },
+        {
+          "name": "embed_padded",
+          "signature": "pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "lengths",
+              "type": "Tensor[B; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
         }
       ],
       "blocks": {
-        "Attention": "modernbert::Attention<D: Dim, Heads: Dim, T: Float>\n  sub qkv: Dense<D, 3 * D, T>\n  sub out: Dense<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?) -> Tensor[B, S, D; T]",
+        "Attention": "modernbert::Attention<D: Dim, Heads: Dim, T: Float>\n  sub qkv: Dense<D, 3 * D, T>\n  sub out: Dense<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?, rows: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "Dense": "modernbert::Dense<In: Dim, Out: Dim, T: Float>\n  param weight: Tensor[Out, In; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
         "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
         "Embeddings": "modernbert::Embeddings<Vocab: Dim, D: Dim, T: Float>\n  sub tok_embeddings: Embedding<Vocab, D, T>\n  sub norm: Norm<D, T>\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, D; T]",
-        "EncoderLayer": "modernbert::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attn_norm: Norm<D, T>\n  sub attn: Attention<D, Heads, T>\n  sub mlp_norm: Norm<D, T>\n  sub mlp: GeGlu<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?) -> Tensor[B, S, D; T]",
-        "FirstLayer": "modernbert::FirstLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attn: Attention<D, Heads, T>\n  sub mlp_norm: Norm<D, T>\n  sub mlp: GeGlu<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?) -> Tensor[B, S, D; T]",
+        "EncoderLayer": "modernbert::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attn_norm: Norm<D, T>\n  sub attn: Attention<D, Heads, T>\n  sub mlp_norm: Norm<D, T>\n  sub mlp: GeGlu<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?, rows: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
+        "FirstLayer": "modernbert::FirstLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attn: Attention<D, Heads, T>\n  sub mlp_norm: Norm<D, T>\n  sub mlp: GeGlu<D, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], theta: f32, window: Tensor[S, S; bool]?, rows: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "GeGlu": "modernbert::GeGlu<D: Dim, Inner: Dim, T: Float>\n  sub up: Dense<D, 2 * Inner, T>\n  sub down: Dense<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
-        "LayerCycle": "modernbert::LayerCycle<D: Dim, Heads: Dim, Inner: Dim, Period: Dim, T: Float>\n  sub local: [EncoderLayer<D, Heads, Inner, T>; -1 + Period]\n  sub global: EncoderLayer<D, Heads, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], window: Tensor[S, S; bool]) -> Tensor[B, S, D; T]",
+        "LayerCycle": "modernbert::LayerCycle<D: Dim, Heads: Dim, Inner: Dim, Period: Dim, T: Float>\n  sub local: [EncoderLayer<D, Heads, Inner, T>; -1 + Period]\n  sub global: EncoderLayer<D, Heads, Inner, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], window: Tensor[S, S; bool], keys: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
-        "Model": "modernbert::Model<Vocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, Window: Dim, Period: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, D, T>\n  sub first: FirstLayer<D, Heads, Inner, T>\n  sub cycles: [LayerCycle<D, Heads, Inner, Period, T>; (-1 + Layers) / Period]\n  sub final_norm: Norm<D, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "Model": "modernbert::Model<Vocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, Window: Dim, Period: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, D, T>\n  sub first: FirstLayer<D, Heads, Inner, T>\n  sub cycles: [LayerCycle<D, Heads, Inner, Period, T>; (-1 + Layers) / Period]\n  sub final_norm: Norm<D, T>\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, S, D; T]\n  pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32]) -> Tensor[B, D; f32]\n  pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, D; f32]",
         "Norm": "modernbert::Norm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
       },
@@ -6356,16 +6428,56 @@
             "Tensor[B, S, D; T]"
           ],
           "states": []
+        },
+        {
+          "name": "embed",
+          "signature": "pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
+        },
+        {
+          "name": "embed_padded",
+          "signature": "pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, D; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "token_types",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "lengths",
+              "type": "Tensor[B; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, D; f32]"
+          ],
+          "states": []
         }
       ],
       "blocks": {
-        "Attention": "roberta::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "Attention": "roberta::Attention<D: Dim, Heads: Dim, T: Float>\n  sub query: Linear<D, D, T>\n  sub key: Linear<D, D, T>\n  sub value: Linear<D, D, T>\n  sub out: Linear<D, D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], mask: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "Embedding": "std.nn.embedding::Embedding<Vocab: Dim, H: Dim, T: Float = bf16>\n  param weight: Tensor[Vocab, H; T]\n  pub fn forward<*S: Shape>(ids: Tensor[*S; i32]) -> Tensor[*S, H; T]",
         "Embeddings": "roberta::Embeddings<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, T: Float>\n  param word_embeddings: Tensor[Vocab, D; T]\n  param position_embeddings: Tensor[MaxPositions, D; T]\n  param token_type_embeddings: Tensor[TypeVocab, D; T]\n  sub norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
-        "EncoderLayer": "roberta::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T]",
+        "EncoderLayer": "roberta::EncoderLayer<D: Dim, Heads: Dim, Inner: Dim, T: Float>\n  sub attention: Attention<D, Heads, T>\n  sub attention_norm: LayerNorm<D, T>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  sub output_norm: LayerNorm<D, T>\n  pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T], mask: Tensor[B, S, S; bool]?) -> Tensor[B, S, D; T]",
         "LayerNorm": "roberta::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
-        "Model": "roberta::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]",
+        "Model": "roberta::Model<Vocab: Dim, MaxPositions: Dim, TypeVocab: Dim, D: Dim, Heads: Dim, Inner: Dim, Layers: Dim, T: Float = f32>\n  sub embeddings: Embeddings<Vocab, MaxPositions, TypeVocab, D, T>\n  sub layers: [EncoderLayer<D, Heads, Inner, T>; Layers]\n  pub entry forward<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, S, D; T]\n  pub entry embed<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32]) -> Tensor[B, D; f32]\n  pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], token_types: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, D; f32]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
       },
       "weights": {
@@ -6788,6 +6900,24 @@
           "states": []
         },
         {
+          "name": "embed_padded",
+          "signature": "pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, TextD; f32]",
+          "inputs": [
+            {
+              "name": "tokens",
+              "type": "Tensor[B, S; i32]"
+            },
+            {
+              "name": "lengths",
+              "type": "Tensor[B; i32]"
+            }
+          ],
+          "results": [
+            "Tensor[B, TextD; f32]"
+          ],
+          "states": []
+        },
+        {
           "name": "similarity",
           "signature": "pub entry similarity<Bi: Dim, Bt: Dim>(image: Tensor[Bi, Channels, Height, Width; T], tokens: Tensor[Bt, MaxPositions; i32]) -> Tensor[Bt, Bi; T]",
           "inputs": [
@@ -6814,7 +6944,7 @@
         "LayerNorm": "siglip::LayerNorm<D: Dim, T: Float>\n  param weight: Tensor[D; T]\n  param bias: Tensor[D; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
         "Linear": "std.nn.linear::Linear<In: Dim, Out: Dim, T: Float = bf16>\n  param weight: Tensor[Out, In; T]\n  param bias: Tensor[Out; T]?\n  pub fn forward<*S: Shape>(x: Tensor[*S, In; T]) -> Tensor[*S, Out; T]",
         "Mlp": "siglip::Mlp<D: Dim, Inner: Dim, T: Float>\n  sub up: Linear<D, Inner, T>\n  sub down: Linear<Inner, D, T>\n  pub fn forward<*S: Shape>(x: Tensor[*S, D; T]) -> Tensor[*S, D; T]",
-        "Model": "siglip::Model<Height: Dim, Width: Dim, Channels: Dim, Patch: Dim, VisionD: Dim, VisionHeads: Dim, VisionInner: Dim, VisionLayers: Dim, Vocab: Dim, MaxPositions: Dim, TextD: Dim, TextHeads: Dim, TextInner: Dim, TextLayers: Dim, T: Float = f32>\n  param patch_weight: Tensor[VisionD, Channels, Patch, Patch; T]\n  param patch_bias: Tensor[VisionD; T]\n  param vision_positions: Tensor[(Height / Patch) * (Width / Patch), VisionD; T]\n  sub vision_layers: [EncoderLayer<VisionD, VisionHeads, VisionInner, T>; VisionLayers]\n  sub vision_post_norm: LayerNorm<VisionD, T>\n  sub vision_head: AttentionPool<VisionD, VisionHeads, VisionInner, T>\n  param token_embedding: Tensor[Vocab, TextD; T]\n  param text_positions: Tensor[MaxPositions, TextD; T]\n  sub text_layers: [EncoderLayer<TextD, TextHeads, TextInner, T>; TextLayers]\n  sub text_final_norm: LayerNorm<TextD, T>\n  sub text_head: Linear<TextD, TextD, T>\n  param logit_scale: Tensor[1; T]\n  param logit_bias: Tensor[1; T]\n  pub entry image_features<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, VisionD; T]\n  pub entry text_features<B: Dim>(tokens: Tensor[B, MaxPositions; i32]) -> Tensor[B, TextD; T]\n  pub entry similarity<Bi: Dim, Bt: Dim>(image: Tensor[Bi, Channels, Height, Width; T], tokens: Tensor[Bt, MaxPositions; i32]) -> Tensor[Bt, Bi; T]\n  fn embed<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, (Height / Patch) * (Width / Patch), VisionD; T]",
+        "Model": "siglip::Model<Height: Dim, Width: Dim, Channels: Dim, Patch: Dim, VisionD: Dim, VisionHeads: Dim, VisionInner: Dim, VisionLayers: Dim, Vocab: Dim, MaxPositions: Dim, TextD: Dim, TextHeads: Dim, TextInner: Dim, TextLayers: Dim, T: Float = f32>\n  param patch_weight: Tensor[VisionD, Channels, Patch, Patch; T]\n  param patch_bias: Tensor[VisionD; T]\n  param vision_positions: Tensor[(Height / Patch) * (Width / Patch), VisionD; T]\n  sub vision_layers: [EncoderLayer<VisionD, VisionHeads, VisionInner, T>; VisionLayers]\n  sub vision_post_norm: LayerNorm<VisionD, T>\n  sub vision_head: AttentionPool<VisionD, VisionHeads, VisionInner, T>\n  param token_embedding: Tensor[Vocab, TextD; T]\n  param text_positions: Tensor[MaxPositions, TextD; T]\n  sub text_layers: [EncoderLayer<TextD, TextHeads, TextInner, T>; TextLayers]\n  sub text_final_norm: LayerNorm<TextD, T>\n  sub text_head: Linear<TextD, TextD, T>\n  param logit_scale: Tensor[1; T]\n  param logit_bias: Tensor[1; T]\n  pub entry image_features<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, VisionD; T]\n  pub entry text_features<B: Dim>(tokens: Tensor[B, MaxPositions; i32]) -> Tensor[B, TextD; T]\n  pub entry embed_padded<B: Dim, S: Dim>(tokens: Tensor[B, S; i32], lengths: Tensor[B; i32]) -> Tensor[B, TextD; f32]\n  pub entry similarity<Bi: Dim, Bt: Dim>(image: Tensor[Bi, Channels, Height, Width; T], tokens: Tensor[Bt, MaxPositions; i32]) -> Tensor[Bt, Bi; T]\n  fn embed<B: Dim>(image: Tensor[B, Channels, Height, Width; T]) -> Tensor[B, (Height / Patch) * (Width / Patch), VisionD; T]",
         "RmsNorm": "std.nn.norm::RmsNorm<H: Dim, T: Float = bf16>\n  param weight: Tensor[H; T]\n  pub fn forward<*S: Shape>(x: Tensor[*S, H; T]) -> Tensor[*S, H; T]"
       },
       "weights": {

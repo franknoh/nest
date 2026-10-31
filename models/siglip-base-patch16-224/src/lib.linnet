@@ -34,6 +34,10 @@ use std.nn.norm::{layer_norm}
 // same `layer_norm_eps`, so one constant covers every LayerNorm in the file.
 pub const EPS: f32 = 1e-6
 
+// The tokenizer's pad token, `</s>`, which fills the text tower's 64
+// positions after the real ones.
+pub const PAD: i32 = 1
+
 pub block LayerNorm<D: Dim, T: Float> {
     param weight: Tensor[D; T]
     param bias: Tensor[D; T]
@@ -242,6 +246,22 @@ where
         }
         let normed = text_final_norm.forward(x)
         return text_head.forward(normed[:, MaxPositions - 1, :])
+    }
+
+    // The text embedding a server hands out: `text_features` of each
+    // sequence's first `lengths[b]` tokens, padded to the tower's 64 with
+    // `PAD` as SigLIP's processor pads them, scaled to unit length. Taking
+    // shorter batches (`S`) and padding here lets a server pass inputs of
+    // many lengths together without padding them to 64 itself.
+    pub entry embed_padded<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        lengths: Tensor[B; i32],
+    ) -> Tensor[B, TextD; f32]
+    where S <= MaxPositions {
+        let positions = iota<i32>(MaxPositions)
+        let inside[t] = select(positions[t] < cast<i32>(S), positions[t], 0)
+        let full[b, t] = select(positions[t] < lengths[b], tokens[b, inside[t]], PAD)
+        return cast<f32>(l2_normalize(text_features(full)))
     }
 
     // The two towers' only point of contact: each side's embedding is
