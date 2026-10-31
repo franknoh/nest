@@ -8,7 +8,7 @@
 module minilm
 
 use std.nn.activations::{gelu_erf}
-use std.nn.attention::{attention}
+use std.nn.attention::{attention, attention_rows}
 use std.nn.embedding::{embedding}
 use std.nn.linear::{Linear}
 use std.nn.norm::{layer_norm}
@@ -55,17 +55,20 @@ where
     sub value: Linear<D, D, T>
     sub out: Linear<D, D, T>
 
-    // Full attention over every position: the language's attention op takes
-    // an unbatched [Q, K] mask, so a per-sequence padding mask cannot be
-    // expressed here. Callers pad-free or accept attention onto padding.
-    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
-        let mixed = attention(
-            heads<B, S, Heads, D / Heads, T>(query.forward(x)),
-            heads<B, S, Heads, D / Heads, T>(key.forward(x)),
-            heads<B, S, Heads, D / Heads, T>(value.forward(x)),
-            rsqrt(cast<f32>(D / Heads)),
-            none,
-        )
+    // Full attention over every position, or with `mask[b, q, k]` saying
+    // which keys sequence `b`'s queries see (a batch padded to one length).
+    pub fn forward<B: Dim, S: Dim>(
+        x: Tensor[B, S, D; T],
+        mask: Tensor[B, S, S; bool]? = none,
+    ) -> Tensor[B, S, D; T] {
+        let q = heads<B, S, Heads, D / Heads, T>(query.forward(x))
+        let k = heads<B, S, Heads, D / Heads, T>(key.forward(x))
+        let v = heads<B, S, Heads, D / Heads, T>(value.forward(x))
+        let scale = rsqrt(cast<f32>(D / Heads))
+        let mixed = match mask {
+            some(m) => attention_rows(q, k, v, scale, m)
+            none => attention(q, k, v, scale, none)
+        }
         return out.forward(reshape(permute(mixed, [0, 2, 1, 3]), [B, S, D]))
     }
 }
@@ -89,8 +92,11 @@ where
     sub down: Linear<Inner, D, T>
     sub output_norm: LayerNorm<D, T>
 
-    pub fn forward<B: Dim, S: Dim>(x: Tensor[B, S, D; T]) -> Tensor[B, S, D; T] {
-        let attended = attention_norm.forward(x + attention.forward(x))
+    pub fn forward<B: Dim, S: Dim>(
+        x: Tensor[B, S, D; T],
+        mask: Tensor[B, S, S; bool]? = none,
+    ) -> Tensor[B, S, D; T] {
+        let attended = attention_norm.forward(x + attention.forward(x, mask))
         return output_norm.forward(attended + down.forward(gelu_erf(up.forward(attended))))
     }
 }
@@ -137,6 +143,31 @@ where
     where S <= MaxPositions {
         let hidden = cast<f32>(forward(tokens, token_types))
         let pooled[b, d] = sum<f32>[s] hidden[b, s, d] / cast<f32>(S)
+        let squared[b] = sum<f32>[d] pooled[b, d] * pooled[b, d]
+        let unit[b, d] = pooled[b, d] * rsqrt(squared[b] + 1e-12)
+        return unit
+    }
+
+    // `embed` over a batch padded to one length: sequence `b` is its first
+    // `lengths[b]` tokens, which see only each other, and only they are
+    // averaged. A server passes inputs of many lengths together this way,
+    // each getting the vector it gets alone.
+    pub entry embed_padded<B: Dim, S: Dim>(
+        tokens: Tensor[B, S; i32],
+        token_types: Tensor[B, S; i32],
+        lengths: Tensor[B; i32],
+    ) -> Tensor[B, D; f32]
+    where S <= MaxPositions {
+        let positions = iota<i32>(S)
+        let keep[b, s] = positions[s] < lengths[b]
+        let mask = broadcast_to(reshape(keep, [B, 1, S]), [B, S, S])
+        var x = embeddings.forward(tokens, token_types)
+        static for layer in layers {
+            x = layer.forward(x, some(mask))
+        }
+        let hidden = cast<f32>(x)
+        let summed[b, d] = sum<f32>[s] select(keep[b, s], hidden[b, s, d], 0.0)
+        let pooled[b, d] = summed[b, d] / cast<f32>(lengths[b])
         let squared[b] = sum<f32>[d] pooled[b, d] * pooled[b, d]
         let unit[b, d] = pooled[b, d] * rsqrt(squared[b] + 1e-12)
         return unit
