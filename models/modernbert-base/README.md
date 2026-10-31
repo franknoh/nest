@@ -89,15 +89,24 @@ name, including the shift between this source's cycle structure and the flat
 (`head.dense`, `head.norm`, `decoder.bias`) is not part of this card.
 
 Every position attends over every other position it is allowed to see. There
-is no padding mask: `std.nn.attention::attention` takes an unbatched
-`Tensor[Q, K; bool]`, so a per-sequence mask cannot be expressed today, and a
-batch here has to be sequences of the same real length.
+is no padding mask in `forward` and `embed`, so a batch there has to be
+sequences of the same real length. `embed_padded` takes each sequence's
+length: its padding is masked out of every layer's keys, the local layers'
+window applying inside them (`std.nn.attention::attention_rows`).
+
+`embed` is the sentence embedding vLLM serves for ModernBERT: the first
+token's (`[CLS]`) normalized last hidden state, scaled to unit length. The
+checkpoint was not trained to produce embeddings. Over five sentences of
+different lengths, padded together, `embed_padded` is within 2e-6 of
+`transformers`' normalized `last_hidden_state[:, 0]` of each alone.
 
 ## Entries
 
 | Entry | |
 | --- | --- |
 | `forward<B, S>(tokens)` | the last hidden state, after the final norm |
+| `embed<B, S>(tokens)` | the first token's last hidden state at unit length, `Tensor[B, 768; f32]` |
+| `embed_padded<B, S>(tokens, lengths)` | `embed` over a padded batch, each sequence its first `lengths[b]` tokens |
 
 ## Why the GELU matters
 
@@ -112,6 +121,15 @@ tanh form the last hidden state came out 6.9e-1 from the reference, and
 substituting the tanh GELU into `transformers` brought its own output back to
 within 1.2e-4 of the Linnet one -- which is how the cause was pinned down
 rather than guessed, and why the standard library now has `gelu_erf`.
+
+## Serving
+
+```bash
+linnet serve modernbert-base
+```
+
+`linnet serve` serves `embed_padded` with OpenAI's embeddings API at
+`/v1/embeddings`, the inputs of concurrent requests padded together.
 
 ## Provenance
 

@@ -19,8 +19,10 @@ attention supports -- that count is just the token's own index, so the
 offset collapses to the constant `+2` the source uses.
 
 This checkpoint (`RobertaForMaskedLM`) carries no pooler, only a
-masked-language-model head this card does not expose, so there is a single
-entry.
+masked-language-model head this card does not expose. `embed` is the
+sentence embedding vLLM serves for a RoBERTa: the first token's (`<s>`) last
+hidden state, scaled to unit length. The checkpoint was not trained to
+produce embeddings.
 
 Upstream's `hidden_act` is plain GELU, the error-function form, so the
 source uses `std.nn.activations::gelu_erf` rather than the tanh
@@ -39,17 +41,20 @@ hidden = model(tokens, token_types)   # Tensor[B, S; i32], Tensor[B, S; i32] -> 
 `token_types` is the segment-id tensor; pass zeros of the same shape as
 `tokens` (RoBERTa's single token-type row means any value looks up the same
 embedding, but zero matches upstream's default). Sequences longer than 512
-positions are rejected at compile time (`where S + 2 <= MaxPositions`). The
-encoder runs full attention over every position: `std.nn.attention::
-attention` takes an unbatched `[Q, K]` mask, so a per-sequence padding mask
-cannot be expressed here. Pad-free batches (or a batch of one) give exact
-results; padded batches attend onto the padding.
+positions are rejected at compile time (`where S + 2 <= MaxPositions`).
+`forward` and `embed` run full attention over every position, so pad-free
+batches (or a batch of one) give exact results and padded batches attend
+onto the padding. `embed_padded` takes each sequence's length and masks its
+padding out of attention; padding comes after the real tokens, so their
+positions are the ones upstream gives them.
 
 ## Entries
 
 | Entry | |
 | --- | --- |
 | `forward<B, S>(tokens, token_types)` | last hidden state, `Tensor[B, S, 768; f32]` |
+| `embed<B, S>(tokens, token_types)` | the first token's last hidden state at unit length, the embedding vLLM serves for this checkpoint, `Tensor[B, 768; f32]` |
+| `embed_padded<B, S>(tokens, token_types, lengths)` | `embed` over a padded batch, each sequence its first `lengths[b]` tokens |
 
 ## Numerics
 
@@ -59,6 +64,15 @@ pad-free sentences with RoBERTa's own BPE tokenizer: the maximum absolute
 difference is 4.8e-6. The position-id formula above (`i + 2`) was checked
 directly against `transformers`' own `create_position_ids_from_input_ids`
 and matches on every position.
+
+## Serving
+
+```bash
+linnet serve roberta-base
+```
+
+`linnet serve` serves `embed_padded` with OpenAI's embeddings API at
+`/v1/embeddings`, the inputs of concurrent requests padded together.
 
 ## Provenance
 
